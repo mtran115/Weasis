@@ -13,13 +13,20 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import javax.swing.SwingUtilities;
+import org.dcm4che3.data.Tag;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomSeries;
+import org.weasis.dicom.codec.TagD;
 import org.weasis.dicom.explorer.*;
 
 public class DicomPaneManager {
+  private static final int MAX_UNKNOWN_MODALITY_FLATTENED_IMAGES = 8;
+  private static final Set<String> FLATTENED_THUMBNAIL_MODALITIES =
+      Set.of("CR", "DX", "DR", "IO", "MG", "PX", "RF", "XA", "XC"); // NON-NLS
 
   private final HashMap<MediaSeriesGroup, List<StudyPane>> patient2study = new HashMap<>();
   private final HashMap<MediaSeriesGroup, List<SeriesPane>> study2series = new HashMap<>();
@@ -230,12 +237,24 @@ public class DicomPaneManager {
 
   private List<DicomImageElement> getDisplayImages(DicomSeries series) {
     List<DicomImageElement> images = series.copyOfMedias(null, null);
-    if (images.size() <= 1) {
-      List<DicomImageElement> singleSeriesTile = new ArrayList<>(1);
-      singleSeriesTile.add(null);
-      return singleSeriesTile;
+    if (images.size() > 1 && shouldFlattenSeries(series, images.size())) {
+      return images;
     }
-    return images;
+    return getSingleSeriesTile();
+  }
+
+  private boolean shouldFlattenSeries(DicomSeries series, int imageCount) {
+    String modality = TagD.getTagValue(series, Tag.Modality, String.class);
+    if (modality == null || modality.isBlank()) {
+      return imageCount <= MAX_UNKNOWN_MODALITY_FLATTENED_IMAGES;
+    }
+    return FLATTENED_THUMBNAIL_MODALITIES.contains(modality.strip().toUpperCase(Locale.ROOT));
+  }
+
+  private List<DicomImageElement> getSingleSeriesTile() {
+    List<DicomImageElement> singleSeriesTile = new ArrayList<>(1);
+    singleSeriesTile.add(null);
+    return singleSeriesTile;
   }
 
   private boolean isSameDisplayImages(
