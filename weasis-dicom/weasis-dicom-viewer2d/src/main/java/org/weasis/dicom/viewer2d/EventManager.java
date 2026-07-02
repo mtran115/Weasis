@@ -754,6 +754,10 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
         moveStudy(ListPosition.PREVIOUS);
       } else if (sm.matches(ShortcutManager.ID_DICOM_NEXT_STUDY, keyEvent, modifiers)) {
         moveStudy(ListPosition.NEXT);
+      } else if (sm.matches(ShortcutManager.ID_DICOM_PREV_IMAGE_CONTINUOUS, keyEvent, modifiers)) {
+        moveImageContinuously(ListPosition.PREVIOUS);
+      } else if (sm.matches(ShortcutManager.ID_DICOM_NEXT_IMAGE_CONTINUOUS, keyEvent, modifiers)) {
+        moveImageContinuously(ListPosition.NEXT);
       } else if (sm.matches(ShortcutManager.ID_DICOM_PREV_SERIES, keyEvent, modifiers)) {
         moveSeries(ListPosition.PREVIOUS);
       } else if (sm.matches(ShortcutManager.ID_DICOM_NEXT_SERIES, keyEvent, modifiers)) {
@@ -856,6 +860,33 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
 
   private void moveSeries(ListPosition position) {
     moveEntity((dicom, view) -> dicom.moveSeries(view, position));
+  }
+
+  private void moveImageContinuously(ListPosition position) {
+    if (selectedView2dContainer instanceof MprContainer) {
+      moveWithinCurrentSeries(position);
+      return;
+    }
+    if (moveWithinCurrentSeries(position)) {
+      return;
+    }
+    moveEntity((dicom, view) -> dicom.moveAcrossVisibleImages(view, position));
+  }
+
+  private boolean moveWithinCurrentSeries(ListPosition position) {
+    Optional<SliderCineListener> cineAction = getAction(ActionW.SCROLL_SERIES);
+    if (cineAction.isEmpty() || !cineAction.get().isActionEnabled()) {
+      return false;
+    }
+
+    SliderCineListener slider = cineAction.get();
+    int delta = position == ListPosition.PREVIOUS ? -1 : 1;
+    int target = slider.getSliderValue() + delta;
+    if (target >= slider.getSliderMin() && target <= slider.getSliderMax()) {
+      slider.setSliderValue(target);
+      return true;
+    }
+    return false;
   }
 
   @Override

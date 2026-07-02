@@ -11,7 +11,6 @@ package org.weasis.dicom.explorer.main;
 
 import com.formdev.flatlaf.ui.FlatUIUtils;
 import java.awt.Color;
-import java.awt.Container;
 import java.awt.Toolkit;
 import java.awt.event.InputEvent;
 import java.util.*;
@@ -480,18 +479,14 @@ public class SeriesSelectionModel extends ArrayList<DicomSeries> {
 
     SwingUtilities.invokeLater(
         () -> {
-          Optional<Thumbnail> thumbnail = getThumbnailForSeries(series);
-          thumbnail.ifPresent(thumb -> updateThumbnailVisualState(thumb, selected));
+          for (SeriesPane pane : getPanesForSeries(series)) {
+            updatePaneVisualState(pane, selected);
+          }
         });
   }
 
-  /** Updates the visual state of a thumbnail. */
-  private void updateThumbnailVisualState(Thumbnail thumbnail, boolean selected) {
-    Container parent = thumbnail.getParent();
-    if (!(parent instanceof JPanel)) {
-      return;
-    }
-
+  /** Updates the visual state of a displayed series pane. */
+  private void updatePaneVisualState(SeriesPane pane, boolean selected) {
     Color background =
         selected
             ? FlatUIUtils.getUIColor(SELECTION_BACKGROUND, DEFAULT_SELECTION_BACKGROUND)
@@ -501,20 +496,18 @@ public class SeriesSelectionModel extends ArrayList<DicomSeries> {
         selected
             ? FlatUIUtils.getUIColor(SELECTION_FOREGROUND, DEFAULT_SELECTION_FOREGROUND)
             : FlatUIUtils.getUIColor(FOREGROUND, DEFAULT_FOREGROUND);
-    parent.setBackground(background);
-    if (parent instanceof SeriesPane pane) {
-      pane.getLabel().setForeground(foreground);
-    }
+    pane.setBackground(background);
+    pane.getLabel().setForeground(foreground);
   }
 
-  /** Gets the thumbnail for a series. */
-  private Optional<Thumbnail> getThumbnailForSeries(DicomSeries series) {
+  /** Gets the displayed panes for a series. */
+  private List<SeriesPane> getPanesForSeries(DicomSeries series) {
     if (series == null) {
-      return Optional.empty();
+      return List.of();
     }
-
-    Object thumbnailObj = series.getTagValue(TagW.Thumbnail);
-    return thumbnailObj instanceof Thumbnail thumb ? Optional.of(thumb) : Optional.empty();
+    return explorer.getDisplayedSeriesPanes().stream()
+        .filter(pane -> pane.isSeries(series))
+        .toList();
   }
 
   /** Requests focus for a series thumbnail. */
@@ -522,7 +515,10 @@ public class SeriesSelectionModel extends ArrayList<DicomSeries> {
     if (series == null) {
       return;
     }
-    getThumbnailForSeries(series)
+    getPanesForSeries(series).stream()
+        .map(SeriesPane::getThumbnail)
+        .filter(Objects::nonNull)
+        .findFirst()
         .ifPresent(
             thumbnail -> {
               if (!thumbnail.hasFocus() && thumbnail.isRequestFocusEnabled()) {
@@ -551,46 +547,33 @@ public class SeriesSelectionModel extends ArrayList<DicomSeries> {
   private List<DicomSeries> findSeriesInInterval(DicomSeries anchor, DicomSeries lead) {
     List<DicomSeries> result = new ArrayList<>();
 
-    Optional<MediaSeriesGroupNode> patient = Optional.ofNullable(explorer.getSelectedPatient());
-    if (patient.isEmpty()) {
-      return result;
-    }
-
     boolean inInterval = false;
     boolean foundFirst = false;
 
-    outer:
-    for (StudyPane studyPane : explorer.getPaneManager().getStudyList(patient.get())) {
-      for (SeriesPane seriesPane : studyPane.getSeriesPaneList()) {
-        DicomSeries series = seriesPane.getDicomSeries();
+    for (SeriesPane seriesPane : explorer.getDisplayedSeriesPanes()) {
+      DicomSeries series = seriesPane.getDicomSeries();
 
-        if (series == anchor || series == lead) {
-          result.add(series);
-          if (foundFirst) {
-            break outer; // Found both endpoints
-          }
-          foundFirst = true;
-          inInterval = true;
-        } else if (inInterval) {
-          result.add(series);
+      if (series == anchor || series == lead) {
+        result.add(series);
+        if (foundFirst) {
+          break; // Found both endpoints
         }
+        foundFirst = true;
+        inInterval = true;
+      } else if (inInterval) {
+        result.add(series);
       }
     }
 
     return result;
   }
 
-  /** Gets a stream of all series in the current patient. */
+  /** Gets a stream of all series currently shown in the explorer thumbnail pane. */
   private Stream<DicomSeries> getPatientSeries() {
-    Optional<MediaSeriesGroupNode> patient = Optional.ofNullable(explorer.getSelectedPatient());
-    if (patient.isEmpty()) {
-      return Stream.empty();
-    }
-
-    return explorer.getPaneManager().getStudyList(patient.get()).stream()
-        .flatMap(studyPane -> studyPane.getSeriesPaneList().stream())
+    return explorer.getDisplayedSeriesPanes().stream()
         .map(SeriesPane::getDicomSeries)
-        .filter(Objects::nonNull);
+        .filter(Objects::nonNull)
+        .distinct();
   }
 
   /** Checks if the control modifier key is down. */

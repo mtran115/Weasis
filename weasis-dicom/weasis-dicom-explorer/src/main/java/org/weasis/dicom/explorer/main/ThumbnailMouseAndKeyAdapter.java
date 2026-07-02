@@ -43,6 +43,7 @@ import org.weasis.core.ui.editor.SeriesViewerFactory;
 import org.weasis.core.ui.editor.ViewerOpenOptions;
 import org.weasis.core.ui.editor.ViewerPlacement;
 import org.weasis.core.ui.editor.ViewerPluginBuilder;
+import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.codec.TagD;
 import org.weasis.dicom.codec.geometry.ImageOrientation;
@@ -58,18 +59,28 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
   private final DicomSeries series;
   private final DicomModel dicomModel;
   private final LoadSeries loadSeries;
+  private final DicomImageElement selectedImage;
 
   public ThumbnailMouseAndKeyAdapter(
       DicomSeries series, DicomModel dicomModel, LoadSeries loadSeries) {
+    this(series, dicomModel, loadSeries, null);
+  }
+
+  public ThumbnailMouseAndKeyAdapter(
+      DicomSeries series,
+      DicomModel dicomModel,
+      LoadSeries loadSeries,
+      DicomImageElement selectedImage) {
     this.series = Objects.requireNonNull(series);
     this.dicomModel = Objects.requireNonNull(dicomModel);
     this.loadSeries = loadSeries;
+    this.selectedImage = selectedImage;
   }
 
   @Override
   public void mouseClicked(MouseEvent e) {
     if (e.getClickCount() == 2) {
-      openSeriesInDefaultPlugin(series, dicomModel);
+      openSeriesInDefaultPlugin(series, dicomModel, selectedImage);
     }
   }
 
@@ -491,6 +502,11 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
   }
 
   public static void openSeriesInDefaultPlugin(DicomSeries series, DicomModel dicomModel) {
+    openSeriesInDefaultPlugin(series, dicomModel, null);
+  }
+
+  public static void openSeriesInDefaultPlugin(
+      DicomSeries series, DicomModel dicomModel, DicomImageElement selectedImage) {
     final SeriesSelectionModel selList = getSeriesSelectionModel();
     selList.setOpeningSeries(true);
     try {

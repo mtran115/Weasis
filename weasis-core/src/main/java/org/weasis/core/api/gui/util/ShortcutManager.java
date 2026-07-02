@@ -367,6 +367,8 @@ public final class ShortcutManager {
   public static final String ID_DICOM_LAST_STUDY = "dicom.lastStudy";
   public static final String ID_DICOM_FIRST_PATIENT = "dicom.firstPatient";
   public static final String ID_DICOM_LAST_PATIENT = "dicom.lastPatient";
+  public static final String ID_DICOM_PREV_IMAGE_CONTINUOUS = "dicom.prevImageContinuous";
+  public static final String ID_DICOM_NEXT_IMAGE_CONTINUOUS = "dicom.nextImageContinuous";
 
   // -- Shortcut IDs: Docking --
   public static final String ID_DOCKING_MAXIMIZE = "docking.maximize";
@@ -686,6 +688,20 @@ public final class ShortcutManager {
         CATEGORY_DICOM_NAV,
         ShortcutContext.DICOM_VIEWER,
         KeyEvent.VK_RIGHT,
+        0);
+    register(
+        ID_DICOM_PREV_IMAGE_CONTINUOUS,
+        Messages.getString("ShortcutManager.prev_image_continuous"),
+        CATEGORY_DICOM_NAV,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_COMMA,
+        0);
+    register(
+        ID_DICOM_NEXT_IMAGE_CONTINUOUS,
+        Messages.getString("ShortcutManager.next_image_continuous"),
+        CATEGORY_DICOM_NAV,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_PERIOD,
         0);
     register(
         ID_DICOM_PREV_STUDY,

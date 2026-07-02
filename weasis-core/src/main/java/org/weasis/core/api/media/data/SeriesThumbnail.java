@@ -67,6 +67,7 @@ public class SeriesThumbnail extends Thumbnail
 
   private JProgressBar progressBar;
   private final MediaSeries<? extends MediaElement> series;
+  private final MediaElement fixedMedia;
   private final Function<String, Set<ResourceIconPath>> drawIcons;
   private final PlayViewButton playBtn;
   private Point dragPressed = null;
@@ -76,11 +77,20 @@ public class SeriesThumbnail extends Thumbnail
       final MediaSeries<? extends MediaElement> sequence,
       int thumbnailSize,
       Function<String, Set<ResourceIconPath>> drawIcons) {
+    this(sequence, thumbnailSize, drawIcons, null);
+  }
+
+  public SeriesThumbnail(
+      final MediaSeries<? extends MediaElement> sequence,
+      int thumbnailSize,
+      Function<String, Set<ResourceIconPath>> drawIcons,
+      MediaElement fixedMedia) {
     super(thumbnailSize);
     if (sequence == null) {
       throw new IllegalArgumentException("Sequence cannot be null");
     }
     this.series = sequence;
+    this.fixedMedia = fixedMedia;
     this.drawIcons = drawIcons;
 
     this.playBtn =
@@ -102,7 +112,8 @@ public class SeriesThumbnail extends Thumbnail
             });
 
     // media can be null for seriesThumbnail
-    MediaElement media = sequence.getMedia(MEDIA_POSITION.MIDDLE, null, null);
+    MediaElement media =
+        fixedMedia != null ? fixedMedia : sequence.getMedia(MEDIA_POSITION.MIDDLE, null, null);
     // Handle special case for DICOM SR
     if (media == null) {
       List<MediaElement> specialElements =
@@ -180,7 +191,7 @@ public class SeriesThumbnail extends Thumbnail
   }
 
   public synchronized void reBuildThumbnail(File file, MediaSeries.MEDIA_POSITION position) {
-    MediaElement media = series.getMedia(position, null, null);
+    MediaElement media = fixedMedia != null ? fixedMedia : series.getMedia(position, null, null);
     // Handle special case for DICOM SR
     if (media == null) {
       media = series.getFirstSpecialElement();
@@ -212,7 +223,8 @@ public class SeriesThumbnail extends Thumbnail
     int size = GuiUtils.getScaleLength(thumbnailSize);
     if (this.thumbnailSize != size) {
       this.thumbnailSize = GuiUtils.getScaleLength(size);
-      MediaElement media = series.getMedia(mediaPosition, null, null);
+      MediaElement media =
+          fixedMedia != null ? fixedMedia : series.getMedia(mediaPosition, null, null);
       if (media == null) {
         media = series.getFirstSpecialElement();
       }

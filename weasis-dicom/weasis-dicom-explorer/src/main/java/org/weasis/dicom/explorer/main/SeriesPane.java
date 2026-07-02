@@ -32,6 +32,7 @@ import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.util.FontItem;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.util.StringUtil;
+import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.codec.HiddenSeriesManager;
 import org.weasis.dicom.codec.TagD;
@@ -46,13 +47,19 @@ public class SeriesPane extends JPanel {
   private static final String COLUMN_CONSTRAINTS = "[center]";
 
   private final DicomSeries dicomSeries;
+  private final DicomImageElement dicomImage;
   private final JLabel label;
   private final DicomModel model;
   private SeriesThumbnail thumbnail;
   private int currentThumbnailSize;
 
   public SeriesPane(DicomSeries dicomSeries, DicomModel model) {
+    this(dicomSeries, model, null);
+  }
+
+  public SeriesPane(DicomSeries dicomSeries, DicomModel model, DicomImageElement dicomImage) {
     this.dicomSeries = Objects.requireNonNull(dicomSeries);
+    this.dicomImage = dicomImage;
     this.model = Objects.requireNonNull(model);
     this.label = createDescriptionLabel();
 
@@ -78,6 +85,9 @@ public class SeriesPane extends JPanel {
   }
 
   public void updateThumbnail() {
+    if (dicomImage != null) {
+      return;
+    }
     SeriesThumbnail newThumb = (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
     if (newThumb != this.thumbnail) {
       this.thumbnail = newThumb;
@@ -93,6 +103,10 @@ public class SeriesPane extends JPanel {
   }
 
   private SeriesThumbnail getOrCreateThumbnail() {
+    if (dicomImage != null) {
+      return createThumbnail(dicomSeries, model, currentThumbnailSize, dicomImage);
+    }
+
     SeriesThumbnail thumb = (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
     if (thumb == null) {
       thumb = createThumbnail(dicomSeries, model, currentThumbnailSize);
@@ -145,7 +159,8 @@ public class SeriesPane extends JPanel {
   }
 
   private void updateThumbnailSize(int thumbnailSize) {
-    SeriesThumbnail thumb = (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
+    SeriesThumbnail thumb =
+        dicomImage == null ? (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail) : thumbnail;
     if (thumb != null) {
       thumb.setThumbnailSize(thumbnailSize);
     }
@@ -186,8 +201,16 @@ public class SeriesPane extends JPanel {
     return this.dicomSeries.equals(sequence);
   }
 
+  public boolean isImage(DicomImageElement image) {
+    return image != null && image == dicomImage;
+  }
+
   public DicomSeries getDicomSeries() {
     return dicomSeries;
+  }
+
+  public DicomImageElement getDicomImage() {
+    return dicomImage;
   }
 
   /**
@@ -197,6 +220,10 @@ public class SeriesPane extends JPanel {
    */
   public JLabel getLabel() {
     return label;
+  }
+
+  public SeriesThumbnail getThumbnail() {
+    return thumbnail;
   }
 
   public DicomModel getModel() {
@@ -218,6 +245,14 @@ public class SeriesPane extends JPanel {
    */
   public static SeriesThumbnail createThumbnail(
       DicomSeries series, DicomModel dicomModel, int thumbnailSize) {
+    return createThumbnail(series, dicomModel, thumbnailSize, null);
+  }
+
+  public static SeriesThumbnail createThumbnail(
+      DicomSeries series,
+      DicomModel dicomModel,
+      int thumbnailSize,
+      DicomImageElement selectedImage) {
 
     if (series == null || dicomModel == null || thumbnailSize <= 0) {
       LOGGER.warn(
@@ -229,7 +264,7 @@ public class SeriesPane extends JPanel {
     }
 
     Callable<SeriesThumbnail> callable =
-        () -> createThumbnailInternal(series, dicomModel, thumbnailSize);
+        () -> createThumbnailInternal(series, dicomModel, thumbnailSize, selectedImage);
     FutureTask<SeriesThumbnail> future = new FutureTask<>(callable);
 
     try {
@@ -246,10 +281,13 @@ public class SeriesPane extends JPanel {
   }
 
   private static SeriesThumbnail createThumbnailInternal(
-      DicomSeries series, DicomModel dicomModel, int thumbnailSize) {
+      DicomSeries series,
+      DicomModel dicomModel,
+      int thumbnailSize,
+      DicomImageElement selectedImage) {
     Function<String, Set<ResourceUtil.ResourceIconPath>> drawIcons =
         HiddenSeriesManager::getRelatedIcons;
-    SeriesThumbnail thumb = new SeriesThumbnail(series, thumbnailSize, drawIcons);
+    SeriesThumbnail thumb = new SeriesThumbnail(series, thumbnailSize, drawIcons, selectedImage);
 
     // Set progress bar if series is being loaded
     if (series.getSeriesLoader() instanceof LoadSeries loader) {
@@ -258,7 +296,7 @@ public class SeriesPane extends JPanel {
     // Register listeners and adapters
     thumb.registerListeners();
     ThumbnailMouseAndKeyAdapter thumbAdapter =
-        new ThumbnailMouseAndKeyAdapter(series, dicomModel, null);
+        new ThumbnailMouseAndKeyAdapter(series, dicomModel, null, selectedImage);
     thumb.addMouseListener(thumbAdapter);
     thumb.addKeyListener(thumbAdapter);
     return thumb;
@@ -266,7 +304,8 @@ public class SeriesPane extends JPanel {
 
   /** Cleanup method to properly dispose of resources when the pane is no longer needed. */
   public void dispose() {
-    SeriesThumbnail thumb = (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
+    SeriesThumbnail thumb =
+        dicomImage == null ? (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail) : thumbnail;
     if (thumb != null) {
       thumb.removeMouseAndKeyListener();
     }

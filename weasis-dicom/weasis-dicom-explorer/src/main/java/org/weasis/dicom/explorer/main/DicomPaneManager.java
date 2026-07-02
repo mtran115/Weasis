@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import javax.swing.SwingUtilities;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
+import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.explorer.*;
 
@@ -150,6 +151,10 @@ public class DicomPaneManager {
    * @return the SeriesPane if found, otherwise null
    */
   public SeriesPane getSeriesPane(MediaSeriesGroup series) {
+    return getSeriesPane(series, null);
+  }
+
+  public SeriesPane getSeriesPane(MediaSeriesGroup series, DicomImageElement image) {
     MediaSeriesGroup study = getStudyForSeries(series);
     if (study == null) {
       return null;
@@ -157,6 +162,16 @@ public class DicomPaneManager {
 
     List<SeriesPane> seriesList = study2series.get(study);
     if (seriesList != null) {
+      if (image != null) {
+        SeriesPane imagePane =
+            seriesList.stream()
+                .filter(pane -> pane.isSeries(series) && pane.isImage(image))
+                .findFirst()
+                .orElse(null);
+        if (imagePane != null) {
+          return imagePane;
+        }
+      }
       return seriesList.stream().filter(pane -> pane.isSeries(series)).findFirst().orElse(null);
     }
     return null;
@@ -171,25 +186,69 @@ public class DicomPaneManager {
    * @return the created or existing SeriesPane instance
    */
   public synchronized SeriesPane createSeriesPaneInstance(DicomSeries series, int[] position) {
-    SeriesPane seriesPane = getSeriesPane(series);
-    if (seriesPane == null) {
-      DicomModel model = explorer.getDataExplorerModel();
-      seriesPane = new SeriesPane(series, model);
-      List<SeriesPane> seriesList = getSeriesList(getStudyForSeries(series));
-      if (seriesList != Collections.EMPTY_LIST) {
-        int index = Collections.binarySearch(seriesList, seriesPane, DicomSorter.SERIES_COMPARATOR);
-        if (index < 0) {
-          index = -(index + 1);
-        }
-        if (position != null) {
-          position[0] = index;
-        }
-        seriesList.add(index, seriesPane);
+    MediaSeriesGroup study = getStudyForSeries(series);
+    List<SeriesPane> seriesList = getSeriesList(study);
+    List<SeriesPane> existingPanes = getSeriesPanes(seriesList, series);
+    List<DicomImageElement> displayImages = getDisplayImages(series);
+
+    if (isSameDisplayImages(existingPanes, displayImages)) {
+      if (position != null) {
+        position[0] = -1;
       }
-    } else if (position != null) {
-      position[0] = -1;
+      return existingPanes.getFirst();
     }
-    return seriesPane;
+
+    int index =
+        existingPanes.isEmpty()
+            ? getSeriesInsertionIndex(seriesList, series)
+            : seriesList.indexOf(existingPanes.getFirst());
+    seriesList.removeAll(existingPanes);
+
+    DicomModel model = explorer.getDataExplorerModel();
+    List<SeriesPane> displayPanes =
+        displayImages.stream().map(image -> new SeriesPane(series, model, image)).toList();
+    seriesList.addAll(index, displayPanes);
+
+    if (position != null) {
+      position[0] = index;
+    }
+    return displayPanes.getFirst();
+  }
+
+  private int getSeriesInsertionIndex(List<SeriesPane> seriesList, DicomSeries series) {
+    for (int i = 0; i < seriesList.size(); i++) {
+      if (DicomSorter.SERIES_COMPARATOR.compare(seriesList.get(i), series) > 0) {
+        return i;
+      }
+    }
+    return seriesList.size();
+  }
+
+  private List<SeriesPane> getSeriesPanes(List<SeriesPane> seriesList, DicomSeries series) {
+    return seriesList.stream().filter(pane -> pane.isSeries(series)).toList();
+  }
+
+  private List<DicomImageElement> getDisplayImages(DicomSeries series) {
+    List<DicomImageElement> images = series.copyOfMedias(null, null);
+    if (images.size() <= 1) {
+      List<DicomImageElement> singleSeriesTile = new ArrayList<>(1);
+      singleSeriesTile.add(null);
+      return singleSeriesTile;
+    }
+    return images;
+  }
+
+  private boolean isSameDisplayImages(
+      List<SeriesPane> existingPanes, List<DicomImageElement> displayImages) {
+    if (existingPanes.size() != displayImages.size() || existingPanes.isEmpty()) {
+      return false;
+    }
+    for (int i = 0; i < displayImages.size(); i++) {
+      if (existingPanes.get(i).getDicomImage() != displayImages.get(i)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -239,25 +298,30 @@ public class DicomPaneManager {
     List<SeriesPane> seriesList = getSeriesList(study);
     if (!seriesList.isEmpty()) {
       DicomModel model = explorer.getDataExplorerModel();
+      List<SeriesPane> removedPanes = new ArrayList<>();
       for (int j = seriesList.size() - 1; j >= 0; j--) {
         SeriesPane se = seriesList.get(j);
         if (se.isSeries(series)) {
           seriesList.remove(j);
-          if (seriesList.isEmpty()) {
-            study2series.remove(study);
-            // throw a new event for removing the patient
-            model.removeStudy(study);
-            break;
-          }
           se.removeAll();
+          removedPanes.add(se);
+        }
+      }
 
+      if (!removedPanes.isEmpty()) {
+        if (seriesList.isEmpty()) {
+          study2series.remove(study);
+          // throw a new event for removing the patient
+          model.removeStudy(study);
+        } else {
           StudyPane studyPane = getStudyPane(study);
-          if (studyPane != null && studyPane.isSeriesVisible(series)) {
-            studyPane.remove(se);
+          if (studyPane != null) {
+            for (SeriesPane se : removedPanes) {
+              studyPane.remove(se);
+            }
             studyPane.revalidate();
             studyPane.repaint();
           }
-          break;
         }
       }
     }
