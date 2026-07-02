@@ -223,39 +223,40 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement> {
   @Override
   protected SliderChangeListener newZoomAction() {
 
-    return new SliderChangeListener(
-        ActionW.ZOOM,
-        Camera.SCALE_MIN,
-        Camera.SCALE_MAX,
-        CameraView.INITIAL.zoom(),
-        true,
-        0.3,
-        300) {
+    return withInvertedDragDirection(
+        new SliderChangeListener(
+            ActionW.ZOOM,
+            Camera.SCALE_MIN,
+            Camera.SCALE_MAX,
+            CameraView.INITIAL.zoom(),
+            true,
+            0.3,
+            300) {
 
-      @Override
-      public void stateChanged(BoundedRangeModel model) {
-        firePropertyChange(
-            ActionW.SYNCH.cmd(),
-            null,
-            new SynchEvent(
-                getSelectedViewPane(),
-                getActionW().cmd(),
-                toModelValue(model.getValue()),
-                model.getValueIsAdjusting()));
-      }
+          @Override
+          public void stateChanged(BoundedRangeModel model) {
+            firePropertyChange(
+                ActionW.SYNCH.cmd(),
+                null,
+                new SynchEvent(
+                    getSelectedViewPane(),
+                    getActionW().cmd(),
+                    toModelValue(model.getValue()),
+                    model.getValueIsAdjusting()));
+          }
 
-      @Override
-      public String getValueToDisplay() {
-        return DecFormatter.percentTwoDecimal(getRealValue());
-      }
+          @Override
+          public String getValueToDisplay() {
+            return DecFormatter.percentTwoDecimal(getRealValue());
+          }
 
-      @Override
-      public void mouseWheelMoved(MouseWheelEvent e) {
-        if (basicState.isActionEnabled() && !e.isConsumed()) {
-          setSliderValue(getSliderValue() - e.getWheelRotation() * e.getScrollAmount());
-        }
-      }
-    };
+          @Override
+          public void mouseWheelMoved(MouseWheelEvent e) {
+            if (basicState.isActionEnabled() && !e.isConsumed()) {
+              setSliderValue(getSliderValue() - e.getWheelRotation() * e.getScrollAmount());
+            }
+          }
+        });
   }
 
   @Override

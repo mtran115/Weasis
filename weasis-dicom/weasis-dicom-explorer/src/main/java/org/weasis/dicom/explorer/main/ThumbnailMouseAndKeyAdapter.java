@@ -22,6 +22,7 @@ import java.util.Objects;
 import javax.swing.JComponent;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 import javax.swing.JSeparator;
 import javax.swing.SwingUtilities;
@@ -33,6 +34,7 @@ import org.weasis.core.api.media.data.MediaElement;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.MediaSeries.MEDIA_POSITION;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
+import org.weasis.core.api.media.data.MediaSeriesGroupNode;
 import org.weasis.core.api.media.data.SeriesThumbnail;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.util.ResourceUtil;
@@ -422,6 +424,8 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
       addRemoveStudyMenuItem(popupMenu, selList);
       addRemovePatientMenuItem(popupMenu, selList);
     }
+    popupMenu.add(new JSeparator());
+    addRemoveAllMenuItem(popupMenu, selList);
   }
 
   private void addRemoveStudyMenuItem(JPopupMenu popupMenu, SeriesSelectionModel selList) {
@@ -446,6 +450,33 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
           selList.clear();
         });
     popupMenu.add(removePatientItem);
+  }
+
+  private void addRemoveAllMenuItem(JPopupMenu popupMenu, SeriesSelectionModel selList) {
+    JMenuItem removeAllItem = new JMenuItem(Messages.getString("DicomExplorer.rem_all_studies"));
+    removeAllItem.addActionListener(
+        e -> {
+          int confirm =
+              JOptionPane.showConfirmDialog(
+                  popupMenu.getInvoker(),
+                  Messages.getString("DicomExplorer.rem_all_studies_msg"),
+                  Messages.getString("DicomExplorer.rem_all_studies"),
+                  JOptionPane.OK_CANCEL_OPTION,
+                  JOptionPane.WARNING_MESSAGE);
+          if (confirm == JOptionPane.OK_OPTION) {
+            removeAllPatients(selList);
+          }
+        });
+    popupMenu.add(removeAllItem);
+  }
+
+  private void removeAllPatients(SeriesSelectionModel selList) {
+    List<MediaSeriesGroup> patients =
+        new ArrayList<>(dicomModel.getChildren(MediaSeriesGroupNode.rootNode));
+    for (MediaSeriesGroup patient : patients) {
+      dicomModel.removePatient(patient);
+    }
+    selList.clear();
   }
 
   private void addSplitPhases(JPopupMenu popupMenu, SeriesSelectionModel selList) {

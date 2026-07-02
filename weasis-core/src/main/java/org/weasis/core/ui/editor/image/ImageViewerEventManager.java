@@ -218,37 +218,44 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
 
   protected SliderChangeListener newZoomAction() {
 
-    return new SliderChangeListener(
-        ActionW.ZOOM, DefaultViewModel.SCALE_MIN, DefaultViewModel.SCALE_MAX, 1.0, true, 0.3, 300) {
+    return withInvertedDragDirection(
+        new SliderChangeListener(
+            ActionW.ZOOM,
+            DefaultViewModel.SCALE_MIN,
+            DefaultViewModel.SCALE_MAX,
+            1.0,
+            true,
+            0.3,
+            300) {
 
-      @Override
-      public void stateChanged(BoundedRangeModel model) {
-        firePropertyChange(
-            ActionW.SYNCH.cmd(),
-            null,
-            new SynchEvent(
-                getSelectedViewPane(), getActionW().cmd(), toModelValue(model.getValue())));
-      }
+          @Override
+          public void stateChanged(BoundedRangeModel model) {
+            firePropertyChange(
+                ActionW.SYNCH.cmd(),
+                null,
+                new SynchEvent(
+                    getSelectedViewPane(), getActionW().cmd(), toModelValue(model.getValue())));
+          }
 
-      @Override
-      public String getValueToDisplay() {
-        return DecFormatter.percentTwoDecimal(getRealValue());
-      }
+          @Override
+          public String getValueToDisplay() {
+            return DecFormatter.percentTwoDecimal(getRealValue());
+          }
 
-      @Override
-      public int toSliderValue(double viewScale) {
-        double v = Math.log(viewScale) / Math.log(DefaultViewModel.SCALE_MAX) * getSliderMax();
-        return (int) Math.round(v);
-      }
+          @Override
+          public int toSliderValue(double viewScale) {
+            double v = Math.log(viewScale) / Math.log(DefaultViewModel.SCALE_MAX) * getSliderMax();
+            return (int) Math.round(v);
+          }
 
-      @Override
-      public double toModelValue(int sliderValue) {
-        double v = sliderValue / (double) getSliderMax();
-        double viewScale = Math.exp(v * Math.log(DefaultViewModel.SCALE_MAX));
-        return roundAndCropViewScale(
-            viewScale, DefaultViewModel.SCALE_MIN, DefaultViewModel.SCALE_MAX);
-      }
-    };
+          @Override
+          public double toModelValue(int sliderValue) {
+            double v = sliderValue / (double) getSliderMax();
+            double viewScale = Math.exp(v * Math.log(DefaultViewModel.SCALE_MAX));
+            return roundAndCropViewScale(
+                viewScale, DefaultViewModel.SCALE_MIN, DefaultViewModel.SCALE_MAX);
+          }
+        });
   }
 
   protected PannerListener newPanAction() {
@@ -321,43 +328,50 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
   }
 
   protected SliderChangeListener newLensZoomAction() {
-    return new SliderChangeListener(
-        ActionW.LENS_ZOOM,
-        DefaultViewModel.SCALE_MIN,
-        DefaultViewModel.SCALE_MAX,
-        2.0,
-        true,
-        0.3,
-        300) {
+    return withInvertedDragDirection(
+        new SliderChangeListener(
+            ActionW.LENS_ZOOM,
+            DefaultViewModel.SCALE_MIN,
+            DefaultViewModel.SCALE_MAX,
+            2.0,
+            true,
+            0.3,
+            300) {
 
-      @Override
-      public void stateChanged(BoundedRangeModel model) {
-        firePropertyChange(
-            ActionW.SYNCH.cmd(),
-            null,
-            new SynchEvent(
-                getSelectedViewPane(), getActionW().cmd(), toModelValue(model.getValue())));
-      }
+          @Override
+          public void stateChanged(BoundedRangeModel model) {
+            firePropertyChange(
+                ActionW.SYNCH.cmd(),
+                null,
+                new SynchEvent(
+                    getSelectedViewPane(), getActionW().cmd(), toModelValue(model.getValue())));
+          }
 
-      @Override
-      public String getValueToDisplay() {
-        return DecFormatter.percentTwoDecimal(getRealValue());
-      }
+          @Override
+          public String getValueToDisplay() {
+            return DecFormatter.percentTwoDecimal(getRealValue());
+          }
 
-      @Override
-      public int toSliderValue(double viewScale) {
-        double v = Math.log(viewScale) / Math.log(DefaultViewModel.SCALE_MAX) * getSliderMax();
-        return (int) Math.round(v);
-      }
+          @Override
+          public int toSliderValue(double viewScale) {
+            double v = Math.log(viewScale) / Math.log(DefaultViewModel.SCALE_MAX) * getSliderMax();
+            return (int) Math.round(v);
+          }
 
-      @Override
-      public double toModelValue(int sliderValue) {
-        double v = sliderValue / (double) getSliderMax();
-        double viewScale = Math.exp(v * Math.log(DefaultViewModel.SCALE_MAX));
-        return roundAndCropViewScale(
-            viewScale, DefaultViewModel.SCALE_MIN, DefaultViewModel.SCALE_MAX);
-      }
-    };
+          @Override
+          public double toModelValue(int sliderValue) {
+            double v = sliderValue / (double) getSliderMax();
+            double viewScale = Math.exp(v * Math.log(DefaultViewModel.SCALE_MAX));
+            return roundAndCropViewScale(
+                viewScale, DefaultViewModel.SCALE_MIN, DefaultViewModel.SCALE_MAX);
+          }
+        });
+  }
+
+  protected static SliderChangeListener withInvertedDragDirection(
+      SliderChangeListener sliderAction) {
+    sliderAction.setInverse(true);
+    return sliderAction;
   }
 
   protected ComboItemListener<MigLayoutModel> newLayoutAction(MigLayoutModel[] layouts) {
