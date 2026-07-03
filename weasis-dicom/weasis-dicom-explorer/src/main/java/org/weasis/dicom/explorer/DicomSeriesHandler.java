@@ -14,11 +14,13 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import org.dcm4che3.data.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.weasis.core.api.explorer.model.DataExplorerModel;
 import org.weasis.core.api.explorer.model.TreeModel;
 import org.weasis.core.api.gui.util.GuiUtils;
+import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.Series;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.ui.editor.SeriesViewerFactory;
@@ -30,6 +32,7 @@ import org.weasis.core.ui.editor.image.SynchData;
 import org.weasis.core.ui.editor.image.ViewCanvas;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomSeries;
+import org.weasis.dicom.codec.TagD;
 import org.weasis.dicom.explorer.HangingProtocols.OpeningViewer;
 import org.weasis.dicom.explorer.main.DicomExplorer;
 import org.weasis.dicom.explorer.main.SeriesSelectionModel;
@@ -40,6 +43,7 @@ import org.weasis.dicom.explorer.main.SeriesSelectionModel;
  */
 public class DicomSeriesHandler extends SequenceHandler {
   private static final Logger LOGGER = LoggerFactory.getLogger(DicomSeriesHandler.class);
+  private static final int MRI_LAYOUT_COLUMNS = 2;
 
   private final ViewCanvas<DicomImageElement> viewCanvas;
 
@@ -68,7 +72,8 @@ public class DicomSeriesHandler extends SequenceHandler {
 
       var model = (DataExplorerModel) series.getTagValue(TagW.ExplorerModel);
       if (shouldBuildNewPlugin(plugin, series)) {
-        ViewerPluginBuilder.openInDefaultViewer(series, model, ViewerOpenOptions.defaults());
+        ViewerPluginBuilder.openInDefaultViewer(
+            series, model, getViewerOpenOptions(ViewerOpenOptions.defaults(), series));
         return true;
       }
 
@@ -194,7 +199,12 @@ public class DicomSeriesHandler extends SequenceHandler {
   private void openInAppropriatePlugin(
       DicomSeries series, DataExplorerModel model, SeriesViewerFactory plugin) {
     if (plugin.canReadSeries(series) || plugin.canAddSeries()) {
-      new ViewerPluginBuilder(plugin, List.of(series), model, ViewerOpenOptions.defaults()).open();
+      new ViewerPluginBuilder(
+              plugin,
+              List.of(series),
+              model,
+              getViewerOpenOptions(ViewerOpenOptions.defaults(), series))
+          .open();
     } else {
       openDicomSeriesInViewer(series, model);
     }
@@ -211,8 +221,39 @@ public class DicomSeriesHandler extends SequenceHandler {
     if (plugin != null) {
       ViewerOpenOptions opts =
           ViewerOpenOptions.builder().placement(ViewerPlacement.reuseViewer(false, true)).build();
+      opts = getViewerOpenOptions(opts, series);
       new ViewerPluginBuilder(plugin, List.of(series), model, opts).open();
     }
+  }
+
+  public static ViewerOpenOptions getViewerOpenOptions(
+      ViewerOpenOptions options, MediaSeries<?> series) {
+    ViewerOpenOptions opts = options == null ? ViewerOpenOptions.defaults() : options;
+    if (isMrSeries(series)) {
+      return opts.withSeriesCount(Math.max(opts.seriesCount(), MRI_LAYOUT_COLUMNS))
+          .withPreferredLayoutColumns(MRI_LAYOUT_COLUMNS);
+    }
+    return opts;
+  }
+
+  public static ViewerOpenOptions getViewerOpenOptions(
+      ViewerOpenOptions options, List<? extends MediaSeries<?>> seriesList) {
+    ViewerOpenOptions opts = options == null ? ViewerOpenOptions.defaults() : options;
+    if (seriesList == null || seriesList.isEmpty()) {
+      return opts;
+    }
+
+    int seriesCount = Math.max(opts.seriesCount(), seriesList.size());
+    if (seriesList.stream().anyMatch(DicomSeriesHandler::isMrSeries)) {
+      return opts.withSeriesCount(Math.max(seriesCount, MRI_LAYOUT_COLUMNS))
+          .withPreferredLayoutColumns(MRI_LAYOUT_COLUMNS);
+    }
+    return seriesCount == opts.seriesCount() ? opts : opts.withSeriesCount(seriesCount);
+  }
+
+  private static boolean isMrSeries(MediaSeries<?> series) {
+    String modality = TagD.getTagValue(series, Tag.Modality, String.class);
+    return "MR".equalsIgnoreCase(modality);
   }
 
   private SeriesSelectionModel getSelectionModel() {

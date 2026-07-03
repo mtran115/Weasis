@@ -453,7 +453,11 @@ public class WeasisWin {
             if (reuse.openInSelection() && seriesList.size() == 1) {
               viewer.addSeries(seriesList.getFirst());
             } else {
-              viewer.addSeriesList(seriesList, reuse.bestDefaultLayout());
+              boolean bestDefaultLayout =
+                  reuse.bestDefaultLayout()
+                      && opts.preferredLayoutColumns() < 1
+                      && opts.seriesCount() <= seriesList.size();
+              viewer.addSeriesList(seriesList, bestDefaultLayout);
             }
             if (focusPolicy.shouldBringToFront()) {
               viewer.setSelectedAndGetFocus();

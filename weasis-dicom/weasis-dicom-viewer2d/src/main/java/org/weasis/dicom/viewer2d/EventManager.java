@@ -128,6 +128,10 @@ import org.weasis.opencv.op.lut.LutShape;
 public class EventManager extends ImageViewerEventManager<DicomImageElement>
     implements ActionListener {
   private static final Logger LOGGER = LoggerFactory.getLogger(EventManager.class);
+  public static final double DEFAULT_ZOOM_MOUSE_SENSITIVITY = 1.0;
+  private static final double LEGACY_ZOOM_MOUSE_SENSITIVITY = 0.1;
+  private static final double PREVIOUS_ZOOM_MOUSE_SENSITIVITY = 0.5;
+  private static final String ZOOM_SENSITIVITY_MIGRATED_KEY = "zoomSensitivityMigratedV2";
 
   public static final List<String> functions =
       List.of(
@@ -212,7 +216,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
       getSliderPreference(prefNode, ActionW.LEVEL, 1.25);
       getSliderPreference(prefNode, ActionW.SCROLL_SERIES, 0.1);
       getSliderPreference(prefNode, ActionW.ROTATION, 0.25);
-      getSliderPreference(prefNode, ActionW.ZOOM, 0.1);
+      getSliderPreference(prefNode, ActionW.ZOOM, DEFAULT_ZOOM_MOUSE_SENSITIVITY);
 
       /*
        * Get first the local value if existed, otherwise try to get the default server configuration and finally if
@@ -1365,7 +1369,22 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   private void getSliderPreference(
       Preferences prefNode, Feature<? extends SliderChangeListener> action, double defVal) {
     getAction(action)
-        .ifPresent(s -> s.setMouseSensitivity(prefNode.getDouble(action.cmd(), defVal)));
+        .ifPresent(
+            s -> s.setMouseSensitivity(getMouseSensitivityPreference(prefNode, action, defVal)));
+  }
+
+  private static double getMouseSensitivityPreference(
+      Preferences prefNode, Feature<? extends SliderChangeListener> action, double defVal) {
+    double sensitivity = prefNode.getDouble(action.cmd(), defVal);
+    if (ActionW.ZOOM.cmd().equals(action.cmd())
+        && !prefNode.getBoolean(ZOOM_SENSITIVITY_MIGRATED_KEY, false)
+        && (Math.abs(sensitivity - LEGACY_ZOOM_MOUSE_SENSITIVITY) < 0.000001
+            || Math.abs(sensitivity - PREVIOUS_ZOOM_MOUSE_SENSITIVITY) < 0.000001)) {
+      sensitivity = DEFAULT_ZOOM_MOUSE_SENSITIVITY;
+      prefNode.putBoolean(ZOOM_SENSITIVITY_MIGRATED_KEY, true);
+      BundlePreferences.putDoublePreferences(prefNode, action.cmd(), sensitivity);
+    }
+    return sensitivity;
   }
 
   public MediaSeries<DicomImageElement> getSelectedSeries() {

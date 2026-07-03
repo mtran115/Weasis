@@ -288,12 +288,29 @@ public abstract class ImageViewerPlugin<E extends ImageElement> extends ViewerPl
     String uid = null;
     if (options != null) {
       int viewCount = options.seriesCount();
-      if (viewCount > 1 && layoutAction != null) {
+      if (options.preferredLayoutColumns() > 0) {
+        model =
+            buildPreferredColumnLayout(defaultModel, viewCount, options.preferredLayoutColumns());
+      } else if (viewCount > 1 && layoutAction != null) {
         model = ImageViewerPlugin.getBestDefaultViewLayout(layoutAction, viewCount, defaultModel);
       }
       uid = options.uid();
     }
     return new LayoutModel(uid, model);
+  }
+
+  private static MigLayoutModel buildPreferredColumnLayout(
+      MigLayoutModel defaultModel, int viewCount, int preferredColumns) {
+    int columns = Math.max(1, preferredColumns);
+    int rows = Math.max(1, (int) Math.ceil(viewCount / (double) columns));
+    return buildMigLayoutModel(rows, columns, getDefaultViewType(defaultModel));
+  }
+
+  private static String getDefaultViewType(MigLayoutModel defaultModel) {
+    if (defaultModel != null && !defaultModel.getCells().isEmpty()) {
+      return defaultModel.getCells().getFirst().type();
+    }
+    return view2dClass.getName();
   }
 
   @Override
@@ -1281,7 +1298,7 @@ public abstract class ImageViewerPlugin<E extends ImageElement> extends ViewerPl
       }
     }
     List<ViewCanvas<E>> allViews = cellManager.getAllViewCanvases();
-    int pos = allViews.size() - nbSeriesToAdd;
+    int pos = allViews.size() > nbSeriesToAdd ? 0 : allViews.size() - nbSeriesToAdd;
     if (pos < 0) {
       pos = 0;
     }

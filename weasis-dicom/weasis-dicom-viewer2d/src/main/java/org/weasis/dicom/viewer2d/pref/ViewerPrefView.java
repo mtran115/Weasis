@@ -226,7 +226,7 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     map.put(ActionW.LEVEL, realValueToSlider(1.25));
     map.put(ActionW.SCROLL_SERIES, realValueToSlider(0.1));
     map.put(ActionW.ROTATION, realValueToSlider(0.25));
-    map.put(ActionW.ZOOM, realValueToSlider(0.1));
+    map.put(ActionW.ZOOM, realValueToSlider(EventManager.DEFAULT_ZOOM_MOUSE_SENSITIVITY));
     slider.setValue(map.get((Feature<?>) comboBox.getSelectedItem()));
 
     comboBoxInterpolation.setSelectedItem(Interpolation.BILINEAR);

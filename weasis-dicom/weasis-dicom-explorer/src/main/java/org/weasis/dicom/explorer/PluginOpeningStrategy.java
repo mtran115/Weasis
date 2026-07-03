@@ -109,7 +109,9 @@ public class PluginOpeningStrategy {
                 ? TabFocusPolicy.autoByDuration(
                     TabFocusPolicy.DEFAULT_AUTO_THRESHOLD, loadStartedAt)
                 : TabFocusPolicy.foreground();
-        ViewerOpenOptions opts = ViewerOpenOptions.defaults().withTabFocusPolicy(focusPolicy);
+        ViewerOpenOptions opts =
+            DicomSeriesHandler.getViewerOpenOptions(
+                ViewerOpenOptions.defaults().withTabFocusPolicy(focusPolicy), dicomSeries);
         addPatient(patient);
         new ViewerPluginBuilder(plugin, List.of(dicomSeries), dicomModel, opts).open();
       }

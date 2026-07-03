@@ -45,6 +45,7 @@ import org.weasis.core.ui.editor.SeriesViewerFactory;
 import org.weasis.core.ui.editor.ViewerOpenOptions;
 import org.weasis.core.ui.editor.ViewerPlacement;
 import org.weasis.core.ui.editor.ViewerPluginBuilder;
+import org.weasis.core.ui.editor.image.ViewerPlugin;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.codec.TagD;
@@ -234,7 +235,11 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
             executeWithOpeningSeries(
                 () ->
                     new ViewerPluginBuilder(
-                            viewerFactory, seriesList, dicomModel, ViewerOpenOptions.defaults())
+                            viewerFactory,
+                            seriesList,
+                            dicomModel,
+                            DicomSeriesHandler.getViewerOpenOptions(
+                                ViewerOpenOptions.defaults(), seriesList))
                         .open()));
     menuFactory.add(openItem);
   }
@@ -256,7 +261,11 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
                             viewerFactory,
                             seriesList,
                             dicomModel,
-                            ViewerOpenOptions.builder().placement(ViewerPlacement.newTab()).build())
+                            DicomSeriesHandler.getViewerOpenOptions(
+                                ViewerOpenOptions.builder()
+                                    .placement(ViewerPlacement.newTab())
+                                    .build(),
+                                seriesList))
                         .open()));
     menuFactory.add(newWindowItem);
 
@@ -282,11 +291,13 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
                                 viewerFactory,
                                 seriesList,
                                 dicomModel,
-                                ViewerOpenOptions.builder()
-                                    .placement(
-                                        ViewerPlacement.external(
-                                            ExternalDisplay.onScreen(graphicsDevice)))
-                                    .build())
+                                DicomSeriesHandler.getViewerOpenOptions(
+                                    ViewerOpenOptions.builder()
+                                        .placement(
+                                            ViewerPlacement.external(
+                                                ExternalDisplay.onScreen(graphicsDevice)))
+                                        .build(),
+                                    seriesList))
                             .open()));
         subMenu.add(screenItem);
       }
@@ -307,9 +318,11 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
                             viewerFactory,
                             seriesList,
                             dicomModel,
-                            ViewerOpenOptions.builder()
-                                .placement(ViewerPlacement.reuseViewer(false, false))
-                                .build())
+                            DicomSeriesHandler.getViewerOpenOptions(
+                                ViewerOpenOptions.builder()
+                                    .placement(ViewerPlacement.reuseViewer(false, false))
+                                    .build(),
+                                seriesList))
                         .open()));
     menuFactory.add(addItem);
   }
@@ -473,10 +486,23 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
   private void removeAllPatients(SeriesSelectionModel selList) {
     List<MediaSeriesGroup> patients =
         new ArrayList<>(dicomModel.getChildren(MediaSeriesGroupNode.rootNode));
-    for (MediaSeriesGroup patient : patients) {
-      dicomModel.removePatient(patient);
+    closeAllViewersBeforeRemovingPatients(
+        () -> {
+          for (MediaSeriesGroup patient : patients) {
+            dicomModel.removePatient(patient);
+          }
+          selList.clear();
+        });
+  }
+
+  private void closeAllViewersBeforeRemovingPatients(Runnable removeAction) {
+    List<ViewerPlugin<?>> viewerPlugins = new ArrayList<>(GuiUtils.getUICore().getViewerPlugins());
+    if (viewerPlugins.isEmpty()) {
+      removeAction.run();
+      return;
     }
-    selList.clear();
+    GuiUtils.getUICore().closeSeriesViewer(viewerPlugins);
+    SwingUtilities.invokeLater(removeAction);
   }
 
   private void addSplitPhases(JPopupMenu popupMenu, SeriesSelectionModel selList) {

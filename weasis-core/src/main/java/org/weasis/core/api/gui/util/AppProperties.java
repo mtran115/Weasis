@@ -12,9 +12,13 @@ package org.weasis.core.api.gui.util;
 import com.formdev.flatlaf.util.SystemInfo;
 import java.io.File;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.Optional;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
@@ -31,6 +35,9 @@ public final class AppProperties {
   private static final Logger LOGGER = LoggerFactory.getLogger(AppProperties.class);
 
   private static final String UNKNOWN = "unknown"; // NON-NLS
+
+  private static FileChannel tempDirectoryLockChannel;
+  private static FileLock tempDirectoryLock;
 
   /** The version of the application (for display) */
   public static final String WEASIS_VERSION =
@@ -92,13 +99,56 @@ public final class AppProperties {
                 + System.getProperty("weasis.source.id", UNKNOWN));
 
     System.setProperty("weasis.tmp.dir", appTempDir.toAbsolutePath().toString());
+    boolean cleanTempDirectory = acquireTempDirectoryLock(tempDir);
     try {
-      // Clean temp folder, necessary when the application has crashed.
-      FileUtil.deleteDirectoryContents(appTempDir, 3, 0);
+      Files.createDirectories(appTempDir);
+      if (cleanTempDirectory) {
+        // Clean temp folder, necessary when the application has crashed.
+        FileUtil.deleteDirectoryContents(appTempDir, 3, 0);
+      } else {
+        LOGGER.info(
+            "Skip cleaning temporary files because another Weasis process is using {}", appTempDir);
+      }
     } catch (Exception e) {
       LOGGER.error("Error cleaning temporary files", e);
     }
     return appTempDir;
+  }
+
+  private static boolean acquireTempDirectoryLock(Path tempDir) {
+    Path lockFile =
+        tempDir.resolve(
+            "weasis-"
+                + System.getProperty("user.name", "tmp") // NON-NLS
+                + "."
+                + System.getProperty("weasis.source.id", UNKNOWN)
+                + ".lock");
+    try {
+      tempDirectoryLockChannel =
+          FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+      tempDirectoryLock = tempDirectoryLockChannel.tryLock();
+      if (tempDirectoryLock != null) {
+        return true;
+      }
+    } catch (OverlappingFileLockException e) {
+      LOGGER.debug("Temporary folder is already locked by this process: {}", tempDir);
+    } catch (IOException e) {
+      LOGGER.warn("Cannot lock temporary folder for cleanup: {}", tempDir, e);
+    }
+    closeTempDirectoryLockChannel();
+    return false;
+  }
+
+  private static void closeTempDirectoryLockChannel() {
+    if (tempDirectoryLockChannel != null) {
+      try {
+        tempDirectoryLockChannel.close();
+      } catch (IOException e) {
+        LOGGER.debug("Cannot close temporary folder lock", e);
+      } finally {
+        tempDirectoryLockChannel = null;
+      }
+    }
   }
 
   private static Path getTempDirectoryPath() {

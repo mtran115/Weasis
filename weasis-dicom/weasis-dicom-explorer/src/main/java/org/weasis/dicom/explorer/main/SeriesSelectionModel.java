@@ -23,6 +23,7 @@ import org.weasis.core.ui.editor.ViewerOpenOptions;
 import org.weasis.core.ui.editor.ViewerPluginBuilder;
 import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.explorer.DicomModel;
+import org.weasis.dicom.explorer.DicomSeriesHandler;
 
 /**
  * A selection model for DICOM series that extends ArrayList to provide specialized selection
@@ -647,8 +648,9 @@ public class SeriesSelectionModel extends ArrayList<DicomSeries> {
 
     setOpeningSeries(true);
     try {
-      ViewerPluginBuilder.openInDefaultViewer(
-          new ArrayList<>(this), dicomModel, ViewerOpenOptions.defaults());
+      ViewerOpenOptions options =
+          DicomSeriesHandler.getViewerOpenOptions(ViewerOpenOptions.defaults(), this);
+      ViewerPluginBuilder.openInDefaultViewer(new ArrayList<>(this), dicomModel, options);
       return true;
     } catch (Exception ex) {
       // Log the error but don't rethrow to avoid breaking the UI
