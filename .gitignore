@@ -5,6 +5,9 @@
 .idea/
 .run/
 
+# VS Code project files
+.vscode/
+
 # eclipse project file
 .settings/
 .classpath
@@ -47,4 +50,3 @@ _*/
 weasis_*.snap
 #comlile
 build-dist
-
