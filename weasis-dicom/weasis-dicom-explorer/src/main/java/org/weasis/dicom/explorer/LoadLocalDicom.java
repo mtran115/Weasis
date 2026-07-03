@@ -11,6 +11,7 @@ package org.weasis.dicom.explorer;
 
 import java.io.File;
 import java.util.*;
+import java.util.function.BooleanSupplier;
 import javax.swing.JOptionPane;
 import org.weasis.core.api.explorer.ObservableEvent;
 import org.weasis.core.api.explorer.model.DataExplorerModel;
@@ -52,11 +53,13 @@ public class LoadLocalDicom extends LoadDicom {
   @Override
   protected Boolean doInBackground() throws Exception {
     startLoadingEvent();
-    if (files.length > 0) {
+    if (files.length > 0 && !isCancelled()) {
       openingStrategy.prepareImport();
-      addSelectionAndNotify(files, true);
+      if (!isCancelled()) {
+        addSelectionAndNotify(files, true);
+      }
     }
-    return true;
+    return !isCancelled();
   }
 
   protected void addSelectionAndNotify(File[] file, boolean firstLevel) {
@@ -93,6 +96,9 @@ public class LoadLocalDicom extends LoadDicom {
           if (graphicModel != null) {
             loader.setTag(TagW.PresentationModel, graphicModel);
           }
+          if (isCancelled()) {
+            return;
+          }
         } else if (reading == Reading.ERROR) {
           errors.incrementAndGet();
         } else if (reading == Reading.UNSUPPORTED) {
@@ -100,28 +106,51 @@ public class LoadLocalDicom extends LoadDicom {
         }
       } else if (FileUtil.isFileExtensionMatching(value.toPath(), DicomZipCodec.FILE_EXTENSIONS)
           || MimeInspector.isMatchingMimeTypeFromMagicNumber(value, DicomZipMediaIO.MIME_TYPE)) {
+        if (isCancelled()) {
+          return;
+        }
         new DicomZipMediaIO(value.toURI(), null).delegate(dicomModel);
+        if (isCancelled()) {
+          return;
+        }
       }
     }
 
+    if (isCancelled()) {
+      return;
+    }
     if (openingStrategy.isFullImportSession()) {
-      updateSeriesThumbnail(uniqueSeriesSet, dicomModel);
+      updateSeriesThumbnail(uniqueSeriesSet, dicomModel, this::isCancelled);
     } else {
       for (DicomSeries series : uniqueSeriesSet) {
+        if (isCancelled()) {
+          return;
+        }
         dicomModel.buildThumbnail(series);
       }
     }
 
     for (File folder : folders) {
+      if (isCancelled()) {
+        return;
+      }
       addSelectionAndNotify(folder.listFiles(), false);
     }
   }
 
   public static void updateSeriesThumbnail(Set<DicomSeries> seriesList, DicomModel dicomModel) {
+    updateSeriesThumbnail(seriesList, dicomModel, () -> false);
+  }
+
+  private static void updateSeriesThumbnail(
+      Set<DicomSeries> seriesList, DicomModel dicomModel, BooleanSupplier isCancelled) {
     if (dicomModel == null || seriesList == null) {
       return;
     }
     for (DicomSeries series : seriesList) {
+      if (isCancelled.getAsBoolean()) {
+        return;
+      }
       if (series != null) {
         if (!DicomModel.isHiddenModality(series)) {
           boolean split = seriesPostProcessing(series, dicomModel);

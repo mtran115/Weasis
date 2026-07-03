@@ -182,7 +182,7 @@ public class MeasureToolBar extends WtoolBar {
             if (gm.getSelectedGraphics().isEmpty()) {
               gm.setSelectedAllGraphics();
             }
-            gm.deleteSelectedGraphics(eventManager.getSelectedViewPane(), Boolean.TRUE);
+            gm.deleteSelectedGraphics(eventManager.getSelectedViewPane(), Boolean.FALSE);
           });
       if (measure.isPresent()) {
         measure.get().registerActionState(deleteButton);

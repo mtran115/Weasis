@@ -597,7 +597,8 @@ public class DicomExplorer extends PluginTool
       return;
     }
 
-    if (modelPatient.getIndexOf(patient) < 0) {
+    boolean addedPatient = modelPatient.getIndexOf(patient) < 0;
+    if (addedPatient) {
       modelPatient.addElement(patient);
     }
 
@@ -609,7 +610,15 @@ public class DicomExplorer extends PluginTool
     int[] positionSeries = new int[1];
     paneManager.createSeriesPaneInstance(series, positionSeries);
     if (isAllPatientsSelected()) {
-      showAllPatients();
+      if (addedPatient || positionStudy[0] != -1 || positionSeries[0] != -1) {
+        showAllPatients();
+      } else {
+        SeriesPane seriesPane = paneManager.getSeriesPane(series);
+        if (seriesPane != null) {
+          seriesPane.updateThumbnail();
+          seriesPane.updateText();
+        }
+      }
     } else if (isSelectedPatient(patient) && positionSeries[0] != -1) {
       // If new study
       if (positionStudy[0] != -1) {

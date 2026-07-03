@@ -27,7 +27,7 @@ public class DrawingsKeyListeners implements KeyListener {
     ShortcutManager sm = ShortcutManager.getInstance();
     GraphicModel graphicManager = canvas.getGraphicManager();
     if (sm.matches(ShortcutManager.ID_DRAW_DELETE, e)) {
-      graphicManager.deleteSelectedGraphics(canvas, true);
+      graphicManager.deleteSelectedGraphics(canvas, false);
     } else if (sm.matches(ShortcutManager.ID_DRAW_DESELECT_ALL, e)) {
       graphicManager.setSelectedGraphic(null);
     } else if (sm.matches(ShortcutManager.ID_DRAW_SELECT_ALL, e)) {

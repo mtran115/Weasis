@@ -1191,7 +1191,7 @@ public class View2d extends DefaultView2d<DicomImageElement> {
       if (graphicComplete) {
         JMenuItem menuItem = new JMenuItem(Messages.getString("View2d.delete_sel"));
         menuItem.addActionListener(
-            e -> View2d.this.getGraphicManager().deleteSelectedGraphics(View2d.this, true));
+            e -> View2d.this.getGraphicManager().deleteSelectedGraphics(View2d.this, false));
         popupMenu.add(menuItem);
 
         menuItem = new JMenuItem(Messages.getString("View2d.cut"));
