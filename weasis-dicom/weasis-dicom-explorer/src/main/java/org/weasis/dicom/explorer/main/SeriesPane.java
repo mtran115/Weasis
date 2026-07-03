@@ -32,6 +32,7 @@ import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.util.FontItem;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.util.StringUtil;
+import org.weasis.dicom.codec.DicomDisplayText;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.codec.HiddenSeriesManager;
@@ -76,12 +77,12 @@ public class SeriesPane extends JPanel {
   private void initializeComponents() {
     currentThumbnailSize = SeriesThumbnail.getThumbnailSizeFromPreferences();
 
+    add(label);
     thumbnail = getOrCreateThumbnail();
     if (thumbnail != null) {
       add(thumbnail);
     }
     updateSize(currentThumbnailSize);
-    add(label);
   }
 
   public void updateThumbnail() {
@@ -92,10 +93,10 @@ public class SeriesPane extends JPanel {
     if (newThumb != this.thumbnail) {
       this.thumbnail = newThumb;
       removeAll();
+      add(label);
       if (this.thumbnail != null) {
         add(this.thumbnail);
       }
-      add(label);
       updateSize(currentThumbnailSize);
       revalidate();
       repaint();
@@ -118,14 +119,21 @@ public class SeriesPane extends JPanel {
   }
 
   private JLabel createDescriptionLabel() {
-    String description = getSeriesDescription();
+    String description = getDisplayTitle();
     JLabel descLabel = new JLabel(description, SwingConstants.CENTER);
     descLabel.setFont(FontItem.MINI.getFont());
     descLabel.setFocusable(false);
     return descLabel;
   }
 
-  private String getSeriesDescription() {
+  private String getDisplayTitle() {
+    String title =
+        dicomImage == null
+            ? DicomDisplayText.getSeriesTitle(dicomSeries)
+            : DicomDisplayText.getViewTitle(dicomImage, dicomSeries);
+    if (StringUtil.hasText(title)) {
+      return title;
+    }
     String desc = TagD.getTagValue(dicomSeries, Tag.SeriesDescription, String.class);
     return desc == null ? StringUtil.EMPTY_STRING : desc;
   }
@@ -187,7 +195,7 @@ public class SeriesPane extends JPanel {
    * to refresh the label when the series description changes.
    */
   public void updateText() {
-    String description = getSeriesDescription();
+    String description = getDisplayTitle();
     SwingUtilities.invokeLater(() -> label.setText(description));
   }
 

@@ -24,6 +24,9 @@ import net.miginfocom.swing.MigLayout;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
 import org.weasis.core.api.media.data.SeriesThumbnail;
+import org.weasis.core.util.StringUtil;
+import org.weasis.dicom.codec.DicomDisplayText;
+import org.weasis.dicom.codec.DicomSeries;
 
 /**
  * A panel component that displays a DICOM study and manages its associated series panes. This
@@ -52,7 +55,7 @@ public class StudyPane extends JPanel {
 
     this.dicomStudy = Objects.requireNonNull(dicomStudy);
     this.subPanel = new JPanel(new MigLayout("insets 3lp, gap " + GAP + " " + GAP + ", flowx"));
-    this.titleBorder = GuiUtils.getTitledBorder(dicomStudy.toString());
+    this.titleBorder = GuiUtils.getTitledBorder(getStudyTitle());
     this.resizeHandler = new ComponentResizeHandler();
 
     initializeComponent();
@@ -204,9 +207,16 @@ public class StudyPane extends JPanel {
   /** Updates the title text of this study pane. */
   public void updateText() {
     if (titleBorder != null) {
-      titleBorder.setTitle(dicomStudy.toString());
+      titleBorder.setTitle(getStudyTitle());
       repaint();
     }
+  }
+
+  private String getStudyTitle() {
+    DicomSeries firstSeries =
+        getSeriesPaneStream().map(SeriesPane::getDicomSeries).findFirst().orElse(null);
+    String title = DicomDisplayText.getExamTitle(dicomStudy, firstSeries);
+    return StringUtil.hasText(title) ? title : dicomStudy.toString();
   }
 
   /**

@@ -128,10 +128,12 @@ import org.weasis.opencv.op.lut.LutShape;
 public class EventManager extends ImageViewerEventManager<DicomImageElement>
     implements ActionListener {
   private static final Logger LOGGER = LoggerFactory.getLogger(EventManager.class);
-  public static final double DEFAULT_ZOOM_MOUSE_SENSITIVITY = 1.0;
+  public static final double DEFAULT_ZOOM_MOUSE_SENSITIVITY = 4.0;
   private static final double LEGACY_ZOOM_MOUSE_SENSITIVITY = 0.1;
   private static final double PREVIOUS_ZOOM_MOUSE_SENSITIVITY = 0.5;
-  private static final String ZOOM_SENSITIVITY_MIGRATED_KEY = "zoomSensitivityMigratedV2";
+  private static final double PREVIOUS_FAST_ZOOM_MOUSE_SENSITIVITY = 1.0;
+  private static final double CURRENT_ZOOM_MOUSE_SENSITIVITY = 2.0;
+  private static final String ZOOM_SENSITIVITY_MIGRATED_KEY = "zoomSensitivityMigratedV4";
 
   public static final List<String> functions =
       List.of(
@@ -1379,7 +1381,9 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     if (ActionW.ZOOM.cmd().equals(action.cmd())
         && !prefNode.getBoolean(ZOOM_SENSITIVITY_MIGRATED_KEY, false)
         && (Math.abs(sensitivity - LEGACY_ZOOM_MOUSE_SENSITIVITY) < 0.000001
-            || Math.abs(sensitivity - PREVIOUS_ZOOM_MOUSE_SENSITIVITY) < 0.000001)) {
+            || Math.abs(sensitivity - PREVIOUS_ZOOM_MOUSE_SENSITIVITY) < 0.000001
+            || Math.abs(sensitivity - PREVIOUS_FAST_ZOOM_MOUSE_SENSITIVITY) < 0.000001
+            || Math.abs(sensitivity - CURRENT_ZOOM_MOUSE_SENSITIVITY) < 0.000001)) {
       sensitivity = DEFAULT_ZOOM_MOUSE_SENSITIVITY;
       prefNode.putBoolean(ZOOM_SENSITIVITY_MIGRATED_KEY, true);
       BundlePreferences.putDoublePreferences(prefNode, action.cmd(), sensitivity);

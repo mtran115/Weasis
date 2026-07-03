@@ -148,6 +148,7 @@ public class DicomMediaIO implements DcmMediaReader {
     tagManager.addTag(Tag.NumberOfFrames, Level.SERIES);
     tagManager.addTag(Tag.SeriesDate, Level.SERIES);
     tagManager.addTag(Tag.SeriesTime, Level.SERIES);
+    tagManager.addTag(Tag.ProtocolName, Level.SERIES);
     tagManager.addTag(Tag.PerformedProcedureStepStartDate, Level.SERIES); // not required
     tagManager.addTag(Tag.PerformedProcedureStepStartTime, Level.SERIES); // not required
     // Should be in image C.7.6.5 Cine Module
@@ -171,6 +172,10 @@ public class DicomMediaIO implements DcmMediaReader {
     tagManager.addTag(Tag.Modality, Level.INSTANCE);
     // -------- End of Mandatory Tags --------
 
+    tagManager.addTag(Tag.ViewPosition, Level.INSTANCE);
+    tagManager.addTag(Tag.ViewName, Level.INSTANCE);
+    tagManager.addTag(Tag.ImageLaterality, Level.INSTANCE);
+    tagManager.addTag(Tag.FrameLaterality, Level.INSTANCE);
     tagManager.addTag(Tag.GantryDetectorTilt, Level.INSTANCE);
     tagManager.addTag(Tag.PatientOrientation, Level.INSTANCE);
     tagManager.addTag(Tag.SliceLocation, Level.INSTANCE);
