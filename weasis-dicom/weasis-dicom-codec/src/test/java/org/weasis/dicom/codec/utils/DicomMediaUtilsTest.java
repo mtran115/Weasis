@@ -16,9 +16,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.dcm4che3.data.Attributes;
+import org.dcm4che3.data.Sequence;
 import org.dcm4che3.data.Tag;
 import org.dcm4che3.data.VR;
 import org.junit.jupiter.api.Test;
+import org.weasis.core.api.media.data.SimpleTaggable;
+import org.weasis.dicom.codec.TagD;
 
 class DicomMediaUtilsTest {
 
@@ -56,6 +59,20 @@ class DicomMediaUtilsTest {
     a.setString(Tag.PatientName, VR.PN, "Doe^Jane");
 
     assertTrue(DicomMediaUtils.containsRequiredAttributes(a, Tag.PatientID, Tag.PatientName));
+  }
+
+  @Test
+  void writeFunctionalGroupsSequence_acceptsIntegerStringStackPosition() {
+    SimpleTaggable taggable = new SimpleTaggable();
+    Attributes perFrameGroup = new Attributes();
+    Sequence frameContent = perFrameGroup.newSequence(Tag.FrameContentSequence, 1);
+    Attributes frameContentItem = new Attributes();
+    frameContentItem.setString(Tag.InStackPositionNumber, VR.IS, "7");
+    frameContent.add(frameContentItem);
+
+    DicomMediaUtils.writeFunctionalGroupsSequence(taggable, null, perFrameGroup, 0);
+
+    assertEquals(7, taggable.getTagValue(TagD.get(Tag.InstanceNumber)));
   }
 
   // -- containsRequiredModalityLUTAttributes (RescaleSlope + RescaleIntercept) ---

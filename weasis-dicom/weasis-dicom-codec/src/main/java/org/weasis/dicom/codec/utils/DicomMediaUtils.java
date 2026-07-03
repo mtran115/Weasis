@@ -408,10 +408,9 @@ public class DicomMediaUtils {
                   Tag.TemporalPositionIndex));
       TagD.get(Tag.FrameContentSequence).readValue(data, taggable);
       // If not null override instance number for a better image sorting.
-      Integer stackPosNb = (Integer) taggable.getTagValue(TagD.get(Tag.InStackPositionNumber));
+      Integer stackPosNb = getIntegerTagValue(taggable, Tag.InStackPositionNumber);
       if (stackPosNb != null) {
-        Integer offset =
-            (Integer) taggable.getTagValue(TagD.get(Tag.ConcatenationFrameOffsetNumber));
+        Integer offset = getIntegerTagValue(taggable, Tag.ConcatenationFrameOffsetNumber);
         int nb = offset == null ? stackPosNb : offset + stackPosNb;
         taggable.setTag(TagD.get(Tag.InstanceNumber), nb);
       }
@@ -487,6 +486,25 @@ public class DicomMediaUtils {
       }
     }
     return false;
+  }
+
+  private static Integer getIntegerTagValue(TagReadable taggable, int tagId) {
+    Object value = taggable == null ? null : taggable.getTagValue(TagD.get(tagId));
+    if (value instanceof Integer integer) {
+      return integer;
+    }
+    if (value instanceof Number number) {
+      return number.intValue();
+    }
+    if (value instanceof String text && StringUtil.hasText(text)) {
+      try {
+        return Integer.parseInt(text.trim());
+      } catch (NumberFormatException e) {
+        LOGGER.warn(
+            "Cannot parse DICOM integer value for tag {}: {}", TagUtils.toString(tagId), text);
+      }
+    }
+    return null;
   }
 
   public static void computeSUVFactor(Attributes dicomObject, Taggable taggable, int index) {

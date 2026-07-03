@@ -14,6 +14,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import javax.swing.Timer;
 import org.dcm4che3.data.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +45,7 @@ import org.weasis.dicom.explorer.main.SeriesSelectionModel;
 public class DicomSeriesHandler extends SequenceHandler {
   private static final Logger LOGGER = LoggerFactory.getLogger(DicomSeriesHandler.class);
   private static final int MRI_LAYOUT_COLUMNS = 2;
+  private static final int DROP_SELECTION_SCROLL_SUPPRESSION_MS = 300;
 
   private final ViewCanvas<DicomImageElement> viewCanvas;
 
@@ -143,7 +145,12 @@ public class DicomSeriesHandler extends SequenceHandler {
       DataExplorerModel model,
       SeriesViewerFactory plugin,
       DicomViewerPlugin selectedPlugin) {
-    if (series == null || !(model instanceof TreeModel treeModel)) {
+    if (series == null) {
+      return false;
+    }
+    TreeModel treeModel = model instanceof TreeModel tree ? tree : null;
+    boolean replaceTargetView = canReplaceTargetView(series, plugin);
+    if (!replaceTargetView && treeModel == null) {
       return false;
     }
 
@@ -151,7 +158,9 @@ public class DicomSeriesHandler extends SequenceHandler {
       executeWithOpeningSeries(
           getSelectionModel(),
           () -> {
-            if (canAddToCurrentPlugin(series, model, plugin, selectedPlugin, treeModel)) {
+            if (replaceTargetView) {
+              replaceTargetView(series, selectedPlugin);
+            } else if (canAddToCurrentPlugin(series, model, plugin, selectedPlugin, treeModel)) {
               addSeriesToPlugin(series, selectedPlugin);
             } else {
               openInAppropriatePlugin(series, model, plugin);
@@ -161,6 +170,19 @@ public class DicomSeriesHandler extends SequenceHandler {
     } catch (Exception e) {
       LOGGER.error("Error handling DICOM series", e);
       return false;
+    }
+  }
+
+  private boolean canReplaceTargetView(DicomSeries series, SeriesViewerFactory plugin) {
+    return plugin.canAddSeries() && plugin.canReadSeries(series);
+  }
+
+  private void replaceTargetView(DicomSeries series, DicomViewerPlugin selectedPlugin) {
+    viewCanvas.setSeries(series, null);
+    viewCanvas.getJComponent().repaint();
+    // Getting the focus has a delay, and so it will trigger the view selection later
+    if (Boolean.TRUE.equals(selectedPlugin.isContainingView(viewCanvas))) {
+      selectedPlugin.setSelectedImagePaneFromFocus(viewCanvas);
     }
   }
 
@@ -271,10 +293,18 @@ public class DicomSeriesHandler extends SequenceHandler {
       try {
         action.run();
       } finally {
-        selectionModel.setOpeningSeries(false);
+        scheduleOpeningSeriesReset(selectionModel);
       }
     } else {
       action.run();
     }
+  }
+
+  private void scheduleOpeningSeriesReset(SeriesSelectionModel selectionModel) {
+    Timer timer =
+        new Timer(
+            DROP_SELECTION_SCROLL_SUPPRESSION_MS, _ -> selectionModel.setOpeningSeries(false));
+    timer.setRepeats(false);
+    timer.start();
   }
 }

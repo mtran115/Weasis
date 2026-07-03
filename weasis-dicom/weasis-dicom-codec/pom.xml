@@ -40,6 +40,7 @@
             <configuration>
               <includeArtifactIds>dcm4che-dict</includeArtifactIds>
               <includes>uids.xml,dataelements.xml</includes>
+              <overWriteReleases>true</overWriteReleases>
               <outputDirectory>${project.build.directory}/classes</outputDirectory>
             </configuration>
           </execution>
