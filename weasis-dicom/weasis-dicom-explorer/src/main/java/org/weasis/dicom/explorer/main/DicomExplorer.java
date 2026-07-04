@@ -407,6 +407,12 @@ public class DicomExplorer extends PluginTool
     } else if (newVal instanceof SeriesEvent event
         && event.getActionCommand() == SeriesEvent.Action.ADD_IMAGE
         && event.getSource() instanceof DicomSeries series) {
+      handleImageAdded(series);
+    }
+  }
+
+  private void handleImageAdded(DicomSeries series) {
+    if (paneManager.shouldProcessImageAdded(series)) {
       addDicomSeries(series);
     }
   }

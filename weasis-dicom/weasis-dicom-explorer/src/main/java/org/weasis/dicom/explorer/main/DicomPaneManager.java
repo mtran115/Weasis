@@ -243,12 +243,28 @@ public class DicomPaneManager {
     return getSingleSeriesTile();
   }
 
+  public boolean shouldProcessImageAdded(DicomSeries series) {
+    if (series == null) {
+      return false;
+    }
+    int imageCount = series.size(null);
+    if (shouldFlattenSeries(series, imageCount)) {
+      return true;
+    }
+    return hasUnknownModality(series) && imageCount == MAX_UNKNOWN_MODALITY_FLATTENED_IMAGES + 1;
+  }
+
   private boolean shouldFlattenSeries(DicomSeries series, int imageCount) {
-    String modality = TagD.getTagValue(series, Tag.Modality, String.class);
-    if (modality == null || modality.isBlank()) {
+    if (hasUnknownModality(series)) {
       return imageCount <= MAX_UNKNOWN_MODALITY_FLATTENED_IMAGES;
     }
+    String modality = TagD.getTagValue(series, Tag.Modality, String.class);
     return FLATTENED_THUMBNAIL_MODALITIES.contains(modality.strip().toUpperCase(Locale.ROOT));
+  }
+
+  private boolean hasUnknownModality(DicomSeries series) {
+    String modality = TagD.getTagValue(series, Tag.Modality, String.class);
+    return modality == null || modality.isBlank();
   }
 
   private List<DicomImageElement> getSingleSeriesTile() {
