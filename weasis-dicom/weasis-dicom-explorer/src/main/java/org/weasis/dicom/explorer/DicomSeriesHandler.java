@@ -20,6 +20,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.weasis.core.api.explorer.model.DataExplorerModel;
 import org.weasis.core.api.explorer.model.TreeModel;
+import org.weasis.core.api.gui.util.ActionW;
+import org.weasis.core.api.gui.util.Filter;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.Series;
@@ -28,12 +30,14 @@ import org.weasis.core.ui.editor.SeriesViewerFactory;
 import org.weasis.core.ui.editor.ViewerOpenOptions;
 import org.weasis.core.ui.editor.ViewerPlacement;
 import org.weasis.core.ui.editor.ViewerPluginBuilder;
+import org.weasis.core.ui.editor.image.ImageViewerPlugin;
 import org.weasis.core.ui.editor.image.SequenceHandler;
 import org.weasis.core.ui.editor.image.SynchData;
 import org.weasis.core.ui.editor.image.ViewCanvas;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.codec.TagD;
+import org.weasis.dicom.codec.geometry.ImageOrientation;
 import org.weasis.dicom.explorer.HangingProtocols.OpeningViewer;
 import org.weasis.dicom.explorer.main.DicomExplorer;
 import org.weasis.dicom.explorer.main.SeriesSelectionModel;
@@ -178,7 +182,8 @@ public class DicomSeriesHandler extends SequenceHandler {
   }
 
   private void replaceTargetView(DicomSeries series, DicomViewerPlugin selectedPlugin) {
-    viewCanvas.setSeries(series, null);
+    viewCanvas.setSeries(null);
+    viewCanvas.setSeries(series, resolveReplacementImage(series, selectedPlugin, viewCanvas, null));
     viewCanvas.getJComponent().repaint();
     // Getting the focus has a delay, and so it will trigger the view selection later
     if (Boolean.TRUE.equals(selectedPlugin.isContainingView(viewCanvas))) {
@@ -206,12 +211,72 @@ public class DicomSeriesHandler extends SequenceHandler {
     if (isTileMode(selectedPlugin)) {
       selectedPlugin.addSeries(series);
     } else {
-      viewCanvas.setSeries(series);
+      viewCanvas.setSeries(null);
+      viewCanvas.setSeries(
+          series, resolveReplacementImage(series, selectedPlugin, viewCanvas, null));
       // Getting the focus has a delay, and so it will trigger the view selection later
       if (Boolean.TRUE.equals(selectedPlugin.isContainingView(viewCanvas))) {
         selectedPlugin.setSelectedImagePaneFromFocus(viewCanvas);
       }
     }
+  }
+
+  public static DicomImageElement resolveReplacementImage(
+      DicomSeries targetSeries,
+      ImageViewerPlugin<DicomImageElement> viewer,
+      ViewCanvas<DicomImageElement> targetView,
+      DicomImageElement requestedImage) {
+    if (requestedImage != null || targetSeries == null || viewer == null || targetView == null) {
+      return requestedImage;
+    }
+
+    DicomImageElement referenceImage = findReferenceImage(targetSeries, viewer, targetView);
+    if (referenceImage == null) {
+      return null;
+    }
+
+    Double location = (Double) referenceImage.getTagValue(TagW.SlicePosition);
+    if (location == null) {
+      return null;
+    }
+
+    return targetSeries.getNearestImage(
+        location,
+        0,
+        (Filter<DicomImageElement>) targetView.getActionValue(ActionW.FILTERED_SERIES.cmd()),
+        targetView.getCurrentSortComparator());
+  }
+
+  private static DicomImageElement findReferenceImage(
+      DicomSeries targetSeries,
+      ImageViewerPlugin<DicomImageElement> viewer,
+      ViewCanvas<DicomImageElement> targetView) {
+    for (ViewCanvas<DicomImageElement> view : viewer.getImagePanels()) {
+      if (view == targetView || !(view.getSeries() instanceof DicomSeries referenceSeries)) {
+        continue;
+      }
+      DicomImageElement image = view.getImage();
+      if (image != null && isReferenceSeriesForReplacement(targetSeries, referenceSeries)) {
+        return image;
+      }
+    }
+    return null;
+  }
+
+  private static boolean isReferenceSeriesForReplacement(
+      DicomSeries targetSeries, DicomSeries referenceSeries) {
+    if (!isSameFrameOfReference(targetSeries, referenceSeries)) {
+      return false;
+    }
+    return ImageOrientation.hasSameOrientation(targetSeries, referenceSeries);
+  }
+
+  private static boolean isSameFrameOfReference(
+      DicomSeries targetSeries, DicomSeries referenceSeries) {
+    String targetFrame = TagD.getTagValue(targetSeries, Tag.FrameOfReferenceUID, String.class);
+    String referenceFrame =
+        TagD.getTagValue(referenceSeries, Tag.FrameOfReferenceUID, String.class);
+    return targetFrame == null || referenceFrame == null || targetFrame.equals(referenceFrame);
   }
 
   private boolean isTileMode(DicomViewerPlugin selectedPlugin) {

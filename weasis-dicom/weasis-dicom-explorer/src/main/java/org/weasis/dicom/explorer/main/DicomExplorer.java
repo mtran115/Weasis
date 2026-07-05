@@ -9,6 +9,9 @@
  */
 package org.weasis.dicom.explorer.main;
 
+import bibliothek.gui.DockStation;
+import bibliothek.gui.Dockable;
+import bibliothek.gui.dock.StackDockStation;
 import bibliothek.gui.dock.common.CLocation;
 import bibliothek.gui.dock.common.mode.ExtendedMode;
 import bibliothek.gui.dock.control.focus.DefaultFocusRequest;
@@ -36,10 +39,12 @@ import org.weasis.core.api.util.FontItem;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.ui.docking.PluginTool;
 import org.weasis.core.ui.editor.SeriesViewerEvent;
+import org.weasis.core.ui.editor.SeriesViewerFactory;
 import org.weasis.core.ui.editor.SeriesViewerListener;
 import org.weasis.core.ui.editor.image.ImageViewerPlugin;
 import org.weasis.core.ui.editor.image.SequenceHandler;
 import org.weasis.core.ui.editor.image.ViewCanvas;
+import org.weasis.core.ui.editor.image.ViewerPlugin;
 import org.weasis.core.ui.util.ArrayListComboBoxModel;
 import org.weasis.core.ui.util.DefaultAction;
 import org.weasis.core.ui.util.TitleMenuItem;
@@ -843,6 +848,29 @@ public class DicomExplorer extends PluginTool
     return null;
   }
 
+  public boolean displaySeriesInSelectedView(
+      DicomSeries dicomSeries, DicomImageElement selectedImage) {
+    if (dicomSeries == null) {
+      return false;
+    }
+
+    SelectedDicomView selectedView = getSelectedDicomView(dicomSeries);
+    if (selectedView == null) {
+      return false;
+    }
+
+    selectionList.setOpeningSeries(true);
+    try {
+      DicomImageElement image =
+          DicomSeriesHandler.resolveReplacementImage(
+              dicomSeries, selectedView.viewer(), selectedView.view(), selectedImage);
+      displaySeries(selectedView.view(), dicomSeries, image);
+      return true;
+    } finally {
+      selectionList.setOpeningSeries(false);
+    }
+  }
+
   public Set<DicomSeries> getSelectedPatientOpenSeries() {
     MediaSeriesGroupNode patient = getSelectedPatient();
     if (patient != null) {
@@ -1083,6 +1111,79 @@ public class DicomExplorer extends PluginTool
     return null;
   }
 
+  private SelectedDicomView getSelectedDicomView(DicomSeries dicomSeries) {
+    ImageViewerPlugin<?> viewer = getSelectedImageViewerPlugin(dicomSeries);
+    if (viewer == null) {
+      return null;
+    }
+
+    ViewCanvas<?> view = viewer.getSelectedViewCanvas();
+    if (view == null) {
+      return null;
+    }
+    return new SelectedDicomView(viewer, view);
+  }
+
+  private ImageViewerPlugin<?> getSelectedImageViewerPlugin(DicomSeries dicomSeries) {
+    SeriesViewerFactory viewerFactory =
+        GuiUtils.getUICore().getViewerFactory(dicomSeries.getMimeType());
+    List<ViewerPlugin<?>> viewerPlugins = GuiUtils.getUICore().getViewerPlugins();
+    synchronized (viewerPlugins) {
+      for (int i = viewerPlugins.size() - 1; i >= 0; i--) {
+        ViewerPlugin<?> viewer = viewerPlugins.get(i);
+        if (isMatchingImageViewer(viewer, viewerFactory) && isFrontDockable(viewer)) {
+          return (ImageViewerPlugin<?>) viewer;
+        }
+      }
+
+      for (int i = viewerPlugins.size() - 1; i >= 0; i--) {
+        ViewerPlugin<?> viewer = viewerPlugins.get(i);
+        if (isMatchingImageViewer(viewer, viewerFactory) && viewer.getDockable().isVisible()) {
+          return (ImageViewerPlugin<?>) viewer;
+        }
+      }
+    }
+    return null;
+  }
+
+  private boolean isMatchingImageViewer(ViewerPlugin<?> viewer, SeriesViewerFactory viewerFactory) {
+    return viewer instanceof ImageViewerPlugin<?>
+        && viewer.getDockable().isVisible()
+        && (viewerFactory == null || viewerFactory.isViewerCreatedByThisFactory(viewer));
+  }
+
+  private boolean isFrontDockable(ViewerPlugin<?> viewer) {
+    Dockable dockable = viewer.getDockable().intern();
+    DockStation parent = dockable.getDockParent();
+    if (parent instanceof StackDockStation stackDockStation) {
+      return dockable.equals(stackDockStation.getFrontDockable());
+    }
+
+    if (viewer.getDockable().getWorkingArea() == null) {
+      return false;
+    }
+
+    Dockable focusedDockable =
+        GuiUtils.getUICore()
+            .getDockingControl()
+            .getController()
+            .getFocusHistory()
+            .getNewestOn(viewer.getDockable().getWorkingArea().getStation());
+    return dockable.equals(focusedDockable);
+  }
+
+  @SuppressWarnings("unchecked")
+  private record SelectedDicomView(ImageViewerPlugin<?> rawViewer, ViewCanvas<?> rawView) {
+
+    private ImageViewerPlugin<DicomImageElement> viewer() {
+      return (ImageViewerPlugin<DicomImageElement>) rawViewer;
+    }
+
+    private ViewCanvas<DicomImageElement> view() {
+      return (ViewCanvas<DicomImageElement>) rawView;
+    }
+  }
+
   // ========== UI State Management ==========
 
   private void loadingPanelMessage(ObservableEvent event) {
@@ -1188,50 +1289,7 @@ public class DicomExplorer extends PluginTool
 
   @Override
   public void changingViewContentEvent(SeriesViewerEvent event) {
-    SeriesViewerEvent.EVENT type = event.getEventType();
-    if (SeriesViewerEvent.EVENT.SELECT_VIEW.equals(type)
-        && event.getSeriesViewer() instanceof ImageViewerPlugin) {
-      ViewCanvas<?> pane = ((ImageViewerPlugin<?>) event.getSeriesViewer()).getSelectedViewCanvas();
-      if (pane != null) {
-        MediaSeries<?> s = pane.getSeries();
-        if (s != null
-            && !getSelectionList().isOpeningSeries()
-            && isSeriesVisibleInThumbnailView(s)) {
-          DicomImageElement image = pane.getImage() instanceof DicomImageElement dcm ? dcm : null;
-          SeriesPane p = paneManager.getSeriesPane(s, image);
-          if (p != null) {
-            JViewport vp = thumbnailView.getViewport();
-            Component viewComponent = vp.getView();
-            Rectangle bound = vp.getViewRect();
-            Point ptmin = SwingUtilities.convertPoint(p, new Point(0, 0), viewComponent);
-            Point ptmax =
-                SwingUtilities.convertPoint(p, new Point(0, p.getHeight()), viewComponent);
-            if (!bound.contains(ptmin.x, ptmin.y) || !bound.contains(ptmax.x, ptmax.y)) {
-              Point pt = vp.getViewPosition();
-              pt.y = ptmin.y + (ptmax.y - ptmin.y) / 2;
-              pt.y -= vp.getHeight() / 2;
-              int maxHeight = (int) (vp.getViewSize().getHeight() - vp.getExtentSize().getHeight());
-              if (pt.y < 0) {
-                pt.y = 0;
-              } else if (pt.y > maxHeight) {
-                pt.y = maxHeight;
-              }
-              vp.setViewPosition(pt);
-              // Clear the selection when another view is selected
-              getSelectionList().clear();
-            }
-          }
-        }
-      }
-    }
-  }
-
-  private boolean isSeriesVisibleInThumbnailView(MediaSeries<?> series) {
-    SeriesPane pane = paneManager.getSeriesPane(series);
-    Component viewComponent = thumbnailView.getViewport().getView();
-    return pane != null
-        && viewComponent != null
-        && SwingUtilities.isDescendingFrom(pane, viewComponent);
+    // Keep the thumbnail panel fixed while the reader changes or clicks viewer panes.
   }
 
   // ========== Cleanup ==========

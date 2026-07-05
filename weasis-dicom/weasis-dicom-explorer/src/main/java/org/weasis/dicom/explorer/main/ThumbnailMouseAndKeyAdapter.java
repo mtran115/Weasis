@@ -82,8 +82,8 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
 
   @Override
   public void mouseClicked(MouseEvent e) {
-    if (e.getClickCount() == 2) {
-      openSeriesInDefaultPlugin(series, dicomModel, selectedImage);
+    if (shouldOpenOnSingleClick(e)) {
+      openSeriesInSelectedView(series, dicomModel, selectedImage);
     }
   }
 
@@ -571,5 +571,25 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
     } finally {
       selList.setOpeningSeries(false);
     }
+  }
+
+  private boolean shouldOpenOnSingleClick(MouseEvent e) {
+    return e.getClickCount() == 1
+        && SwingUtilities.isLeftMouseButton(e)
+        && !e.isPopupTrigger()
+        && !e.isShiftDown()
+        && !e.isControlDown()
+        && !e.isMetaDown()
+        && !e.isAltDown();
+  }
+
+  private static void openSeriesInSelectedView(
+      DicomSeries series, DicomModel dicomModel, DicomImageElement selectedImage) {
+    DataExplorerView explorer = GuiUtils.getUICore().getExplorerPlugin(DicomExplorer.NAME);
+    if (explorer instanceof DicomExplorer dicomExplorer
+        && dicomExplorer.displaySeriesInSelectedView(series, selectedImage)) {
+      return;
+    }
+    openSeriesInDefaultPlugin(series, dicomModel, selectedImage);
   }
 }
