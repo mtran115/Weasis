@@ -493,7 +493,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
       @Override
       public void mouseWheelMoved(MouseWheelEvent e) {
         if (isActionEnabled() && !e.isConsumed()) {
-          setSliderValue(getSliderValue() + e.getWheelRotation());
+          setSliderValue(getSliderValue() + getWheelRotationDirection(e));
         }
       }
     };

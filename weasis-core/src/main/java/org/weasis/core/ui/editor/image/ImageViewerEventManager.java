@@ -144,7 +144,7 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
 
       @Override
       public void mouseWheelMoved(MouseWheelEvent e) {
-        setSliderValue(getSliderValue() + e.getWheelRotation());
+        setSliderValue(getSliderValue() + getWheelRotationDirection(e));
       }
     };
   }

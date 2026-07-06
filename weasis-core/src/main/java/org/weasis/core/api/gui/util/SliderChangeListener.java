@@ -399,6 +399,14 @@ public abstract class SliderChangeListener extends MouseActionAdapter
     }
   }
 
+  protected static int getWheelRotationDirection(MouseWheelEvent e) {
+    int rotation = e.getWheelRotation();
+    if (rotation != 0) {
+      return Integer.signum(rotation);
+    }
+    return Double.compare(e.getPreciseWheelRotation(), 0.0);
+  }
+
   public JSliderW createSlider(int labelDivision, boolean displayValueInTitle) {
     TitledBorder titledBorder =
         new TitledBorder(
