@@ -865,6 +865,11 @@ public class DicomExplorer extends PluginTool
           DicomSeriesHandler.resolveReplacementImage(
               dicomSeries, selectedView.viewer(), selectedView.view(), selectedImage);
       displaySeries(selectedView.view(), dicomSeries, image);
+      selectedView.viewer().setSelectedAndGetFocus();
+      selectedView.viewer().getEventManager().setSelectedView2dContainer(selectedView.viewer());
+      selectedView.viewer().setSelectedImagePane(selectedView.view());
+      selectedView.view().getJComponent().requestFocusInWindow();
+      SwingUtilities.invokeLater(() -> selectedView.view().getJComponent().requestFocusInWindow());
       return true;
     } finally {
       selectionList.setOpeningSeries(false);
@@ -1260,7 +1265,7 @@ public class DicomExplorer extends PluginTool
   public void importFiles(File[] files, boolean recursive) {
     if (files != null) {
       DicomModel.LOADING_EXECUTOR.execute(
-          new LoadLocalDicom(files, recursive, model, OpeningViewer.ALL_PATIENTS));
+          new LoadLocalDicom(files, recursive, model, OpeningViewer.ALL_PATIENTS, true));
     }
   }
 

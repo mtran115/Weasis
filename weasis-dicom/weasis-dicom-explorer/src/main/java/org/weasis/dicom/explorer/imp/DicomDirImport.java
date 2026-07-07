@@ -163,6 +163,7 @@ public class DicomDirImport extends AbstractItemDialogPage implements ImportDico
           loadDicomDir(file, dicomModel, checkboxWriteInCache.isSelected());
 
       if (loadSeries != null && !loadSeries.isEmpty()) {
+        dicomModel.removeAllPatientsAndCloseViewers();
         DicomModel.LOADING_EXECUTOR.execute(
             new LoadDicomDir(loadSeries, dicomModel, getOpeningViewer()));
       } else {

@@ -70,6 +70,7 @@ import org.weasis.core.ui.editor.SeriesViewerFactory;
 import org.weasis.core.ui.editor.ViewerOpenOptions;
 import org.weasis.core.ui.editor.ViewerPlacement;
 import org.weasis.core.ui.editor.ViewerPluginBuilder;
+import org.weasis.core.ui.editor.image.ViewerPlugin;
 import org.weasis.core.util.StringUtil;
 import org.weasis.dicom.codec.AbstractKOSpecialElement;
 import org.weasis.dicom.codec.DicomEncapDocElement;
@@ -555,6 +556,23 @@ public class DicomModel implements TreeModel, DataExplorerModel {
       removeHierarchyNode(MediaSeriesGroupNode.rootNode, patientGroup);
       LOGGER.info("Remove Patient: {}", patientGroup);
     }
+  }
+
+  public void removeAllPatientsAndCloseViewers() {
+    GuiExecutor.invokeAndWait(
+        () -> {
+          List<ViewerPlugin<?>> viewerPlugins =
+              new ArrayList<>(GuiUtils.getUICore().getViewerPlugins());
+          if (!viewerPlugins.isEmpty()) {
+            GuiUtils.getUICore().closeSeriesViewer(viewerPlugins);
+          }
+
+          List<MediaSeriesGroup> patients =
+              new ArrayList<>(getChildren(MediaSeriesGroupNode.rootNode));
+          for (MediaSeriesGroup patient : patients) {
+            removePatient(patient);
+          }
+        });
   }
 
   public static boolean isHiddenModality(MediaSeries<?> series) {
@@ -1224,7 +1242,8 @@ public class DicomModel implements TreeModel, DataExplorerModel {
         files[i] = new File(largs.get(i));
       }
       OpeningViewer openingViewer = OpeningViewer.ALL_PATIENTS;
-      LOADING_EXECUTOR.execute(new LoadLocalDicom(files, true, DicomModel.this, openingViewer));
+      LOADING_EXECUTOR.execute(
+          new LoadLocalDicom(files, true, DicomModel.this, openingViewer, true));
     }
 
     if (opt.isSet("remote")) { // NON-NLS
@@ -1302,7 +1321,7 @@ public class DicomModel implements TreeModel, DataExplorerModel {
               new LoadDicomDir(loadSeries, DicomModel.this, OpeningViewer.ALL_PATIENTS));
         } else {
           LOADING_EXECUTOR.execute(
-              new LoadLocalDicom(files, true, DicomModel.this, OpeningViewer.ALL_PATIENTS));
+              new LoadLocalDicom(files, true, DicomModel.this, OpeningViewer.ALL_PATIENTS, true));
         }
       }
     }

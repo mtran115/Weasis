@@ -14,6 +14,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import org.dcm4che3.data.Tag;
 import org.slf4j.Logger;
@@ -112,7 +113,7 @@ public class DicomSeriesHandler extends SequenceHandler {
               var model = explorer.getDataExplorerModel();
               var files = paths.stream().map(Path::toFile).toArray(File[]::new);
               DicomModel.LOADING_EXECUTOR.execute(
-                  new LoadLocalDicom(files, true, model, OpeningViewer.ALL_PATIENTS));
+                  new LoadLocalDicom(files, true, model, OpeningViewer.ALL_PATIENTS, true));
               return true;
             })
         .orElse(false);
@@ -185,10 +186,7 @@ public class DicomSeriesHandler extends SequenceHandler {
     viewCanvas.setSeries(null);
     viewCanvas.setSeries(series, resolveReplacementImage(series, selectedPlugin, viewCanvas, null));
     viewCanvas.getJComponent().repaint();
-    // Getting the focus has a delay, and so it will trigger the view selection later
-    if (Boolean.TRUE.equals(selectedPlugin.isContainingView(viewCanvas))) {
-      selectedPlugin.setSelectedImagePaneFromFocus(viewCanvas);
-    }
+    activateTargetView(selectedPlugin);
   }
 
   private boolean canAddToCurrentPlugin(
@@ -214,10 +212,17 @@ public class DicomSeriesHandler extends SequenceHandler {
       viewCanvas.setSeries(null);
       viewCanvas.setSeries(
           series, resolveReplacementImage(series, selectedPlugin, viewCanvas, null));
-      // Getting the focus has a delay, and so it will trigger the view selection later
-      if (Boolean.TRUE.equals(selectedPlugin.isContainingView(viewCanvas))) {
-        selectedPlugin.setSelectedImagePaneFromFocus(viewCanvas);
-      }
+      activateTargetView(selectedPlugin);
+    }
+  }
+
+  private void activateTargetView(DicomViewerPlugin selectedPlugin) {
+    if (Boolean.TRUE.equals(selectedPlugin.isContainingView(viewCanvas))) {
+      selectedPlugin.setSelectedAndGetFocus();
+      selectedPlugin.getEventManager().setSelectedView2dContainer(selectedPlugin);
+      selectedPlugin.setSelectedImagePane(viewCanvas);
+      viewCanvas.getJComponent().requestFocusInWindow();
+      SwingUtilities.invokeLater(() -> viewCanvas.getJComponent().requestFocusInWindow());
     }
   }
 

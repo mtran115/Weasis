@@ -188,6 +188,15 @@ public class DicomZipMediaIO implements MediaReader<MediaElement> {
 
   public static void loadDicomZip(
       File file, DicomModel dicomModel, OpeningViewer openingViewer, Component parent) {
+    loadDicomZip(file, dicomModel, openingViewer, parent, true);
+  }
+
+  public static void loadDicomZip(
+      File file,
+      DicomModel dicomModel,
+      OpeningViewer openingViewer,
+      Component parent,
+      boolean clearExistingStudies) {
     if (file != null && file.canRead()) {
       Path dir =
           FileUtil.createTempDir(
@@ -212,9 +221,10 @@ public class DicomZipMediaIO implements MediaReader<MediaElement> {
                   null,
                   null,
                   pass);
-          if (response == JOptionPane.OK_OPTION) {
-            zipFile.setPassword(pass.getPassword());
+          if (response != JOptionPane.OK_OPTION) {
+            return;
           }
+          zipFile.setPassword(pass.getPassword());
         }
         zipFile.extractAll(dir.toString());
       } catch (IOException e) {
@@ -225,12 +235,18 @@ public class DicomZipMediaIO implements MediaReader<MediaElement> {
         DicomDirLoader dirImport = new DicomDirLoader(dicomdir, dicomModel, false);
         List<LoadSeries> loadSeries = dirImport.readDicomDir();
         if (loadSeries != null && !loadSeries.isEmpty()) {
+          if (clearExistingStudies) {
+            dicomModel.removeAllPatientsAndCloseViewers();
+          }
           DicomModel.LOADING_EXECUTOR.execute(
               new LoadDicomDir(loadSeries, dicomModel, openingViewer));
         } else {
           LOGGER.error("Cannot import DICOM from {}", file);
         }
       } else {
+        if (clearExistingStudies) {
+          dicomModel.removeAllPatientsAndCloseViewers();
+        }
         LoadLocalDicom dicom =
             new LoadLocalDicom(new File[] {dir.toFile()}, true, dicomModel, openingViewer);
         DicomModel.LOADING_EXECUTOR.execute(dicom);

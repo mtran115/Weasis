@@ -34,10 +34,25 @@ public class LoadLocalDicom extends LoadDicom {
 
   private final File[] files;
   private final boolean recursive;
+  private final boolean clearExistingStudies;
 
   public LoadLocalDicom(
       File[] files, boolean recursive, DataExplorerModel explorerModel, OpeningViewer openingMode) {
-    this(files, recursive, explorerModel, new PluginOpeningStrategy(openingMode));
+    this(files, recursive, explorerModel, openingMode, false);
+  }
+
+  public LoadLocalDicom(
+      File[] files,
+      boolean recursive,
+      DataExplorerModel explorerModel,
+      OpeningViewer openingMode,
+      boolean clearExistingStudies) {
+    this(
+        files,
+        recursive,
+        explorerModel,
+        new PluginOpeningStrategy(openingMode),
+        clearExistingStudies);
   }
 
   public LoadLocalDicom(
@@ -45,15 +60,28 @@ public class LoadLocalDicom extends LoadDicom {
       boolean recursive,
       DataExplorerModel explorerModel,
       PluginOpeningStrategy openingStrategy) {
+    this(files, recursive, explorerModel, openingStrategy, false);
+  }
+
+  public LoadLocalDicom(
+      File[] files,
+      boolean recursive,
+      DataExplorerModel explorerModel,
+      PluginOpeningStrategy openingStrategy,
+      boolean clearExistingStudies) {
     super(explorerModel, false, openingStrategy);
     this.files = Objects.requireNonNull(files);
     this.recursive = recursive;
+    this.clearExistingStudies = clearExistingStudies;
   }
 
   @Override
   protected Boolean doInBackground() throws Exception {
     startLoadingEvent();
     if (files.length > 0 && !isCancelled()) {
+      if (clearExistingStudies) {
+        dicomModel.removeAllPatientsAndCloseViewers();
+      }
       openingStrategy.prepareImport();
       if (!isCancelled()) {
         addSelectionAndNotify(files, true);
@@ -109,7 +137,8 @@ public class LoadLocalDicom extends LoadDicom {
         if (isCancelled()) {
           return;
         }
-        new DicomZipMediaIO(value.toURI(), null).delegate(dicomModel);
+        DicomZipMediaIO.loadDicomZip(
+            value, dicomModel, HangingProtocols.OpeningViewer.ALL_PATIENTS, null, false);
         if (isCancelled()) {
           return;
         }
