@@ -291,6 +291,11 @@ public class ZoomWin<E extends ImageElement> extends GraphicsPane
   }
 
   @Override
+  public double getActualPixelZoomPresetViewScale() {
+    return view2d.getActualPixelZoomPresetViewScale();
+  }
+
+  @Override
   public double adjustViewScale(double viewScale) {
     return view2d.adjustViewScale(viewScale);
   }

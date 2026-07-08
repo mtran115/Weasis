@@ -85,6 +85,46 @@ public class ZoomToolBar extends WtoolBar {
         });
     list.add(actualZoomMenu);
 
+    final int actualPixelZoomPercent = eventManager.getZoomSetting().getActualPixelZoomPercent();
+    final JMenuItem actualPixelPresetMenu =
+        new JMenuItem(
+            Messages.getString("ViewerToolBar.zoom_pixel_preset")
+                + " ("
+                + actualPixelZoomPercent
+                + "%)",
+            ResourceUtil.getIcon(ActionIcon.ZOOM_ORIGINAL));
+    GuiUtils.applySelectedIconEffect(actualPixelPresetMenu);
+    actualPixelPresetMenu.addActionListener(
+        e -> {
+          // Pass the value -400.0 (convention: -400.0 => configured actual pixel preset)
+          // directly to the property change, otherwise the value is adjusted by the
+          // BoundedRangeModel.
+          eventManager.firePropertyChange(
+              ActionW.SYNCH.cmd(),
+              null,
+              new SynchEvent(null, ActionW.ZOOM.cmd(), Canvas.ZOOM_ACTUAL_PIXEL_PRESET));
+          AuditLog.LOGGER.info(
+              "action:{} val:{}", ActionW.ZOOM.cmd(), Canvas.ZOOM_ACTUAL_PIXEL_PRESET);
+        });
+    list.add(actualPixelPresetMenu);
+
+    final JMenuItem fitHeightMenu =
+        new JMenuItem(
+            Messages.getString("ViewerToolBar.zoom_h"),
+            ResourceUtil.getIcon(ActionIcon.ZOOM_BEST_FIT));
+    GuiUtils.applySelectedIconEffect(fitHeightMenu);
+    fitHeightMenu.addActionListener(
+        e -> {
+          // Pass the value -300.0 (convention: -300.0 => fit height) directly to the
+          // property change, otherwise the value is adjusted by the BoundedRangeModel
+          eventManager.firePropertyChange(
+              ActionW.SYNCH.cmd(),
+              null,
+              new SynchEvent(null, ActionW.ZOOM.cmd(), Canvas.ZOOM_FIT_HEIGHT));
+          AuditLog.LOGGER.info("action:{} val:{}", ActionW.ZOOM.cmd(), Canvas.ZOOM_FIT_HEIGHT);
+        });
+    list.add(fitHeightMenu);
+
     ImageViewerPlugin<?> selCt = eventManager.getSelectedView2dContainer();
     Window win = selCt == null ? null : SwingUtilities.getWindowAncestor(selCt);
     if (win != null) {
@@ -103,8 +143,11 @@ public class ZoomToolBar extends WtoolBar {
                 // Pass the value -100.0 (convention: -100.0 => real world size) directly to the
                 // property change, otherwise the value is adjusted by the BoundedRangeModel
                 eventManager.firePropertyChange(
-                    ActionW.SYNCH.cmd(), null, new SynchEvent(null, ActionW.ZOOM.cmd(), -100.0));
-                AuditLog.LOGGER.info("action:{} val:-100.0", ActionW.ZOOM.cmd());
+                    ActionW.SYNCH.cmd(),
+                    null,
+                    new SynchEvent(null, ActionW.ZOOM.cmd(), Canvas.ZOOM_REAL_WORLD));
+                AuditLog.LOGGER.info(
+                    "action:{} val:{}", ActionW.ZOOM.cmd(), Canvas.ZOOM_REAL_WORLD);
               });
           list.add(realSizeMenu);
         }
@@ -121,8 +164,10 @@ public class ZoomToolBar extends WtoolBar {
           // Pass the value -200.0 (convention: -200.0 = > best fit zoom value) directly to the
           // property change, otherwise the value is adjusted by the BoundedRangeModel
           eventManager.firePropertyChange(
-              ActionW.SYNCH.cmd(), null, new SynchEvent(null, ActionW.ZOOM.cmd(), -200.0));
-          AuditLog.LOGGER.info("action:{} val:-200.0", ActionW.ZOOM.cmd());
+              ActionW.SYNCH.cmd(),
+              null,
+              new SynchEvent(null, ActionW.ZOOM.cmd(), Canvas.ZOOM_BEST_FIT));
+          AuditLog.LOGGER.info("action:{} val:{}", ActionW.ZOOM.cmd(), Canvas.ZOOM_BEST_FIT);
         });
     list.add(bestFitMenu);
 

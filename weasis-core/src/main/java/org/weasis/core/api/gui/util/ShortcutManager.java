@@ -308,6 +308,8 @@ public final class ShortcutManager {
   public static final String ID_VIEWER_ZOOM_OUT = "viewer.zoomOut";
   public static final String ID_VIEWER_ZOOM_IN = "viewer.zoomIn";
   public static final String ID_VIEWER_BEST_FIT = "viewer.bestFit";
+  public static final String ID_VIEWER_FIT_HEIGHT = "viewer.fitHeight";
+  public static final String ID_VIEWER_ACTUAL_PIXEL_PRESET = "viewer.actualPixelPreset";
   public static final String ID_VIEWER_ROTATE_LEFT = "viewer.rotateLeft";
   public static final String ID_VIEWER_ROTATE_RIGHT = "viewer.rotateRight";
   public static final String ID_VIEWER_FLIP_HORIZONTAL = "viewer.flipHorizontal";
@@ -486,6 +488,18 @@ public final class ShortcutManager {
         CATEGORY_VIEWER,
         KeyEvent.VK_ENTER,
         KeyEvent.CTRL_MASK);
+    register(
+        ID_VIEWER_FIT_HEIGHT,
+        Messages.getString("ShortcutManager.fit_height"),
+        CATEGORY_VIEWER,
+        0,
+        0);
+    register(
+        ID_VIEWER_ACTUAL_PIXEL_PRESET,
+        Messages.getString("ShortcutManager.actual_pixel_preset"),
+        CATEGORY_VIEWER,
+        0,
+        0);
     register(
         ID_VIEWER_LAYOUT_1X2,
         Messages.getString("ShortcutManager.layout_1x2"),

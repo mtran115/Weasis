@@ -777,7 +777,18 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
       firePropertyChange(
           ActionW.SYNCH.cmd(),
           null,
-          new SynchEvent(getSelectedViewPane(), ActionW.ZOOM.cmd(), -200.0));
+          new SynchEvent(getSelectedViewPane(), ActionW.ZOOM.cmd(), Canvas.ZOOM_BEST_FIT));
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_FIT_HEIGHT, keyEvent, modifiers)) {
+      firePropertyChange(
+          ActionW.SYNCH.cmd(),
+          null,
+          new SynchEvent(getSelectedViewPane(), ActionW.ZOOM.cmd(), Canvas.ZOOM_FIT_HEIGHT));
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_ACTUAL_PIXEL_PRESET, keyEvent, modifiers)) {
+      firePropertyChange(
+          ActionW.SYNCH.cmd(),
+          null,
+          new SynchEvent(
+              getSelectedViewPane(), ActionW.ZOOM.cmd(), Canvas.ZOOM_ACTUAL_PIXEL_PRESET));
     } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X2, keyEvent, modifiers)) {
       changeSelectedViewerLayout("1x2");
     } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X3, keyEvent, modifiers)) {

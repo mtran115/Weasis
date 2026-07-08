@@ -29,6 +29,11 @@ import org.weasis.core.util.MathUtil;
 
 public interface Canvas {
 
+  double ZOOM_ACTUAL_PIXEL_PRESET = -400.0;
+  double ZOOM_FIT_HEIGHT = -300.0;
+  double ZOOM_BEST_FIT = -200.0;
+  double ZOOM_REAL_WORLD = -100.0;
+
   JComponent getJComponent();
 
   AffineTransform getAffineTransform();
@@ -70,6 +75,17 @@ public interface Canvas {
    * @return the best fit ratio
    */
   double getBestFitViewScale();
+
+  /**
+   * Get the image scale factor that matches the displayed image height to the view height.
+   *
+   * @return the fit-height ratio
+   */
+  double getFitHeightViewScale();
+
+  default double getActualPixelZoomPresetViewScale() {
+    return adjustViewScale(0.5);
+  }
 
   Point2D viewToModel(Double viewX, Double viewY);
 
@@ -134,6 +150,10 @@ public interface Canvas {
       ZoomType type = (ZoomType) getActionsInView().get(ZOOM_TYPE_CMD);
       if (ZoomType.BEST_FIT.equals(type)) {
         ratio = -getBestFitViewScale();
+      } else if (ZoomType.FIT_HEIGHT.equals(type)) {
+        ratio = -getFitHeightViewScale();
+      } else if (ZoomType.ACTUAL_PIXEL_PRESET.equals(type)) {
+        ratio = -getActualPixelZoomPresetViewScale();
       } else if (ZoomType.REAL.equals(type)) {
         ratio = -getRealWorldViewScale();
       }

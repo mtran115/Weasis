@@ -198,6 +198,32 @@ public abstract class GraphicsPane extends JComponent implements Canvas {
   }
 
   @Override
+  public double getFitHeightViewScale() {
+    Rectangle2D displayBounds = getImageDisplayBoundsAtScale(1.0);
+    double displayHeight = displayBounds.getHeight();
+    return displayHeight <= 0.0 ? 0.0 : cropViewScale(getHeight() / displayHeight);
+  }
+
+  private Rectangle2D getImageDisplayBoundsAtScale(double viewScale) {
+    Rectangle2D modelArea = viewModel.getModelArea();
+    double rWidth = modelArea.getWidth();
+    double rHeight = modelArea.getHeight();
+
+    boolean flip = LangUtil.nullToFalse((Boolean) getActionValue(ActionW.FLIP.cmd()));
+    Integer rotationAngle = (Integer) getActionValue(ActionW.ROTATION.cmd());
+
+    AffineTransform transform = new AffineTransform();
+    transform.setToScale(flip ? -viewScale : viewScale, viewScale);
+    if (rotationAngle != null && rotationAngle > 0) {
+      transform.rotate(Math.toRadians(rotationAngle), rWidth / 2.0, rHeight / 2.0);
+    }
+    if (flip) {
+      transform.translate(-rWidth, 0.0);
+    }
+    return transform.createTransformedShape(modelArea).getBounds2D();
+  }
+
+  @Override
   public Point2D viewToModel(Double viewX, Double viewY) {
     Point2D p = getViewCoordinatesOffset();
     p.setLocation(viewX - p.getX(), viewY - p.getY());

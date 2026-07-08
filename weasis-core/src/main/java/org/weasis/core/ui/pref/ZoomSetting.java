@@ -17,6 +17,9 @@ import org.weasis.core.api.service.BundlePreferences;
 public class ZoomSetting {
 
   public static final String PREFERENCE_NODE = "zoom"; // NON-NLS
+  public static final int DEFAULT_ACTUAL_PIXEL_ZOOM_PERCENT = 50;
+  public static final int MIN_ACTUAL_PIXEL_ZOOM_PERCENT = 5;
+  public static final int MAX_ACTUAL_PIXEL_ZOOM_PERCENT = 200;
   // public static final String P_ZOOM_SYNCH = "zoom.synch";
   // public static final String P_SHOW_DRAWINGS = "show.drawings";
   // public static final String P_ROUND = "round";
@@ -26,6 +29,7 @@ public class ZoomSetting {
   private int lensWidth = 200;
   private int lensHeight = 200;
   private int interpolation = 1;
+  private int actualPixelZoomPercent = DEFAULT_ACTUAL_PIXEL_ZOOM_PERCENT;
   private boolean lensRound = false;
   private int lensLineWidth = 2;
   private Color lensLineColor = new Color(195, 109, 254);
@@ -34,6 +38,8 @@ public class ZoomSetting {
     if (prefs != null) {
       Preferences p = prefs.node(ZoomSetting.PREFERENCE_NODE);
       setInterpolation(p.getInt("interpolation", Interpolation.BILINEAR.ordinal())); // NON-NLS
+      setActualPixelZoomPercent(
+          p.getInt("actualPixelZoomPercent", DEFAULT_ACTUAL_PIXEL_ZOOM_PERCENT)); // NON-NLS
     }
   }
 
@@ -41,6 +47,8 @@ public class ZoomSetting {
     if (prefs != null) {
       Preferences p = prefs.node(ZoomSetting.PREFERENCE_NODE);
       BundlePreferences.putIntPreferences(p, "interpolation", interpolation); // NON-NLS
+      BundlePreferences.putIntPreferences(
+          p, "actualPixelZoomPercent", actualPixelZoomPercent); // NON-NLS
     }
   }
 
@@ -94,6 +102,21 @@ public class ZoomSetting {
     } else {
       this.interpolation = interpolation;
     }
+  }
+
+  public int getActualPixelZoomPercent() {
+    return actualPixelZoomPercent;
+  }
+
+  public void setActualPixelZoomPercent(int actualPixelZoomPercent) {
+    this.actualPixelZoomPercent =
+        Math.max(
+            MIN_ACTUAL_PIXEL_ZOOM_PERCENT,
+            Math.min(MAX_ACTUAL_PIXEL_ZOOM_PERCENT, actualPixelZoomPercent));
+  }
+
+  public double getActualPixelZoomScale() {
+    return actualPixelZoomPercent / 100.0;
   }
 
   public boolean isLensRound() {

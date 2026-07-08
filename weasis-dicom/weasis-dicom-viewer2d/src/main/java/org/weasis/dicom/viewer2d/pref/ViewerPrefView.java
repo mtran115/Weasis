@@ -25,6 +25,8 @@ import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSlider;
+import javax.swing.JSpinner;
+import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import org.weasis.core.api.gui.util.AbstractItemDialogPage;
 import org.weasis.core.api.gui.util.ActionW;
@@ -42,6 +44,7 @@ import org.weasis.core.ui.editor.image.ImageViewerPlugin;
 import org.weasis.core.ui.editor.image.ViewCanvas;
 import org.weasis.core.ui.editor.image.ViewerPlugin;
 import org.weasis.core.ui.pref.PreferenceDialog;
+import org.weasis.core.ui.pref.ZoomSetting;
 import org.weasis.core.util.StringUtil;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.display.OverlayOp;
@@ -59,6 +62,7 @@ public class ViewerPrefView extends AbstractItemDialogPage {
   private final JComboBox<Feature<?>> comboBox = new JComboBox<>();
   private final JSlider slider = new JSlider(-100, 100, 0);
   private JComboBox<ZoomOp.Interpolation> comboBoxInterpolation;
+  private final JSpinner spinnerActualPixelZoom = new JSpinner();
   private JCheckBox checkBoxWLcolor;
   private JCheckBox checkBoxLevelInverse;
   private JCheckBox checkBoxApplyPR;
@@ -130,15 +134,36 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     comboBoxInterpolation = new JComboBox<>(ZoomOp.Interpolation.values());
     comboBoxInterpolation.setSelectedIndex(eventManager.getZoomSetting().getInterpolation());
 
+    JLabel lblActualPixelZoom =
+        new JLabel(Messages.getString("ViewerPrefView.actual_pixel_zoom") + StringUtil.COLON);
+    spinnerActualPixelZoom.setModel(
+        new SpinnerNumberModel(
+            eventManager.getZoomSetting().getActualPixelZoomPercent(),
+            ZoomSetting.MIN_ACTUAL_PIXEL_ZOOM_PERCENT,
+            ZoomSetting.MAX_ACTUAL_PIXEL_ZOOM_PERCENT,
+            5));
+    GuiUtils.setSpinnerWidth(spinnerActualPixelZoom, 4);
+    GuiUtils.formatCheckAction(spinnerActualPixelZoom);
+
     int shiftX = ITEM_SEPARATOR - ITEM_SEPARATOR_SMALL;
-    JPanel panel1 =
+    JPanel panel1 = GuiUtils.getVerticalBoxLayoutPanel();
+    panel1.add(
         GuiUtils.getFlowLayoutPanel(
             FlowLayout.LEADING,
             ITEM_SEPARATOR_SMALL,
             ITEM_SEPARATOR,
             GuiUtils.boxHorizontalStrut(shiftX),
             lblInterpolation,
-            comboBoxInterpolation);
+            comboBoxInterpolation));
+    panel1.add(
+        GuiUtils.getFlowLayoutPanel(
+            FlowLayout.LEADING,
+            ITEM_SEPARATOR_SMALL,
+            ITEM_SEPARATOR,
+            GuiUtils.boxHorizontalStrut(shiftX),
+            lblActualPixelZoom,
+            spinnerActualPixelZoom,
+            new JLabel("%")));
     panel1.setBorder(GuiUtils.getTitledBorder(Messages.getString("ViewerPrefView.zoom")));
     add(panel1);
     add(GuiUtils.boxVerticalStrut(BLOCK_SEPARATOR));
@@ -191,6 +216,14 @@ public class ViewerPrefView extends AbstractItemDialogPage {
 
     int interpolationPosition = comboBoxInterpolation.getSelectedIndex();
     eventManager.getZoomSetting().setInterpolation(interpolationPosition);
+    try {
+      spinnerActualPixelZoom.commitEdit();
+    } catch (java.text.ParseException e) {
+      // Keep the last valid spinner value.
+    }
+    eventManager
+        .getZoomSetting()
+        .setActualPixelZoomPercent(((Number) spinnerActualPixelZoom.getValue()).intValue());
     boolean applyWLcolor = checkBoxWLcolor.isSelected();
     eventManager.getOptions().putBooleanProperty(WindowOp.P_APPLY_WL_COLOR, applyWLcolor);
 
@@ -230,6 +263,7 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     slider.setValue(map.get((Feature<?>) comboBox.getSelectedItem()));
 
     comboBoxInterpolation.setSelectedItem(Interpolation.BILINEAR);
+    spinnerActualPixelZoom.setValue(ZoomSetting.DEFAULT_ACTUAL_PIXEL_ZOOM_PERCENT);
 
     // Get the default server configuration and if no value take the default value in parameter.
     WProperties properties = EventManager.getInstance().getOptions();

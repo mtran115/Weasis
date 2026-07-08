@@ -121,6 +121,8 @@ public abstract class DefaultView2d<E extends ImageElement> extends GraphicsPane
   public enum ZoomType {
     CURRENT,
     BEST_FIT,
+    FIT_HEIGHT,
+    ACTUAL_PIXEL_PRESET,
     PIXEL_SIZE,
     REAL
   }
@@ -1144,6 +1146,16 @@ public abstract class DefaultView2d<E extends ImageElement> extends GraphicsPane
   }
 
   @Override
+  public double getFitHeightViewScale() {
+    return adjustViewScale(super.getFitHeightViewScale());
+  }
+
+  @Override
+  public double getActualPixelZoomPresetViewScale() {
+    return adjustViewScale(eventManager.getZoomSetting().getActualPixelZoomScale());
+  }
+
+  @Override
   public double getRealWorldViewScale() {
     double viewScale = 0.0;
     E img = getImage();
@@ -1696,10 +1708,14 @@ public abstract class DefaultView2d<E extends ImageElement> extends GraphicsPane
         // Reset all settings to defaults
         reset();
       } else if (command.equals(ActionW.ZOOM.cmd())) {
-        // Handle zoom with special values for best fit and real world size
+        // Handle zoom with special values for presets and real world size
         double val = (Double) entry.getValue();
-        // Special values: -200.0 => best fit, -100.0 => real world size
-        if (MathUtil.isDifferent(val, -200.0) && MathUtil.isDifferent(val, -100.0)) {
+        // Special values: -400.0 => actual pixel preset, -300.0 => fit height,
+        // -200.0 => best fit, -100.0 => real world size
+        if (MathUtil.isDifferent(val, ZOOM_ACTUAL_PIXEL_PRESET)
+            && MathUtil.isDifferent(val, ZOOM_FIT_HEIGHT)
+            && MathUtil.isDifferent(val, ZOOM_BEST_FIT)
+            && MathUtil.isDifferent(val, ZOOM_REAL_WORLD)) {
           // Standard zoom value
           zoom(val);
         } else {
@@ -1707,7 +1723,13 @@ public abstract class DefaultView2d<E extends ImageElement> extends GraphicsPane
           Object zoomType = actionsInView.get(ViewCanvas.ZOOM_TYPE_CMD);
           actionsInView.put(
               ViewCanvas.ZOOM_TYPE_CMD,
-              MathUtil.isEqual(val, -100.0) ? ZoomType.REAL : ZoomType.BEST_FIT);
+              MathUtil.isEqual(val, ZOOM_REAL_WORLD)
+                  ? ZoomType.REAL
+                  : MathUtil.isEqual(val, ZOOM_ACTUAL_PIXEL_PRESET)
+                      ? ZoomType.ACTUAL_PIXEL_PRESET
+                      : MathUtil.isEqual(val, ZOOM_FIT_HEIGHT)
+                          ? ZoomType.FIT_HEIGHT
+                          : ZoomType.BEST_FIT);
           zoom(0.0);
           actionsInView.put(ViewCanvas.ZOOM_TYPE_CMD, zoomType);
         }

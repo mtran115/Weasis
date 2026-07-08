@@ -1668,7 +1668,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     final String[] usage = {
       "Change the zoom value of the selected image", // NON-NLS
       "Usage: dcmview2d:zoom (set VALUE | increase NUMBER | decrease NUMBER)", // NON-NLS
-      "  -s --set=VALUE        [decimal value]  set a new value from 0.0 to 12.0 (zoom magnitude, 0.0 => default, -200.0 => best fit, -100.0 => real size)", // NON-NLS
+      "  -s --set=VALUE        [decimal value]  set a new value from 0.0 to 12.0 (zoom magnitude, 0.0 => default, -400.0 => actual pixel preset, -300.0 => fit height, -200.0 => best fit, -100.0 => real size)", // NON-NLS
       "  -i --increase=NUMBER  increase of some amount", // NON-NLS
       "  -d --decrease=NUMBER  decrease of some amount", // NON-NLS
       "  -? --help             show help" // NON-NLS

@@ -1323,7 +1323,57 @@ public class DicomExplorer extends PluginTool
 
   @Override
   public void changingViewContentEvent(SeriesViewerEvent event) {
-    // Keep the thumbnail panel fixed while the reader changes or clicks viewer panes.
+    if (!SeriesViewerEvent.EVENT.SELECT_VIEW.equals(event.getEventType())
+        || !(event.getSeriesViewer() instanceof ImageViewerPlugin<?> viewer)
+        || getSelectionList().isOpeningSeries()) {
+      return;
+    }
+
+    ViewCanvas<?> pane = viewer.getSelectedViewCanvas();
+    if (pane == null || !(pane.getSeries() instanceof DicomSeries series)) {
+      return;
+    }
+    if (!paneManager.isFlattenedThumbnailModality(series)
+        || !isSeriesVisibleInThumbnailView(series)) {
+      return;
+    }
+
+    DicomImageElement image = pane.getImage() instanceof DicomImageElement dcm ? dcm : null;
+    SeriesPane seriesPane = paneManager.getSeriesPane(series, image);
+    if (seriesPane != null) {
+      scrollThumbnailToCenter(seriesPane);
+    }
+  }
+
+  private boolean isSeriesVisibleInThumbnailView(MediaSeries<?> series) {
+    SeriesPane pane = paneManager.getSeriesPane(series);
+    Component viewComponent = thumbnailView.getViewport().getView();
+    return pane != null
+        && viewComponent != null
+        && SwingUtilities.isDescendingFrom(pane, viewComponent);
+  }
+
+  private void scrollThumbnailToCenter(SeriesPane pane) {
+    JViewport viewport = thumbnailView.getViewport();
+    Component viewComponent = viewport.getView();
+    if (viewComponent == null) {
+      return;
+    }
+
+    Rectangle visibleBounds = viewport.getViewRect();
+    Point top = SwingUtilities.convertPoint(pane, new Point(0, 0), viewComponent);
+    Point bottom = SwingUtilities.convertPoint(pane, new Point(0, pane.getHeight()), viewComponent);
+    if (visibleBounds.contains(top.x, top.y) && visibleBounds.contains(bottom.x, bottom.y)) {
+      return;
+    }
+
+    Point viewPosition = viewport.getViewPosition();
+    viewPosition.y = top.y + (bottom.y - top.y) / 2 - viewport.getHeight() / 2;
+    int maxHeight =
+        (int) (viewport.getViewSize().getHeight() - viewport.getExtentSize().getHeight());
+    viewPosition.y = Math.max(0, Math.min(viewPosition.y, maxHeight));
+    viewport.setViewPosition(viewPosition);
+    getSelectionList().clear();
   }
 
   // ========== Cleanup ==========
