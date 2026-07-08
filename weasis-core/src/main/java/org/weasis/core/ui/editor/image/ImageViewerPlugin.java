@@ -370,6 +370,20 @@ public abstract class ImageViewerPlugin<E extends ImageElement> extends ViewerPl
         .ifPresent(itemListener -> itemListener.setSelectedItem(layoutModel));
   }
 
+  public boolean changeLayoutModelById(String layoutId) {
+    if (layoutId == null) {
+      return false;
+    }
+    for (MigLayoutModel layout : getLayoutList()) {
+      if (layoutId.equals(layout.getId())) {
+        eventManager.setSelectedView2dContainer(this);
+        changeLayoutModel(layout);
+        return true;
+      }
+    }
+    return false;
+  }
+
   protected void removeComponents() {
     for (Component c : cellManager.getNonViewCanvasComponents()) {
       if (c instanceof SeriesViewerListener viewerListener) {

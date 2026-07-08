@@ -778,10 +778,23 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
           ActionW.SYNCH.cmd(),
           null,
           new SynchEvent(getSelectedViewPane(), ActionW.ZOOM.cmd(), -200.0));
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X2, keyEvent, modifiers)) {
+      changeSelectedViewerLayout("1x2");
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X3, keyEvent, modifiers)) {
+      changeSelectedViewerLayout("1x3");
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X4, keyEvent, modifiers)) {
+      changeSelectedViewerLayout("1x4");
     } else {
       return false;
     }
     return true;
+  }
+
+  private void changeSelectedViewerLayout(String layoutId) {
+    ImageViewerPlugin<E> view = getSelectedView2dContainer();
+    if (view != null) {
+      view.changeLayoutModelById(layoutId);
+    }
   }
 
   protected void triggerDrawingToolKeyEvent(int keyEvent, int modifiers) {

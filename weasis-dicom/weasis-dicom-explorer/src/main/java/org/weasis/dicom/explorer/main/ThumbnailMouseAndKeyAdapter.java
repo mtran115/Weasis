@@ -26,6 +26,7 @@ import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JSeparator;
 import javax.swing.SwingUtilities;
+import javax.swing.text.JTextComponent;
 import org.dcm4che3.data.Tag;
 import org.weasis.core.api.explorer.DataExplorerView;
 import org.weasis.core.api.gui.util.GuiUtils;
@@ -44,6 +45,8 @@ import org.weasis.core.ui.editor.SeriesViewerFactory;
 import org.weasis.core.ui.editor.ViewerOpenOptions;
 import org.weasis.core.ui.editor.ViewerPlacement;
 import org.weasis.core.ui.editor.ViewerPluginBuilder;
+import org.weasis.core.ui.editor.image.ImageViewerPlugin;
+import org.weasis.core.ui.editor.image.ViewerPlugin;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.codec.TagD;
@@ -158,13 +161,17 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
       return;
     }
     KeyboardFocusManager.getCurrentKeyboardFocusManager()
-        .addKeyEventDispatcher(ThumbnailMouseAndKeyAdapter::dispatchHoveredNumpadShortcut);
+        .addKeyEventDispatcher(ThumbnailMouseAndKeyAdapter::dispatchNumpadShortcut);
     numpadDispatcherInstalled = true;
   }
 
-  private static boolean dispatchHoveredNumpadShortcut(KeyEvent e) {
+  private static boolean dispatchNumpadShortcut(KeyEvent e) {
     if (e.getID() != KeyEvent.KEY_PRESSED || e.isConsumed()) {
       return false;
+    }
+
+    if (dispatchViewerLayoutShortcut(e)) {
+      return true;
     }
 
     int viewIndex = getNumpadViewIndex(e);
@@ -183,6 +190,61 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
       return true;
     }
     return false;
+  }
+
+  private static boolean dispatchViewerLayoutShortcut(KeyEvent e) {
+    if (!isHoveringThumbnailOrViewerFocused() || isEditingText()) {
+      return false;
+    }
+
+    ShortcutManager sm = ShortcutManager.getInstance();
+    String layoutId = null;
+    if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X2, e)) {
+      layoutId = "1x2";
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X3, e)) {
+      layoutId = "1x3";
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X4, e)) {
+      layoutId = "1x4";
+    }
+
+    if (layoutId != null && changeLayoutInSelectedImageViewer(layoutId)) {
+      e.consume();
+      return true;
+    }
+    return false;
+  }
+
+  private static boolean isHoveringThumbnailOrViewerFocused() {
+    if (hoveredThumbnail != null) {
+      return true;
+    }
+    Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+    return focusOwner != null
+        && SwingUtilities.getAncestorOfClass(ImageViewerPlugin.class, focusOwner) != null;
+  }
+
+  private static boolean isEditingText() {
+    Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+    return focusOwner instanceof JTextComponent textComponent && textComponent.isEditable();
+  }
+
+  private static boolean changeLayoutInSelectedImageViewer(String layoutId) {
+    List<ViewerPlugin<?>> viewerPlugins = GuiUtils.getUICore().getViewerPlugins();
+    synchronized (viewerPlugins) {
+      ImageViewerPlugin<?> fallback = null;
+      for (int i = viewerPlugins.size() - 1; i >= 0; i--) {
+        if (viewerPlugins.get(i) instanceof ImageViewerPlugin<?> viewer) {
+          if (fallback == null) {
+            fallback = viewer;
+          }
+          if (viewer.getEventManager().getSelectedView2dContainer() == viewer
+              && viewer.changeLayoutModelById(layoutId)) {
+            return true;
+          }
+        }
+      }
+      return fallback != null && fallback.changeLayoutModelById(layoutId);
+    }
   }
 
   private static int getNumpadViewIndex(KeyEvent e) {

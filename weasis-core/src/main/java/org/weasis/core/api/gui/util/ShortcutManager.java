@@ -311,6 +311,9 @@ public final class ShortcutManager {
   public static final String ID_VIEWER_ROTATE_LEFT = "viewer.rotateLeft";
   public static final String ID_VIEWER_ROTATE_RIGHT = "viewer.rotateRight";
   public static final String ID_VIEWER_FLIP_HORIZONTAL = "viewer.flipHorizontal";
+  public static final String ID_VIEWER_LAYOUT_1X2 = "viewer.layout1x2";
+  public static final String ID_VIEWER_LAYOUT_1X3 = "viewer.layout1x3";
+  public static final String ID_VIEWER_LAYOUT_1X4 = "viewer.layout1x4";
 
   // -- Shortcut IDs: Navigation --
   public static final String ID_VIEWER_SCROLL_UP = "viewer.scrollUp";
@@ -483,6 +486,24 @@ public final class ShortcutManager {
         CATEGORY_VIEWER,
         KeyEvent.VK_ENTER,
         KeyEvent.CTRL_MASK);
+    register(
+        ID_VIEWER_LAYOUT_1X2,
+        Messages.getString("ShortcutManager.layout_1x2"),
+        CATEGORY_VIEWER,
+        KeyEvent.VK_NUMPAD7,
+        0);
+    register(
+        ID_VIEWER_LAYOUT_1X3,
+        Messages.getString("ShortcutManager.layout_1x3"),
+        CATEGORY_VIEWER,
+        KeyEvent.VK_NUMPAD8,
+        0);
+    register(
+        ID_VIEWER_LAYOUT_1X4,
+        Messages.getString("ShortcutManager.layout_1x4"),
+        CATEGORY_VIEWER,
+        KeyEvent.VK_NUMPAD9,
+        0);
 
     // ---- Slice navigation (ImageViewerEventManager.commonDisplayShortcuts()) ----
     register(

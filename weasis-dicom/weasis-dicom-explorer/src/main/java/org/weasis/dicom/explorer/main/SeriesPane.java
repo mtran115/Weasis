@@ -303,6 +303,7 @@ public class SeriesPane extends JPanel {
     }
     // Register listeners and adapters
     thumb.registerListeners();
+    ToolTipManager.sharedInstance().unregisterComponent(thumb);
     ThumbnailMouseAndKeyAdapter thumbAdapter =
         new ThumbnailMouseAndKeyAdapter(series, dicomModel, null, selectedImage);
     thumb.addMouseListener(thumbAdapter);
