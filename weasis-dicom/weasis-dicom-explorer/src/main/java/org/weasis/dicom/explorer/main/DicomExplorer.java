@@ -859,21 +859,50 @@ public class DicomExplorer extends PluginTool
       return false;
     }
 
+    return displaySeriesInView(dicomSeries, selectedImage, selectedView);
+  }
+
+  public boolean displaySeriesInViewSlot(
+      DicomSeries dicomSeries, DicomImageElement selectedImage, int viewIndex) {
+    if (dicomSeries == null || viewIndex < 0) {
+      return false;
+    }
+
+    ImageViewerPlugin<?> viewer = getSelectedImageViewerPlugin(dicomSeries);
+    if (viewer == null) {
+      return false;
+    }
+
+    List<? extends ViewCanvas<?>> views = viewer.getImagePanels(false);
+    if (viewIndex >= views.size()) {
+      return false;
+    }
+
+    return displaySeriesInView(
+        dicomSeries, selectedImage, new SelectedDicomView(viewer, views.get(viewIndex)));
+  }
+
+  private boolean displaySeriesInView(
+      DicomSeries dicomSeries, DicomImageElement selectedImage, SelectedDicomView selectedView) {
     selectionList.setOpeningSeries(true);
     try {
       DicomImageElement image =
           DicomSeriesHandler.resolveReplacementImage(
               dicomSeries, selectedView.viewer(), selectedView.view(), selectedImage);
       displaySeries(selectedView.view(), dicomSeries, image);
-      selectedView.viewer().setSelectedAndGetFocus();
-      selectedView.viewer().getEventManager().setSelectedView2dContainer(selectedView.viewer());
-      selectedView.viewer().setSelectedImagePane(selectedView.view());
-      selectedView.view().getJComponent().requestFocusInWindow();
-      SwingUtilities.invokeLater(() -> selectedView.view().getJComponent().requestFocusInWindow());
+      activateDicomView(selectedView);
       return true;
     } finally {
       selectionList.setOpeningSeries(false);
     }
+  }
+
+  private void activateDicomView(SelectedDicomView selectedView) {
+    selectedView.viewer().setSelectedAndGetFocus();
+    selectedView.viewer().getEventManager().setSelectedView2dContainer(selectedView.viewer());
+    selectedView.viewer().setSelectedImagePane(selectedView.view());
+    selectedView.view().getJComponent().requestFocusInWindow();
+    SwingUtilities.invokeLater(() -> selectedView.view().getJComponent().requestFocusInWindow());
   }
 
   public Set<DicomSeries> getSelectedPatientOpenSeries() {

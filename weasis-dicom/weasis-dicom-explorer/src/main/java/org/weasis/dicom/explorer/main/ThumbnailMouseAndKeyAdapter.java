@@ -12,6 +12,7 @@ package org.weasis.dicom.explorer.main;
 import java.awt.Component;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
+import java.awt.KeyboardFocusManager;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.event.MouseAdapter;
@@ -56,6 +57,9 @@ import org.weasis.dicom.explorer.tag.DicomFieldsView;
 import org.weasis.dicom.explorer.wado.LoadSeries;
 
 public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyListener {
+  private static volatile HoveredThumbnail hoveredThumbnail;
+  private static boolean numpadDispatcherInstalled;
+
   private final DicomSeries series;
   private final DicomModel dicomModel;
   private final LoadSeries loadSeries;
@@ -71,10 +75,24 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
       DicomModel dicomModel,
       LoadSeries loadSeries,
       DicomImageElement selectedImage) {
+    installNumpadDispatcher();
     this.series = Objects.requireNonNull(series);
     this.dicomModel = Objects.requireNonNull(dicomModel);
     this.loadSeries = loadSeries;
     this.selectedImage = selectedImage;
+  }
+
+  @Override
+  public void mouseEntered(MouseEvent e) {
+    hoveredThumbnail = new HoveredThumbnail(series, dicomModel, selectedImage);
+  }
+
+  @Override
+  public void mouseExited(MouseEvent e) {
+    HoveredThumbnail target = hoveredThumbnail;
+    if (target != null && target.matches(series, dicomModel, selectedImage)) {
+      hoveredThumbnail = null;
+    }
   }
 
   @Override
@@ -133,6 +151,56 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
     if (!component.isFocusOwner()) {
       component.requestFocusInWindow();
     }
+  }
+
+  private static synchronized void installNumpadDispatcher() {
+    if (numpadDispatcherInstalled) {
+      return;
+    }
+    KeyboardFocusManager.getCurrentKeyboardFocusManager()
+        .addKeyEventDispatcher(ThumbnailMouseAndKeyAdapter::dispatchHoveredNumpadShortcut);
+    numpadDispatcherInstalled = true;
+  }
+
+  private static boolean dispatchHoveredNumpadShortcut(KeyEvent e) {
+    if (e.getID() != KeyEvent.KEY_PRESSED || e.isConsumed()) {
+      return false;
+    }
+
+    int viewIndex = getNumpadViewIndex(e);
+    if (viewIndex < 0) {
+      return false;
+    }
+
+    HoveredThumbnail target = hoveredThumbnail;
+    if (target == null) {
+      return false;
+    }
+
+    if (openSeriesInViewSlot(
+        target.series(), target.dicomModel(), target.selectedImage(), viewIndex)) {
+      e.consume();
+      return true;
+    }
+    return false;
+  }
+
+  private static int getNumpadViewIndex(KeyEvent e) {
+    return switch (e.getKeyCode()) {
+      case KeyEvent.VK_NUMPAD1 -> 0;
+      case KeyEvent.VK_NUMPAD2 -> 1;
+      case KeyEvent.VK_NUMPAD3 -> 2;
+      case KeyEvent.VK_NUMPAD4 -> 3;
+      default -> {
+        char keyChar = e.getKeyChar();
+        if (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD
+            && keyChar >= '1'
+            && keyChar <= '4') {
+          yield keyChar - '1';
+        }
+        yield -1;
+      }
+    };
   }
 
   private void handleEnterKey(KeyEvent e, SeriesSelectionModel selList) {
@@ -559,5 +627,22 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
       return;
     }
     openSeriesInDefaultPlugin(series, dicomModel, selectedImage);
+  }
+
+  private static boolean openSeriesInViewSlot(
+      DicomSeries series, DicomModel dicomModel, DicomImageElement selectedImage, int viewIndex) {
+    DataExplorerView explorer = GuiUtils.getUICore().getExplorerPlugin(DicomExplorer.NAME);
+    return explorer instanceof DicomExplorer dicomExplorer
+        && dicomExplorer.displaySeriesInViewSlot(series, selectedImage, viewIndex);
+  }
+
+  private record HoveredThumbnail(
+      DicomSeries series, DicomModel dicomModel, DicomImageElement selectedImage) {
+    private boolean matches(
+        DicomSeries series, DicomModel dicomModel, DicomImageElement selectedImage) {
+      return this.series == series
+          && this.dicomModel == dicomModel
+          && this.selectedImage == selectedImage;
+    }
   }
 }
