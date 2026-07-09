@@ -199,7 +199,9 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
 
     ShortcutManager sm = ShortcutManager.getInstance();
     String layoutId = null;
-    if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X2, e)) {
+    if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X1, e)) {
+      layoutId = "1x1";
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X2, e)) {
       layoutId = "1x2";
     } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X3, e)) {
       layoutId = "1x3";

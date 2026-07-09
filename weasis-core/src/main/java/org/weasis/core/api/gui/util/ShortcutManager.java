@@ -313,6 +313,7 @@ public final class ShortcutManager {
   public static final String ID_VIEWER_ROTATE_LEFT = "viewer.rotateLeft";
   public static final String ID_VIEWER_ROTATE_RIGHT = "viewer.rotateRight";
   public static final String ID_VIEWER_FLIP_HORIZONTAL = "viewer.flipHorizontal";
+  public static final String ID_VIEWER_LAYOUT_1X1 = "viewer.layout1x1";
   public static final String ID_VIEWER_LAYOUT_1X2 = "viewer.layout1x2";
   public static final String ID_VIEWER_LAYOUT_1X3 = "viewer.layout1x3";
   public static final String ID_VIEWER_LAYOUT_1X4 = "viewer.layout1x4";
@@ -497,6 +498,12 @@ public final class ShortcutManager {
     register(
         ID_VIEWER_ACTUAL_PIXEL_PRESET,
         Messages.getString("ShortcutManager.actual_pixel_preset"),
+        CATEGORY_VIEWER,
+        0,
+        0);
+    register(
+        ID_VIEWER_LAYOUT_1X1,
+        Messages.getString("ShortcutManager.layout_1x1"),
         CATEGORY_VIEWER,
         0,
         0);
