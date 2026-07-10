@@ -19,7 +19,6 @@ import org.osgi.framework.ServiceListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.weasis.base.viewer2d.EventManager;
-import org.weasis.base.viewer2d.ImportToolBar;
 import org.weasis.base.viewer2d.View2dContainer;
 import org.weasis.core.api.gui.InsertableFactory;
 import org.weasis.core.api.gui.util.GuiExecutor;
@@ -34,10 +33,6 @@ public class Activator implements BundleActivator, ServiceListener {
   @Override
   public void start(final BundleContext bundleContext) {
     BundleTools.registerExistingComponents(bundleContext, View2dContainer.UI);
-
-    // Instantiate UI components in EDT
-    GuiExecutor.execute(
-        () -> GuiUtils.getUICore().getExplorerPluginToolbars().add(new ImportToolBar(3)));
 
     // Add listener for getting new service events
     try {
@@ -56,7 +51,6 @@ public class Activator implements BundleActivator, ServiceListener {
     if (EventManager.hasBeenInitialized()) {
       EventManager.getInstance().savePreferences(bundleContext);
     }
-    GuiUtils.getUICore().getExplorerPluginToolbars().removeIf(ImportToolBar.class::isInstance);
     GuiUtils.getUICore().closeSeriesViewerType(View2dContainer.class);
   }
 

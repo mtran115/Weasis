@@ -52,16 +52,6 @@ public class ImportToolBar extends WtoolBar {
       btnImport.addActionListener(e -> showAction(ImportToolBar.this, model, null, false));
       add(btnImport);
     }
-
-    if (preferences.getBooleanProperty("weasis.import.dicom", true)) {
-      final JButton btnImport = new JButton(ResourceUtil.getToolBarIcon(ActionIcon.IMPORT_CD));
-      btnImport.setToolTipText(Messages.getString("ImportToolBar.import_dcm_cd"));
-      btnImport.addActionListener(
-          e ->
-              openImportDicomCdAction(
-                  ImportToolBar.this, model, Messages.getString("DicomExplorer.dcmCD")));
-      add(btnImport);
-    }
   }
 
   public static void openImportDicomCdAction(
