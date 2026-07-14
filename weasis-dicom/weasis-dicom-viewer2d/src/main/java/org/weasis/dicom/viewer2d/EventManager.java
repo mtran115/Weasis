@@ -133,7 +133,8 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   private static final double PREVIOUS_ZOOM_MOUSE_SENSITIVITY = 0.5;
   private static final double PREVIOUS_FAST_ZOOM_MOUSE_SENSITIVITY = 1.0;
   private static final double CURRENT_ZOOM_MOUSE_SENSITIVITY = 2.0;
-  private static final String ZOOM_SENSITIVITY_MIGRATED_KEY = "zoomSensitivityMigratedV4";
+  private static final double ZOOM_SENSITIVITY_MIGRATION_TOLERANCE = 0.03;
+  private static final String ZOOM_SENSITIVITY_MIGRATED_KEY = "zoomSensitivityMigratedV5";
 
   public static final List<String> functions =
       List.of(
@@ -1379,16 +1380,26 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
       Preferences prefNode, Feature<? extends SliderChangeListener> action, double defVal) {
     double sensitivity = prefNode.getDouble(action.cmd(), defVal);
     if (ActionW.ZOOM.cmd().equals(action.cmd())
-        && !prefNode.getBoolean(ZOOM_SENSITIVITY_MIGRATED_KEY, false)
-        && (Math.abs(sensitivity - LEGACY_ZOOM_MOUSE_SENSITIVITY) < 0.000001
-            || Math.abs(sensitivity - PREVIOUS_ZOOM_MOUSE_SENSITIVITY) < 0.000001
-            || Math.abs(sensitivity - PREVIOUS_FAST_ZOOM_MOUSE_SENSITIVITY) < 0.000001
-            || Math.abs(sensitivity - CURRENT_ZOOM_MOUSE_SENSITIVITY) < 0.000001)) {
-      sensitivity = DEFAULT_ZOOM_MOUSE_SENSITIVITY;
+        && !prefNode.getBoolean(ZOOM_SENSITIVITY_MIGRATED_KEY, false)) {
+      if (isPreviousZoomMouseSensitivity(sensitivity)) {
+        sensitivity = DEFAULT_ZOOM_MOUSE_SENSITIVITY;
+        BundlePreferences.putDoublePreferences(prefNode, action.cmd(), sensitivity);
+      }
       prefNode.putBoolean(ZOOM_SENSITIVITY_MIGRATED_KEY, true);
-      BundlePreferences.putDoublePreferences(prefNode, action.cmd(), sensitivity);
     }
     return sensitivity;
+  }
+
+  static boolean isPreviousZoomMouseSensitivity(double sensitivity) {
+    return isSensitivityCloseTo(sensitivity, LEGACY_ZOOM_MOUSE_SENSITIVITY)
+        || isSensitivityCloseTo(sensitivity, PREVIOUS_ZOOM_MOUSE_SENSITIVITY)
+        || isSensitivityCloseTo(sensitivity, PREVIOUS_FAST_ZOOM_MOUSE_SENSITIVITY)
+        || isSensitivityCloseTo(sensitivity, CURRENT_ZOOM_MOUSE_SENSITIVITY);
+  }
+
+  private static boolean isSensitivityCloseTo(double sensitivity, double expected) {
+    return Math.abs(sensitivity - expected)
+        <= expected * ZOOM_SENSITIVITY_MIGRATION_TOLERANCE;
   }
 
   public MediaSeries<DicomImageElement> getSelectedSeries() {
