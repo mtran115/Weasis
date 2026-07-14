@@ -35,30 +35,26 @@ public class WindowAndPresetsOp extends WindowOp {
   public void handleImageOpEvent(ImageOpEvent event) {
     OpEvent type = event.eventType();
     if (OpEvent.IMAGE_CHANGE.equals(type)) {
-      setParam(P_IMAGE_ELEMENT, event.image());
+      ImageElement previousImage = (ImageElement) getParam(P_IMAGE_ELEMENT);
+      ImageElement img = event.image();
+      setParam(P_IMAGE_ELEMENT, img);
       removeParam(P_PR_ELEMENT);
+
+      // Synchronized panes can change images without passing through EventManager's cine action.
+      // Refresh a pane that is still using its default preset so per-image MRI VOI values do not
+      // become stale. Preserve explicitly adjusted window/level values.
+      if (img != null
+          && img != previousImage
+          && LangUtil.nullToTrue((Boolean) getParam(ActionW.DEFAULT_PRESET.cmd()))) {
+        applyDefaultPreset(img, false);
+      }
     } else if (OpEvent.RESET_DISPLAY.equals(type) || OpEvent.SERIES_CHANGE.equals(type)) {
       ImageElement img = event.image();
       setParam(P_IMAGE_ELEMENT, img);
       PrDicomObject pr = (PrDicomObject) getParam(P_PR_ELEMENT);
       removeParam(P_PR_ELEMENT);
       if (img != null) {
-        if (!img.isImageAvailable()) {
-          // Ensure to load image before calling the default preset that requires pixel min and max
-          img.getImage();
-        }
-
-        boolean pixelPadding =
-            LangUtil.nullToTrue((Boolean) getParam(ActionW.IMAGE_PIX_PADDING.cmd()));
-        PresetWindowLevel preset = null;
-        if (img instanceof DicomImageElement imageElement) {
-          DefaultWlPresentation wlp = new DefaultWlPresentation(null, pixelPadding);
-          if (pr != null) {
-            imageElement.getPresetList(wlp, true);
-          }
-          preset = imageElement.getDefaultPreset(wlp);
-        }
-        setPreset(preset, img, pixelPadding);
+        applyDefaultPreset(img, pr != null);
       }
     } else if (OpEvent.APPLY_PR.equals(type)) {
       ImageElement img = event.image();
@@ -88,6 +84,24 @@ public class WindowAndPresetsOp extends WindowOp {
         }
       }
     }
+  }
+
+  private void applyDefaultPreset(ImageElement img, boolean reloadPresetList) {
+    if (!img.isImageAvailable()) {
+      // Ensure to load image before calling the default preset that requires pixel min and max
+      img.getImage();
+    }
+
+    boolean pixelPadding = LangUtil.nullToTrue((Boolean) getParam(ActionW.IMAGE_PIX_PADDING.cmd()));
+    PresetWindowLevel preset = null;
+    if (img instanceof DicomImageElement imageElement) {
+      DefaultWlPresentation wlp = new DefaultWlPresentation(null, pixelPadding);
+      if (reloadPresetList) {
+        imageElement.getPresetList(wlp, true);
+      }
+      preset = imageElement.getDefaultPreset(wlp);
+    }
+    setPreset(preset, img, pixelPadding);
   }
 
   private void setPreset(PresetWindowLevel preset, ImageElement img, boolean pixelPadding) {
