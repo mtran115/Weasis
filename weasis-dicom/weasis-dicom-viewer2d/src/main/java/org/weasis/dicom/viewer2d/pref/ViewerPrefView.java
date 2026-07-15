@@ -63,6 +63,7 @@ public class ViewerPrefView extends AbstractItemDialogPage {
   private final JSlider slider = new JSlider(-100, 100, 0);
   private JComboBox<ZoomOp.Interpolation> comboBoxInterpolation;
   private final JSpinner spinnerActualPixelZoom = new JSpinner();
+  private final JSpinner spinnerKeyboardZoom = new JSpinner();
   private JCheckBox checkBoxWLcolor;
   private JCheckBox checkBoxLevelInverse;
   private JCheckBox checkBoxApplyPR;
@@ -145,6 +146,17 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     GuiUtils.setSpinnerWidth(spinnerActualPixelZoom, 4);
     GuiUtils.formatCheckAction(spinnerActualPixelZoom);
 
+    JLabel lblKeyboardZoom =
+        new JLabel(Messages.getString("ViewerPrefView.keyboard_zoom") + StringUtil.COLON);
+    spinnerKeyboardZoom.setModel(
+        new SpinnerNumberModel(
+            eventManager.getZoomSetting().getKeyboardZoomPercent(),
+            ZoomSetting.MIN_KEYBOARD_ZOOM_PERCENT,
+            ZoomSetting.MAX_KEYBOARD_ZOOM_PERCENT,
+            1));
+    GuiUtils.setSpinnerWidth(spinnerKeyboardZoom, 4);
+    GuiUtils.formatCheckAction(spinnerKeyboardZoom);
+
     int shiftX = ITEM_SEPARATOR - ITEM_SEPARATOR_SMALL;
     JPanel panel1 = GuiUtils.getVerticalBoxLayoutPanel();
     panel1.add(
@@ -163,6 +175,15 @@ public class ViewerPrefView extends AbstractItemDialogPage {
             GuiUtils.boxHorizontalStrut(shiftX),
             lblActualPixelZoom,
             spinnerActualPixelZoom,
+            new JLabel("%")));
+    panel1.add(
+        GuiUtils.getFlowLayoutPanel(
+            FlowLayout.LEADING,
+            ITEM_SEPARATOR_SMALL,
+            ITEM_SEPARATOR,
+            GuiUtils.boxHorizontalStrut(shiftX),
+            lblKeyboardZoom,
+            spinnerKeyboardZoom,
             new JLabel("%")));
     panel1.setBorder(GuiUtils.getTitledBorder(Messages.getString("ViewerPrefView.zoom")));
     add(panel1);
@@ -224,6 +245,14 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     eventManager
         .getZoomSetting()
         .setActualPixelZoomPercent(((Number) spinnerActualPixelZoom.getValue()).intValue());
+    try {
+      spinnerKeyboardZoom.commitEdit();
+    } catch (java.text.ParseException e) {
+      // Keep the last valid spinner value.
+    }
+    eventManager
+        .getZoomSetting()
+        .setKeyboardZoomPercent(((Number) spinnerKeyboardZoom.getValue()).intValue());
     boolean applyWLcolor = checkBoxWLcolor.isSelected();
     eventManager.getOptions().putBooleanProperty(WindowOp.P_APPLY_WL_COLOR, applyWLcolor);
 
@@ -264,6 +293,7 @@ public class ViewerPrefView extends AbstractItemDialogPage {
 
     comboBoxInterpolation.setSelectedItem(Interpolation.BILINEAR);
     spinnerActualPixelZoom.setValue(ZoomSetting.DEFAULT_ACTUAL_PIXEL_ZOOM_PERCENT);
+    spinnerKeyboardZoom.setValue(ZoomSetting.DEFAULT_KEYBOARD_ZOOM_PERCENT);
 
     // Get the default server configuration and if no value take the default value in parameter.
     WProperties properties = EventManager.getInstance().getOptions();

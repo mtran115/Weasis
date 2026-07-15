@@ -20,6 +20,9 @@ public class ZoomSetting {
   public static final int DEFAULT_ACTUAL_PIXEL_ZOOM_PERCENT = 50;
   public static final int MIN_ACTUAL_PIXEL_ZOOM_PERCENT = 5;
   public static final int MAX_ACTUAL_PIXEL_ZOOM_PERCENT = 200;
+  public static final int DEFAULT_KEYBOARD_ZOOM_PERCENT = 5;
+  public static final int MIN_KEYBOARD_ZOOM_PERCENT = 1;
+  public static final int MAX_KEYBOARD_ZOOM_PERCENT = 100;
   // public static final String P_ZOOM_SYNCH = "zoom.synch";
   // public static final String P_SHOW_DRAWINGS = "show.drawings";
   // public static final String P_ROUND = "round";
@@ -30,6 +33,7 @@ public class ZoomSetting {
   private int lensHeight = 200;
   private int interpolation = 1;
   private int actualPixelZoomPercent = DEFAULT_ACTUAL_PIXEL_ZOOM_PERCENT;
+  private int keyboardZoomPercent = DEFAULT_KEYBOARD_ZOOM_PERCENT;
   private boolean lensRound = false;
   private int lensLineWidth = 2;
   private Color lensLineColor = new Color(195, 109, 254);
@@ -40,6 +44,8 @@ public class ZoomSetting {
       setInterpolation(p.getInt("interpolation", Interpolation.BILINEAR.ordinal())); // NON-NLS
       setActualPixelZoomPercent(
           p.getInt("actualPixelZoomPercent", DEFAULT_ACTUAL_PIXEL_ZOOM_PERCENT)); // NON-NLS
+      setKeyboardZoomPercent(
+          p.getInt("keyboardZoomPercent", DEFAULT_KEYBOARD_ZOOM_PERCENT)); // NON-NLS
     }
   }
 
@@ -49,6 +55,7 @@ public class ZoomSetting {
       BundlePreferences.putIntPreferences(p, "interpolation", interpolation); // NON-NLS
       BundlePreferences.putIntPreferences(
           p, "actualPixelZoomPercent", actualPixelZoomPercent); // NON-NLS
+      BundlePreferences.putIntPreferences(p, "keyboardZoomPercent", keyboardZoomPercent); // NON-NLS
     }
   }
 
@@ -117,6 +124,20 @@ public class ZoomSetting {
 
   public double getActualPixelZoomScale() {
     return actualPixelZoomPercent / 100.0;
+  }
+
+  public int getKeyboardZoomPercent() {
+    return keyboardZoomPercent;
+  }
+
+  public void setKeyboardZoomPercent(int keyboardZoomPercent) {
+    this.keyboardZoomPercent =
+        Math.max(
+            MIN_KEYBOARD_ZOOM_PERCENT, Math.min(MAX_KEYBOARD_ZOOM_PERCENT, keyboardZoomPercent));
+  }
+
+  public double getKeyboardZoomFactor() {
+    return 1.0 + keyboardZoomPercent / 100.0;
   }
 
   public boolean isLensRound() {

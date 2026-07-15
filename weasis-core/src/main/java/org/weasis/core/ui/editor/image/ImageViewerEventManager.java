@@ -770,9 +770,11 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
     } else if (sm.matches(ShortcutManager.ID_VIEWER_SCROLL_LAST, keyEvent, modifiers)) {
       getAction(ActionW.SCROLL_SERIES).ifPresent(a -> a.setSliderValue(a.getSliderMax()));
     } else if (sm.matches(ShortcutManager.ID_VIEWER_ZOOM_OUT, keyEvent, modifiers)) {
-      getAction(ActionW.ZOOM).ifPresent(a -> a.setSliderValue(a.getSliderValue() - 1));
+      getAction(ActionW.ZOOM)
+          .ifPresent(a -> a.setRealValue(a.getRealValue() / zoomSetting.getKeyboardZoomFactor()));
     } else if (sm.matches(ShortcutManager.ID_VIEWER_ZOOM_IN, keyEvent, modifiers)) {
-      getAction(ActionW.ZOOM).ifPresent(a -> a.setSliderValue(a.getSliderValue() + 1));
+      getAction(ActionW.ZOOM)
+          .ifPresent(a -> a.setRealValue(a.getRealValue() * zoomSetting.getKeyboardZoomFactor()));
     } else if (sm.matches(ShortcutManager.ID_VIEWER_BEST_FIT, keyEvent, modifiers)) {
       firePropertyChange(
           ActionW.SYNCH.cmd(),
