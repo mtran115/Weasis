@@ -770,11 +770,9 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
     } else if (sm.matches(ShortcutManager.ID_VIEWER_SCROLL_LAST, keyEvent, modifiers)) {
       getAction(ActionW.SCROLL_SERIES).ifPresent(a -> a.setSliderValue(a.getSliderMax()));
     } else if (sm.matches(ShortcutManager.ID_VIEWER_ZOOM_OUT, keyEvent, modifiers)) {
-      getAction(ActionW.ZOOM)
-          .ifPresent(a -> a.setRealValue(a.getRealValue() / zoomSetting.getKeyboardZoomFactor()));
+      adjustKeyboardZoom(false);
     } else if (sm.matches(ShortcutManager.ID_VIEWER_ZOOM_IN, keyEvent, modifiers)) {
-      getAction(ActionW.ZOOM)
-          .ifPresent(a -> a.setRealValue(a.getRealValue() * zoomSetting.getKeyboardZoomFactor()));
+      adjustKeyboardZoom(true);
     } else if (sm.matches(ShortcutManager.ID_VIEWER_BEST_FIT, keyEvent, modifiers)) {
       firePropertyChange(
           ActionW.SYNCH.cmd(),
@@ -801,6 +799,45 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
       return false;
     }
     return true;
+  }
+
+  private void adjustKeyboardZoom(boolean zoomIn) {
+    getAction(ActionW.ZOOM)
+        .ifPresent(
+            action -> {
+              ViewCanvas<E> view = getSelectedViewPane();
+              Point2D cursor = view == null ? null : view.getJComponent().getMousePosition();
+              Point2D anchor =
+                  cursor == null ? null : view.viewToModel(cursor.getX(), cursor.getY());
+
+              double factor = zoomSetting.getKeyboardZoomFactor();
+              action.setRealValue(
+                  zoomIn ? action.getRealValue() * factor : action.getRealValue() / factor);
+
+              if (anchor != null) {
+                Point2D anchorAfterZoom = view.modelToView(anchor.getX(), anchor.getY());
+                Point2D adjustment =
+                    calculateZoomAnchorPanAdjustment(
+                        cursor, anchorAfterZoom, view.getViewModel().getViewScale());
+                if (adjustment != null) {
+                  view.moveOrigin(
+                      new PanPoint(PanPoint.State.MOVE, adjustment.getX(), adjustment.getY()));
+                }
+              }
+            });
+  }
+
+  static Point2D calculateZoomAnchorPanAdjustment(
+      Point2D cursor, Point2D anchorAfterZoom, double viewScale) {
+    if (cursor == null
+        || anchorAfterZoom == null
+        || !Double.isFinite(viewScale)
+        || viewScale <= 0.0) {
+      return null;
+    }
+    return new Point2D.Double(
+        (anchorAfterZoom.getX() - cursor.getX()) / viewScale,
+        (anchorAfterZoom.getY() - cursor.getY()) / viewScale);
   }
 
   private void changeSelectedViewerLayout(String layoutId) {
