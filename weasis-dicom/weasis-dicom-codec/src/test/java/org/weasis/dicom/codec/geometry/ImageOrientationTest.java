@@ -194,8 +194,7 @@ class ImageOrientationTest {
 
   @Test
   void hasSameOrientation_smallObliqueDeviationConsideredSame() {
-    // Two oblique slices whose normals nearly coincide (dot product > 0.95) -> same orientation.
-    // Slight rotation around X axis (~5°): row stays X, column tilts a few degrees off Y.
+    // Two oblique slices whose normals nearly coincide remain synchronized.
     Vector3d row1 = new Vector3d(0.5, 0.5, 0.5).normalize();
     Vector3d col1 = new Vector3d(-0.5, 0.5, 0.0).normalize();
     Vector3d row2 = new Vector3d(0.51, 0.5, 0.5).normalize();
@@ -206,7 +205,6 @@ class ImageOrientationTest {
 
   @Test
   void hasSameOrientation_obliqueNormalsBelowTolerance() {
-    // Two oblique slices whose normals diverge by ~48° (dot product ≈ 0.67 < 0.95).
     Vector3d row1 = new Vector3d(0.5, 0.5, 0.5).normalize();
     Vector3d col1 = new Vector3d(-0.5, 0.5, 0.0).normalize();
     Vector3d row2 = new Vector3d(0.5, -0.5, 0.5).normalize();
@@ -215,39 +213,44 @@ class ImageOrientationTest {
     assertFalse(ImageOrientation.hasSameOrientation(row1, col1, row2, col2));
   }
 
-  // -- hasSameOrientation argument-order asymmetry (OBLIQUE vs non-OBLIQUE) ---
-  // The method's first branch short-circuits on plan1; when plan1 is a named
-  // plane (e.g. AXIAL) and plan2 is OBLIQUE, it returns false WITHOUT consulting
-  // the normals. The reverse ordering skips the short-circuit and falls back to
-  // a dot-product compare against the OBLIQUE plane's normal. These two tests
-  // pin that asymmetric behaviour so a future refactor that "fixes" the
-  // short-circuit (or one that further restricts the normal-compare branch)
-  // surfaces as a deliberate test update.
-
   @Test
-  void hasSameOrientation_obliqueFirstWithNearAxialNormalReturnsTrueViaNormalCompare() {
-    // X just under the 0.8 obliquity threshold so getPlan returns OBLIQUE,
-    // yet the resulting slice normal is almost +Z (≈0.997). Compared against
-    // a canonical axial pair (normal exactly +Z) the dot product is > 0.95.
+  void hasSameOrientation_nearAxialObliqueComparisonIsSymmetric() {
     Vector3d obliqueRow = new Vector3d(0.799, 0, 0.0628);
     Vector3d obliqueCol = new Vector3d(0, 1, 0);
     Vector3d axialRow = new Vector3d(1, 0, 0);
     Vector3d axialCol = new Vector3d(0, 1, 0);
 
     assertTrue(ImageOrientation.hasSameOrientation(obliqueRow, obliqueCol, axialRow, axialCol));
+    assertTrue(ImageOrientation.hasSameOrientation(axialRow, axialCol, obliqueRow, obliqueCol));
   }
 
   @Test
-  void hasSameOrientation_axialFirstObliqueSecondShortCircuitsToFalseEvenWhenNormalsAlmostAlign() {
-    Vector3d axialRow = new Vector3d(1, 0, 0);
-    Vector3d axialCol = new Vector3d(0, 1, 0);
-    Vector3d obliqueRow = new Vector3d(0.799, 0, 0.0628);
-    Vector3d obliqueCol = new Vector3d(0, 1, 0);
+  void hasSameOrientation_standardAndObliqueSagittalAreDifferent() {
+    Vector3d sagittalRow = new Vector3d(0, 1, 0);
+    Vector3d sagittalColumn = new Vector3d(0, 0, 1);
+    double angle = Math.toRadians(25.0);
+    Vector3d obliqueSagittalRow = new Vector3d(-Math.sin(angle), Math.cos(angle), 0);
 
-    // Plan1 is AXIAL (not OBLIQUE) -> returns AXIAL.equals(OBLIQUE) = false,
-    // bypassing the normal-compare path. This is the inverse-argument call of
-    // the test above and the documented asymmetry of the method.
-    assertFalse(ImageOrientation.hasSameOrientation(axialRow, axialCol, obliqueRow, obliqueCol));
+    assertEquals(
+        ImageOrientation.Plan.SAGITTAL, ImageOrientation.getPlan(sagittalRow, sagittalColumn));
+    assertEquals(
+        ImageOrientation.Plan.SAGITTAL,
+        ImageOrientation.getPlan(obliqueSagittalRow, sagittalColumn));
+    assertFalse(
+        ImageOrientation.hasSameOrientation(
+            sagittalRow, sagittalColumn, obliqueSagittalRow, sagittalColumn));
+  }
+
+  @Test
+  void hasSameOrientation_slightlyDifferentSagittalPlanesRemainLinked() {
+    Vector3d sagittalRow = new Vector3d(0, 1, 0);
+    Vector3d sagittalColumn = new Vector3d(0, 0, 1);
+    double angle = Math.toRadians(3.0);
+    Vector3d nearbySagittalRow = new Vector3d(-Math.sin(angle), Math.cos(angle), 0);
+
+    assertTrue(
+        ImageOrientation.hasSameOrientation(
+            sagittalRow, sagittalColumn, nearbySagittalRow, sagittalColumn));
   }
 
   // -- getPlan quadruped behaviour --------------------------------------------

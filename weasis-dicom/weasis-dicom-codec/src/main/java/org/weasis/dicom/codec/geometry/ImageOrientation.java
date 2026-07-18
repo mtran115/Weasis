@@ -40,6 +40,7 @@ public abstract class ImageOrientation {
   }
 
   private static final double OBLIQUITY_THRESHOLD = 0.8;
+  private static final double SAME_ORIENTATION_COSINE = Math.cos(Math.toRadians(5.0));
 
   public static Vector3d getRowImagePosition(TagReadable taggable) {
     double[] imagePosition =
@@ -228,19 +229,12 @@ public abstract class ImageOrientation {
   public static boolean hasSameOrientation(Vector3d vr1, Vector3d vc1, Vector3d vr2, Vector3d vc2) {
     // Test if the two images have the same orientation
     if (vr1 != null && vc1 != null && vr2 != null && vc2 != null) {
-      Plan plan1 = ImageOrientation.getPlan(vr1, vc1);
-      Plan plan2 = ImageOrientation.getPlan(vr2, vc2);
-
-      if (plan1 != null && !plan1.equals(Plan.OBLIQUE)) {
-        return plan1.equals(plan2);
-      }
-      // If oblique search and if the plan has approximately the same orientation
       Vector3d normal1 = VectorUtils.computeNormalOfSurface(vr1, vc1);
       Vector3d normal2 = VectorUtils.computeNormalOfSurface(vr2, vc2);
-      if (normal1 != null && normal2 != null) {
-        normal1.mul(normal2);
-        // A little tolerance
-        return normal1.x + normal1.y + normal1.z > 0.95;
+      if (normal1.lengthSquared() > 0.0 && normal2.lengthSquared() > 0.0) {
+        // The broad AXIAL/CORONAL/SAGITTAL labels can include substantially oblique planes.
+        double cosine = Math.abs(normal1.dot(normal2));
+        return Double.isFinite(cosine) && cosine >= SAME_ORIENTATION_COSINE;
       }
     }
     return false;
