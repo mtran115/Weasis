@@ -46,7 +46,12 @@ final class WindowLevelMemory {
         .map(State.class::cast);
   }
 
-  private static boolean isMrSeries(MediaSeries<?> series) {
+  static boolean shouldRefreshDefaultPreset(
+      MediaSeries<?> series, boolean hasPreset, boolean invalidWindowLevel) {
+    return (hasPreset || invalidWindowLevel) && (!isMrSeries(series) || invalidWindowLevel);
+  }
+
+  static boolean isMrSeries(MediaSeries<?> series) {
     String modality = TagD.getTagValue(series, Tag.Modality, String.class);
     return "MR".equalsIgnoreCase(modality);
   }

@@ -393,9 +393,12 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
           List<PresetWindowLevel> newPresetList = image.getPresetList(wlp);
 
           // Assume the image cannot display when win =1 and level = 0
-          if (oldPreset != null
-              || (windowAction.get().getSliderValue() <= 1
-                  && levelAction.get().getSliderValue() == 0)) {
+          boolean invalidWindowLevel =
+              windowAction.get().getSliderValue() <= 1
+                  && levelAction.get().getSliderValue() == 0;
+          // MR instances can contain inconsistent per-image VOI tags; retain the series baseline.
+          if (WindowLevelMemory.shouldRefreshDefaultPreset(
+              view2d.getSeries(), oldPreset != null, invalidWindowLevel)) {
             if (isDefaultPresetSelected) {
               newPreset = image.getDefaultPreset(wlp);
             } else {

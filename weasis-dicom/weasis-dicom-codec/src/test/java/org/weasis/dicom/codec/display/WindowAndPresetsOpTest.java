@@ -16,25 +16,65 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.dcm4che3.data.Tag;
 import org.junit.jupiter.api.Test;
 import org.weasis.core.api.gui.util.ActionW;
 import org.weasis.core.api.image.ImageOpEvent;
 import org.weasis.core.api.image.ImageOpEvent.OpEvent;
 import org.weasis.core.api.image.WindowOp;
 import org.weasis.dicom.codec.DicomImageElement;
+import org.weasis.dicom.codec.DicomSeries;
+import org.weasis.dicom.codec.TagD;
 import org.weasis.opencv.op.lut.WlPresentation;
 
 class WindowAndPresetsOpTest {
 
   @Test
-  void imageChangeRefreshesWindowLevelWhenDefaultPresetIsActive() {
+  void imageChangePreservesSeriesWindowLevelWhenDefaultPresetIsActive() {
+    WindowAndPresetsOp op = new WindowAndPresetsOp();
+    DicomImageElement image = mockImage(820.0, 410.0, 0.0, 1023.0);
+    op.setParam(ActionW.DEFAULT_PRESET.cmd(), true);
+    op.setParam(ActionW.WINDOW.cmd(), 12000.0);
+    op.setParam(ActionW.LEVEL.cmd(), 6000.0);
+    op.setParam(ActionW.LEVEL_MIN.cmd(), -100.0);
+    op.setParam(ActionW.LEVEL_MAX.cmd(), 12100.0);
+
+    op.handleImageOpEvent(
+        new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("MR"), image, null));
+
+    assertSame(image, op.getParam(WindowOp.P_IMAGE_ELEMENT));
+    assertEquals(12000.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(6000.0, op.getParam(ActionW.LEVEL.cmd()));
+    assertEquals(-100.0, op.getParam(ActionW.LEVEL_MIN.cmd()));
+    assertEquals(12100.0, op.getParam(ActionW.LEVEL_MAX.cmd()));
+  }
+
+  @Test
+  void imageChangeRefreshesWindowLevelForNonMrSeries() {
     WindowAndPresetsOp op = new WindowAndPresetsOp();
     DicomImageElement image = mockImage(820.0, 410.0, 0.0, 1023.0);
     op.setParam(ActionW.DEFAULT_PRESET.cmd(), true);
     op.setParam(ActionW.WINDOW.cmd(), 12000.0);
     op.setParam(ActionW.LEVEL.cmd(), 6000.0);
 
-    op.handleImageOpEvent(ImageOpEvent.withImage(OpEvent.IMAGE_CHANGE, image));
+    op.handleImageOpEvent(
+        new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("CT"), image, null));
+
+    assertSame(image, op.getParam(WindowOp.P_IMAGE_ELEMENT));
+    assertEquals(820.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(410.0, op.getParam(ActionW.LEVEL.cmd()));
+    assertEquals(0.0, op.getParam(ActionW.LEVEL_MIN.cmd()));
+    assertEquals(1023.0, op.getParam(ActionW.LEVEL_MAX.cmd()));
+  }
+
+  @Test
+  void seriesChangeLoadsTheNewSeriesDefaultWindowLevel() {
+    WindowAndPresetsOp op = new WindowAndPresetsOp();
+    DicomImageElement image = mockImage(820.0, 410.0, 0.0, 1023.0);
+    op.setParam(ActionW.WINDOW.cmd(), 12000.0);
+    op.setParam(ActionW.LEVEL.cmd(), 6000.0);
+
+    op.handleImageOpEvent(ImageOpEvent.withImage(OpEvent.SERIES_CHANGE, image));
 
     assertSame(image, op.getParam(WindowOp.P_IMAGE_ELEMENT));
     assertEquals(820.0, op.getParam(ActionW.WINDOW.cmd()));
@@ -67,5 +107,11 @@ class WindowAndPresetsOpTest {
     when(image.getMinValue(any(WlPresentation.class))).thenReturn(min);
     when(image.getMaxValue(any(WlPresentation.class))).thenReturn(max);
     return image;
+  }
+
+  private static DicomSeries buildSeries(String modality) {
+    DicomSeries series = new DicomSeries("series-" + modality);
+    series.setTagNoNull(TagD.get(Tag.Modality), modality);
+    return series;
   }
 }

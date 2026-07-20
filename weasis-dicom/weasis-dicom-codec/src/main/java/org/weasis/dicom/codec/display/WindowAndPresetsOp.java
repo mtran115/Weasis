@@ -24,6 +24,7 @@ import org.weasis.core.api.media.data.ImageElement;
 import org.weasis.core.util.LangUtil;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.PRSpecialElement;
+import org.weasis.dicom.codec.TagD;
 import org.weasis.opencv.data.PlanarImage;
 import org.weasis.opencv.op.lut.DefaultWlPresentation;
 
@@ -40,12 +41,10 @@ public class WindowAndPresetsOp extends WindowOp {
       setParam(P_IMAGE_ELEMENT, img);
       removeParam(P_PR_ELEMENT);
 
-      // Synchronized panes can change images without passing through EventManager's cine action.
-      // Refresh a pane that is still using its default preset so per-image MRI VOI values do not
-      // become stale. Preserve explicitly adjusted window/level values.
       if (img != null
           && img != previousImage
-          && LangUtil.nullToTrue((Boolean) getParam(ActionW.DEFAULT_PRESET.cmd()))) {
+          && LangUtil.nullToTrue((Boolean) getParam(ActionW.DEFAULT_PRESET.cmd()))
+          && !isMrSeries(event)) {
         applyDefaultPreset(img, false);
       }
     } else if (OpEvent.RESET_DISPLAY.equals(type) || OpEvent.SERIES_CHANGE.equals(type)) {
@@ -84,6 +83,14 @@ public class WindowAndPresetsOp extends WindowOp {
         }
       }
     }
+  }
+
+  private static boolean isMrSeries(ImageOpEvent event) {
+    if (event.series() == null) {
+      return false;
+    }
+    String modality = TagD.getTagValue(event.series(), Tag.Modality, String.class);
+    return "MR".equalsIgnoreCase(modality);
   }
 
   private void applyDefaultPreset(ImageElement img, boolean reloadPresetList) {

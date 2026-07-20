@@ -10,6 +10,7 @@
 package org.weasis.dicom.viewer2d;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -64,6 +65,27 @@ class WindowLevelMemoryTest {
     DicomSeries reimported = buildSeries("mr-3", "MR");
 
     assertTrue(memory.recall(reimported).isEmpty());
+  }
+
+  @Test
+  void keepsValidMrWindowLevelStableAcrossImages() {
+    DicomSeries series = buildSeries("mr-4", "MR");
+
+    assertFalse(WindowLevelMemory.shouldRefreshDefaultPreset(series, true, false));
+  }
+
+  @Test
+  void refreshesInvalidMrWindowLevel() {
+    DicomSeries series = buildSeries("mr-5", "MR");
+
+    assertTrue(WindowLevelMemory.shouldRefreshDefaultPreset(series, true, true));
+  }
+
+  @Test
+  void retainsPerImagePresetBehaviorForNonMrSeries() {
+    DicomSeries series = buildSeries("ct-2", "CT");
+
+    assertTrue(WindowLevelMemory.shouldRefreshDefaultPreset(series, true, false));
   }
 
   private static DicomSeries buildSeries(String uid, String modality) {
