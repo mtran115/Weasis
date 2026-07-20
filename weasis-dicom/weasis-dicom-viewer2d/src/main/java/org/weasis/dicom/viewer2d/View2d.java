@@ -122,11 +122,13 @@ import org.weasis.dicom.viewer2d.KOComponentFactory.KOViewButton;
 import org.weasis.dicom.viewer2d.KOComponentFactory.KOViewButton.eState;
 import org.weasis.dicom.viewer2d.mpr.MprView.Plane;
 import org.weasis.opencv.data.PlanarImage;
+import org.weasis.opencv.op.lut.LutShape;
 import org.weasis.opencv.op.lut.WlPresentation;
 
 public class View2d extends DefaultView2d<DicomImageElement> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(View2d.class);
+  private static final WindowLevelMemory MR_WINDOW_LEVEL_MEMORY = new WindowLevelMemory();
 
   public static final String P_CROSSHAIR_CENTER_GAP = "mpr.crosshair.center.gap";
   public static final String P_CROSSHAIR_MODE = "mpr.crosshair.mode";
@@ -626,7 +628,18 @@ public class View2d extends DefaultView2d<DicomImageElement> {
 
   @Override
   public void setSeries(MediaSeries<DicomImageElement> series, DicomImageElement selectedDicom) {
+    MediaSeries<DicomImageElement> previousSeries = getSeries();
+    boolean seriesChanged = !Objects.equals(previousSeries, series);
+    if (seriesChanged) {
+      rememberWindowLevel(previousSeries);
+    }
+
     super.setSeries(series, selectedDicom);
+
+    if (seriesChanged && restoreWindowLevel(series)) {
+      imageLayer.updateDisplayOperations();
+      eventManager.updateComponentsListener(this);
+    }
 
     // TODO
     // JFrame frame = new JFrame();
@@ -653,6 +666,40 @@ public class View2d extends DefaultView2d<DicomImageElement> {
     }
 
     updateKOButtonVisibleState();
+  }
+
+  private void rememberWindowLevel(MediaSeries<DicomImageElement> currentSeries) {
+    OpManager disOp = getDisplayOpManager();
+    boolean defaultPreset =
+        disOp
+            .getParamValue(WindowOp.OP_NAME, ActionW.DEFAULT_PRESET.cmd(), Boolean.class)
+            .orElse(Boolean.TRUE);
+    Number window =
+        disOp.getParamValue(WindowOp.OP_NAME, ActionW.WINDOW.cmd(), Number.class).orElse(null);
+    Number level =
+        disOp.getParamValue(WindowOp.OP_NAME, ActionW.LEVEL.cmd(), Number.class).orElse(null);
+    LutShape lutShape =
+        disOp.getParamValue(WindowOp.OP_NAME, ActionW.LUT_SHAPE.cmd(), LutShape.class).orElse(null);
+    MR_WINDOW_LEVEL_MEMORY.remember(currentSeries, defaultPreset, window, level, lutShape);
+  }
+
+  private boolean restoreWindowLevel(MediaSeries<DicomImageElement> currentSeries) {
+    Optional<WindowLevelMemory.State> remembered = MR_WINDOW_LEVEL_MEMORY.recall(currentSeries);
+    if (remembered.isEmpty()) {
+      return false;
+    }
+
+    WindowLevelMemory.State state = remembered.get();
+    OpManager disOp = getDisplayOpManager();
+    disOp.setParamValue(WindowOp.OP_NAME, ActionW.PRESET.cmd(), null);
+    disOp.setParamValue(WindowOp.OP_NAME, ActionW.DEFAULT_PRESET.cmd(), false);
+    disOp.setParamValue(WindowOp.OP_NAME, ActionW.WINDOW.cmd(), state.window());
+    disOp.setParamValue(WindowOp.OP_NAME, ActionW.LEVEL.cmd(), state.level());
+    if (state.lutShape() != null) {
+      disOp.setParamValue(WindowOp.OP_NAME, ActionW.LUT_SHAPE.cmd(), state.lutShape());
+    }
+    actionsInView.put(ActionW.PRESET.cmd(), null);
+    return true;
   }
 
   @Override

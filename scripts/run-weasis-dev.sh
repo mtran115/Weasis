@@ -22,6 +22,9 @@ else
   JAVA_CMD="$(command -v java)"
 fi
 
+# Keep the native macOS renderer by default; set false only as a crash workaround.
+JAVA2D_METAL="${WEASIS_JAVA2D_METAL:-true}"
+
 if [[ ! -f "$LAUNCHER_JAR" || ! -f "$FELIX_JAR" ]]; then
   echo "Weasis is not built yet, or Felix is missing."
   echo "Run this first:"
@@ -37,6 +40,7 @@ exec "$JAVA_CMD" \
   -Xmx768m \
   -Dgosh.port=17179 \
   --enable-native-access=ALL-UNNAMED \
+  "-Dsun.java2d.metal=$JAVA2D_METAL" \
   -Dapple.laf.useScreenMenuBar=true \
   -Dapple.awt.application.appearance=NSAppearanceNameDarkAqua \
   -Djavax.accessibility.assistive_technologies=org.weasis.launcher.EmptyAccessibilityProvider \
