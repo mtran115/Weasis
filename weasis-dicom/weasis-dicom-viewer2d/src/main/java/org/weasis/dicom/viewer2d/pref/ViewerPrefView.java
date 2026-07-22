@@ -53,6 +53,7 @@ import org.weasis.dicom.viewer2d.Messages;
 import org.weasis.dicom.viewer2d.PRManager;
 import org.weasis.dicom.viewer2d.View2dContainer;
 import org.weasis.dicom.viewer2d.View2dFactory;
+import org.weasis.dicom.viewer2d.WindowLevelSetting;
 
 public class ViewerPrefView extends AbstractItemDialogPage {
   private final Hashtable<Integer, JLabel> labels = new Hashtable<>();
@@ -64,6 +65,8 @@ public class ViewerPrefView extends AbstractItemDialogPage {
   private JComboBox<ZoomOp.Interpolation> comboBoxInterpolation;
   private final JSpinner spinnerActualPixelZoom = new JSpinner();
   private final JSpinner spinnerKeyboardZoom = new JSpinner();
+  private final JSpinner spinnerKeyboardWindow = new JSpinner();
+  private final JSpinner spinnerKeyboardLevel = new JSpinner();
   private JCheckBox checkBoxWLcolor;
   private JCheckBox checkBoxLevelInverse;
   private JCheckBox checkBoxApplyPR;
@@ -130,6 +133,52 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     add(panel);
     add(GuiUtils.boxVerticalStrut(BLOCK_SEPARATOR));
 
+    int shiftX = ITEM_SEPARATOR - ITEM_SEPARATOR_SMALL;
+    WindowLevelSetting windowLevelSetting = eventManager.getWindowLevelSetting();
+    JLabel lblKeyboardWindow =
+        new JLabel(Messages.getString("ViewerPrefView.keyboard_window_step") + StringUtil.COLON);
+    spinnerKeyboardWindow.setModel(
+        new SpinnerNumberModel(
+            windowLevelSetting.getKeyboardWindowStep(),
+            WindowLevelSetting.MIN_KEYBOARD_STEP,
+            WindowLevelSetting.MAX_KEYBOARD_STEP,
+            50));
+    GuiUtils.setSpinnerWidth(spinnerKeyboardWindow, 7);
+    GuiUtils.formatCheckAction(spinnerKeyboardWindow);
+
+    JLabel lblKeyboardLevel =
+        new JLabel(Messages.getString("ViewerPrefView.keyboard_level_step") + StringUtil.COLON);
+    spinnerKeyboardLevel.setModel(
+        new SpinnerNumberModel(
+            windowLevelSetting.getKeyboardLevelStep(),
+            WindowLevelSetting.MIN_KEYBOARD_STEP,
+            WindowLevelSetting.MAX_KEYBOARD_STEP,
+            50));
+    GuiUtils.setSpinnerWidth(spinnerKeyboardLevel, 7);
+    GuiUtils.formatCheckAction(spinnerKeyboardLevel);
+
+    JPanel keyboardWindowLevelPanel = GuiUtils.getVerticalBoxLayoutPanel();
+    keyboardWindowLevelPanel.add(
+        GuiUtils.getFlowLayoutPanel(
+            FlowLayout.LEADING,
+            ITEM_SEPARATOR_SMALL,
+            ITEM_SEPARATOR,
+            GuiUtils.boxHorizontalStrut(shiftX),
+            lblKeyboardWindow,
+            spinnerKeyboardWindow));
+    keyboardWindowLevelPanel.add(
+        GuiUtils.getFlowLayoutPanel(
+            FlowLayout.LEADING,
+            ITEM_SEPARATOR_SMALL,
+            ITEM_SEPARATOR,
+            GuiUtils.boxHorizontalStrut(shiftX),
+            lblKeyboardLevel,
+            spinnerKeyboardLevel));
+    keyboardWindowLevelPanel.setBorder(
+        GuiUtils.getTitledBorder(Messages.getString("ViewerPrefView.keyboard_window_level")));
+    add(keyboardWindowLevelPanel);
+    add(GuiUtils.boxVerticalStrut(BLOCK_SEPARATOR));
+
     JLabel lblInterpolation =
         new JLabel(Messages.getString("ViewerPrefView.interp") + StringUtil.COLON);
     comboBoxInterpolation = new JComboBox<>(ZoomOp.Interpolation.values());
@@ -157,7 +206,6 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     GuiUtils.setSpinnerWidth(spinnerKeyboardZoom, 4);
     GuiUtils.formatCheckAction(spinnerKeyboardZoom);
 
-    int shiftX = ITEM_SEPARATOR - ITEM_SEPARATOR_SMALL;
     JPanel panel1 = GuiUtils.getVerticalBoxLayoutPanel();
     panel1.add(
         GuiUtils.getFlowLayoutPanel(
@@ -253,6 +301,18 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     eventManager
         .getZoomSetting()
         .setKeyboardZoomPercent(((Number) spinnerKeyboardZoom.getValue()).intValue());
+    try {
+      spinnerKeyboardWindow.commitEdit();
+      spinnerKeyboardLevel.commitEdit();
+    } catch (java.text.ParseException e) {
+      // Keep the last valid spinner values.
+    }
+    eventManager
+        .getWindowLevelSetting()
+        .setKeyboardWindowStep(((Number) spinnerKeyboardWindow.getValue()).intValue());
+    eventManager
+        .getWindowLevelSetting()
+        .setKeyboardLevelStep(((Number) spinnerKeyboardLevel.getValue()).intValue());
     boolean applyWLcolor = checkBoxWLcolor.isSelected();
     eventManager.getOptions().putBooleanProperty(WindowOp.P_APPLY_WL_COLOR, applyWLcolor);
 
@@ -294,6 +354,8 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     comboBoxInterpolation.setSelectedItem(Interpolation.BILINEAR);
     spinnerActualPixelZoom.setValue(ZoomSetting.DEFAULT_ACTUAL_PIXEL_ZOOM_PERCENT);
     spinnerKeyboardZoom.setValue(ZoomSetting.DEFAULT_KEYBOARD_ZOOM_PERCENT);
+    spinnerKeyboardWindow.setValue(WindowLevelSetting.DEFAULT_KEYBOARD_WINDOW_STEP);
+    spinnerKeyboardLevel.setValue(WindowLevelSetting.DEFAULT_KEYBOARD_LEVEL_STEP);
 
     // Get the default server configuration and if no value take the default value in parameter.
     WProperties properties = EventManager.getInstance().getOptions();

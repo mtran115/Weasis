@@ -21,7 +21,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import javax.swing.BoundedRangeModel;
@@ -135,6 +139,8 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   private static final double CURRENT_ZOOM_MOUSE_SENSITIVITY = 2.0;
   private static final double ZOOM_SENSITIVITY_MIGRATION_TOLERANCE = 0.03;
   private static final String ZOOM_SENSITIVITY_MIGRATED_KEY = "zoomSensitivityMigratedV5";
+  private static final Set<String> KEYBOARD_WINDOW_LEVEL_MODALITIES =
+      Set.of("MR", "CR", "DX", "DR", "MG", "RF", "XA", "IO", "PX");
 
   public static final List<String> functions =
       List.of(
@@ -149,6 +155,10 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
 
   /** The single instance of this singleton class. */
   private static EventManager instance;
+
+  private final WindowLevelSetting windowLevelSetting = new WindowLevelSetting();
+  private final Map<ViewCanvas<DicomImageElement>, KeyboardWindowLevelState> previousWindowLevels =
+      new WeakHashMap<>();
 
   /**
    * Return the single instance of this class. This method guarantees the singleton property of this
@@ -211,6 +221,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     final BundleContext context = AppProperties.getBundleContext(this.getClass());
     Preferences prefs = BundlePreferences.getDefaultPreferences(context);
     zoomSetting.applyPreferences(prefs);
+    windowLevelSetting.applyPreferences(prefs);
     mouseActions.applyPreferences(prefs);
 
     if (prefs != null) {
@@ -760,7 +771,9 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
       boolean isMpr = selectedView2dContainer instanceof MprContainer;
       ShortcutManager sm = ShortcutManager.getInstance();
 
-      if (sm.matches(ShortcutManager.ID_DICOM_PREV_STUDY, keyEvent, modifiers)) {
+      if (handleKeyboardWindowLevelShortcut(sm, keyEvent, modifiers)) {
+        // Handled by the selected X-ray/MR view.
+      } else if (sm.matches(ShortcutManager.ID_DICOM_PREV_STUDY, keyEvent, modifiers)) {
         moveStudy(ListPosition.PREVIOUS);
       } else if (sm.matches(ShortcutManager.ID_DICOM_NEXT_STUDY, keyEvent, modifiers)) {
         moveStudy(ListPosition.NEXT);
@@ -826,11 +839,227 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
           }
         }
       } else {
-        keyPreset(keyEvent, modifiers);
+        if (!isManagedWindowLevelPresetKey(keyEvent, modifiers)) {
+          keyPreset(keyEvent, modifiers);
+        }
         triggerDrawingToolKeyEvent(keyEvent, modifiers);
       }
     }
   }
+
+  private boolean handleKeyboardWindowLevelShortcut(
+      ShortcutManager shortcutManager, int keyEvent, int modifiers) {
+    ViewCanvas<DicomImageElement> view = getSelectedViewPane();
+    if (view == null
+        || view.getImage() == null
+        || !isKeyboardWindowLevelModality(view.getSeries())) {
+      return false;
+    }
+
+    if (shortcutManager.matches(ShortcutManager.ID_DICOM_WINDOW_DECREASE, keyEvent, modifiers)) {
+      adjustKeyboardWindowLevel(view, true, -1);
+    } else if (shortcutManager.matches(
+        ShortcutManager.ID_DICOM_WINDOW_INCREASE, keyEvent, modifiers)) {
+      adjustKeyboardWindowLevel(view, true, 1);
+    } else if (shortcutManager.matches(
+        ShortcutManager.ID_DICOM_LEVEL_DECREASE, keyEvent, modifiers)) {
+      adjustKeyboardWindowLevel(view, false, -1);
+    } else if (shortcutManager.matches(
+        ShortcutManager.ID_DICOM_LEVEL_INCREASE, keyEvent, modifiers)) {
+      adjustKeyboardWindowLevel(view, false, 1);
+    } else if (shortcutManager.matches(
+        ShortcutManager.ID_DICOM_WINDOW_LEVEL_RESET, keyEvent, modifiers)) {
+      getFirstWindowLevelPreset().ifPresent(preset -> applyKeyboardPreset(view, preset));
+    } else if (shortcutManager.matches(
+        ShortcutManager.ID_DICOM_WINDOW_LEVEL_PREVIOUS, keyEvent, modifiers)) {
+      restorePreviousKeyboardWindowLevel(view);
+    } else if (shortcutManager.matches(
+        ShortcutManager.ID_DICOM_WINDOW_LEVEL_AUTO, keyEvent, modifiers)) {
+      getWindowLevelPreset(KeyEvent.VK_0).ifPresent(preset -> applyKeyboardPreset(view, preset));
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  private void adjustKeyboardWindowLevel(
+      ViewCanvas<DicomImageElement> view, boolean adjustWindow, int direction) {
+    Optional<KeyboardWindowLevelState> currentState = captureWindowLevelState(view);
+    Optional<SliderChangeListener> action =
+        getAction(adjustWindow ? ActionW.WINDOW : ActionW.LEVEL);
+    if (currentState.isEmpty() || action.isEmpty() || !action.get().isActionEnabled()) {
+      return;
+    }
+
+    KeyboardWindowLevelState current = currentState.get();
+    int step =
+        adjustWindow
+            ? windowLevelSetting.getKeyboardWindowStep()
+            : windowLevelSetting.getKeyboardLevelStep();
+    double currentValue = adjustWindow ? current.window() : current.level();
+    double target = clampToSliderRange(action.get(), currentValue + (double) direction * step);
+    if (Double.compare(currentValue, target) == 0) {
+      return;
+    }
+
+    KeyboardWindowLevelState updated =
+        new KeyboardWindowLevelState(
+            current.series(),
+            adjustWindow ? target : current.window(),
+            adjustWindow ? current.level() : target,
+            current.lutShape(),
+            null,
+            false);
+    if (applyKeyboardWindowLevelState(view, updated)) {
+      previousWindowLevels.put(view, current);
+    }
+  }
+
+  private void applyKeyboardPreset(ViewCanvas<DicomImageElement> view, PresetWindowLevel preset) {
+    captureWindowLevelState(view)
+        .ifPresent(
+            current -> {
+              boolean defaultPreset =
+                  getFirstWindowLevelPreset().filter(preset::equals).isPresent();
+              KeyboardWindowLevelState updated =
+                  new KeyboardWindowLevelState(
+                      current.series(),
+                      preset.getWindow(),
+                      preset.getLevel(),
+                      preset.getLutShape(),
+                      preset,
+                      defaultPreset);
+              if (applyKeyboardWindowLevelState(view, updated)) {
+                previousWindowLevels.put(view, current);
+              }
+            });
+  }
+
+  private void restorePreviousKeyboardWindowLevel(ViewCanvas<DicomImageElement> view) {
+    KeyboardWindowLevelState previous = previousWindowLevels.get(view);
+    if (previous == null || previous.series() != view.getSeries()) {
+      previousWindowLevels.remove(view);
+      return;
+    }
+
+    captureWindowLevelState(view)
+        .ifPresent(
+            current -> {
+              if (applyKeyboardWindowLevelState(view, previous)) {
+                previousWindowLevels.put(view, current);
+              }
+            });
+  }
+
+  private Optional<KeyboardWindowLevelState> captureWindowLevelState(
+      ViewCanvas<DicomImageElement> view) {
+    Optional<ImageOpNode> node = view.getDisplayOpManager().getNode(WindowOp.OP_NAME);
+    if (view.getSeries() == null || node.isEmpty()) {
+      return Optional.empty();
+    }
+
+    ImageOpNode windowNode = node.get();
+    Optional<Number> window =
+        view.getDisplayOpManager()
+            .getParamValue(WindowOp.OP_NAME, ActionW.WINDOW.cmd(), Number.class);
+    Optional<Number> level =
+        view.getDisplayOpManager()
+            .getParamValue(WindowOp.OP_NAME, ActionW.LEVEL.cmd(), Number.class);
+    if (window.isEmpty() || level.isEmpty()) {
+      return Optional.empty();
+    }
+
+    return Optional.of(
+        new KeyboardWindowLevelState(
+            view.getSeries(),
+            window.get().doubleValue(),
+            level.get().doubleValue(),
+            (LutShape) windowNode.getParam(ActionW.LUT_SHAPE.cmd()),
+            (PresetWindowLevel) windowNode.getParam(ActionW.PRESET.cmd()),
+            LangUtil.nullToTrue((Boolean) windowNode.getParam(ActionW.DEFAULT_PRESET.cmd()))));
+  }
+
+  private boolean applyKeyboardWindowLevelState(
+      ViewCanvas<DicomImageElement> view, KeyboardWindowLevelState state) {
+    if (state.series() != view.getSeries()) {
+      return false;
+    }
+
+    Optional<ImageOpNode> node = view.getDisplayOpManager().getNode(WindowOp.OP_NAME);
+    if (node.isEmpty()) {
+      return false;
+    }
+
+    ImageOpNode windowNode = node.get();
+    windowNode.setParam(ActionW.PRESET.cmd(), state.preset());
+    windowNode.setParam(ActionW.DEFAULT_PRESET.cmd(), state.defaultPreset());
+    windowNode.setParam(ActionW.WINDOW.cmd(), state.window());
+    windowNode.setParam(ActionW.LEVEL.cmd(), state.level());
+    if (state.lutShape() != null) {
+      windowNode.setParam(ActionW.LUT_SHAPE.cmd(), state.lutShape());
+    }
+    view.getActionsInView().put(ActionW.PRESET.cmd(), state.preset());
+    view.getImageLayer().updateDisplayOperations();
+    updateWindowLevelComponentsListener(view.getImage(), view);
+    fireSeriesViewerListeners(
+        new SeriesViewerEvent(selectedView2dContainer, null, null, EVENT.WIN_LEVEL));
+    return true;
+  }
+
+  private Optional<PresetWindowLevel> getFirstWindowLevelPreset() {
+    return getAction(ActionW.PRESET)
+        .map(ComboItemListener::getFirstItem)
+        .filter(PresetWindowLevel.class::isInstance)
+        .map(PresetWindowLevel.class::cast);
+  }
+
+  private Optional<PresetWindowLevel> getWindowLevelPreset(int dicomKeyCode) {
+    Optional<? extends ComboItemListener<?>> presetAction = getAction(ActionW.PRESET);
+    if (presetAction.isEmpty() || !presetAction.get().isActionEnabled()) {
+      return Optional.empty();
+    }
+
+    DefaultComboBoxModel<?> model = presetAction.get().getModel();
+    for (int i = 0; i < model.getSize(); i++) {
+      Object item = model.getElementAt(i);
+      if (item instanceof PresetWindowLevel preset && preset.getKeyCode() == dicomKeyCode) {
+        return Optional.of(preset);
+      }
+    }
+    return Optional.empty();
+  }
+
+  private boolean isManagedWindowLevelPresetKey(int keyEvent, int modifiers) {
+    ViewCanvas<DicomImageElement> view = getSelectedViewPane();
+    return modifiers == 0
+        && view != null
+        && isKeyboardWindowLevelModality(view.getSeries())
+        && (keyEvent == KeyEvent.VK_0 || (keyEvent >= KeyEvent.VK_4 && keyEvent <= KeyEvent.VK_9));
+  }
+
+  private static boolean isKeyboardWindowLevelModality(MediaSeries<?> series) {
+    return series != null
+        && isKeyboardWindowLevelModality(TagD.getTagValue(series, Tag.Modality, String.class));
+  }
+
+  static boolean isKeyboardWindowLevelModality(String modality) {
+    return modality != null
+        && KEYBOARD_WINDOW_LEVEL_MODALITIES.contains(modality.toUpperCase(Locale.ROOT));
+  }
+
+  private static double clampToSliderRange(SliderChangeListener action, double value) {
+    double min = action.toModelValue(action.getSliderMin());
+    double max = action.toModelValue(action.getSliderMax());
+    return Math.max(Math.min(min, max), Math.min(Math.max(min, max), value));
+  }
+
+  private record KeyboardWindowLevelState(
+      MediaSeries<DicomImageElement> series,
+      double window,
+      double level,
+      LutShape lutShape,
+      PresetWindowLevel preset,
+      boolean defaultPreset) {}
 
   private DicomExplorer getDicomExplorer() {
     DataExplorerView dicomView = GuiUtils.getUICore().getExplorerPlugin(DicomExplorer.NAME);
@@ -1321,6 +1550,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   public void savePreferences(BundleContext bundleContext) {
     Preferences prefs = BundlePreferences.getDefaultPreferences(bundleContext);
     zoomSetting.savePreferences(prefs);
+    windowLevelSetting.savePreferences(prefs);
     // Mouse buttons preferences
     mouseActions.savePreferences(prefs);
     if (prefs != null) {
@@ -1400,9 +1630,12 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
         || isSensitivityCloseTo(sensitivity, CURRENT_ZOOM_MOUSE_SENSITIVITY);
   }
 
+  public WindowLevelSetting getWindowLevelSetting() {
+    return windowLevelSetting;
+  }
+
   private static boolean isSensitivityCloseTo(double sensitivity, double expected) {
-    return Math.abs(sensitivity - expected)
-        <= expected * ZOOM_SENSITIVITY_MIGRATION_TOLERANCE;
+    return Math.abs(sensitivity - expected) <= expected * ZOOM_SENSITIVITY_MIGRATION_TOLERANCE;
   }
 
   public MediaSeries<DicomImageElement> getSelectedSeries() {

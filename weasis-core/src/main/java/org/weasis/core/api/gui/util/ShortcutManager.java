@@ -376,6 +376,15 @@ public final class ShortcutManager {
   public static final String ID_DICOM_PREV_IMAGE_CONTINUOUS = "dicom.prevImageContinuous";
   public static final String ID_DICOM_NEXT_IMAGE_CONTINUOUS = "dicom.nextImageContinuous";
 
+  // -- Shortcut IDs: DICOM Window/Level --
+  public static final String ID_DICOM_WINDOW_DECREASE = "dicom.windowDecrease";
+  public static final String ID_DICOM_WINDOW_INCREASE = "dicom.windowIncrease";
+  public static final String ID_DICOM_LEVEL_DECREASE = "dicom.levelDecrease";
+  public static final String ID_DICOM_LEVEL_INCREASE = "dicom.levelIncrease";
+  public static final String ID_DICOM_WINDOW_LEVEL_RESET = "dicom.windowLevelReset";
+  public static final String ID_DICOM_WINDOW_LEVEL_PREVIOUS = "dicom.windowLevelPrevious";
+  public static final String ID_DICOM_WINDOW_LEVEL_AUTO = "dicom.windowLevelAuto";
+
   // -- Shortcut IDs: Docking --
   public static final String ID_DOCKING_MAXIMIZE = "docking.maximize";
   public static final String ID_DOCKING_EXTERNALIZE = "docking.externalize";
@@ -815,6 +824,57 @@ public final class ShortcutManager {
         ShortcutContext.DICOM_VIEWER,
         KeyEvent.VK_END,
         KeyEvent.CTRL_MASK);
+
+    // ---- X-ray/MR window and level controls (dicom viewer2d EventManager.keyPressed()) ----
+    register(
+        ID_DICOM_WINDOW_DECREASE,
+        Messages.getString("ShortcutManager.window_decrease"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_4,
+        0);
+    register(
+        ID_DICOM_WINDOW_INCREASE,
+        Messages.getString("ShortcutManager.window_increase"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_5,
+        0);
+    register(
+        ID_DICOM_LEVEL_DECREASE,
+        Messages.getString("ShortcutManager.level_decrease"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_6,
+        0);
+    register(
+        ID_DICOM_LEVEL_INCREASE,
+        Messages.getString("ShortcutManager.level_increase"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_7,
+        0);
+    register(
+        ID_DICOM_WINDOW_LEVEL_RESET,
+        Messages.getString("ShortcutManager.window_level_reset"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_8,
+        0);
+    register(
+        ID_DICOM_WINDOW_LEVEL_PREVIOUS,
+        Messages.getString("ShortcutManager.window_level_previous"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_9,
+        0);
+    register(
+        ID_DICOM_WINDOW_LEVEL_AUTO,
+        Messages.getString("ShortcutManager.window_level_auto"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_0,
+        0);
 
     // ---- MPR-specific shortcuts (dicom viewer2d EventManager.keyPressed() for MPR) ----
     register(

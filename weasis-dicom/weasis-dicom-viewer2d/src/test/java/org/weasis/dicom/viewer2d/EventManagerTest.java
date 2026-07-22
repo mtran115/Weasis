@@ -37,4 +37,16 @@ class EventManagerTest {
   void preservesUnrelatedZoomSensitivityValues(double sensitivity) {
     assertFalse(EventManager.isPreviousZoomMouseSensitivity(sensitivity));
   }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"MR", "mr", "CR", "DX", "DR", "MG", "RF", "XA", "IO", "PX"})
+  void enablesKeyboardWindowLevelForMrAndXrayModalities(String modality) {
+    assertTrue(EventManager.isKeyboardWindowLevelModality(modality));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"CT", "US", "NM", "PT", "OT"})
+  void preservesNumberedPresetsForOtherModalities(String modality) {
+    assertFalse(EventManager.isKeyboardWindowLevelModality(modality));
+  }
 }
