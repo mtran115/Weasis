@@ -16,6 +16,8 @@ import org.dcm4che3.data.UID;
 import org.dcm4che3.img.data.PrDicomObject;
 import org.dcm4che3.img.lut.PresetWindowLevel;
 import org.dcm4che3.img.util.PaletteColorUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.weasis.core.api.gui.util.ActionW;
 import org.weasis.core.api.image.ImageOpEvent;
 import org.weasis.core.api.image.ImageOpEvent.OpEvent;
@@ -30,6 +32,10 @@ import org.weasis.opencv.op.lut.DefaultWlPresentation;
 
 public class WindowAndPresetsOp extends WindowOp {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(WindowAndPresetsOp.class);
+  private static final double IMPLAUSIBLE_LEVEL_DISTANCE_RATIO = 2.0;
+  private static final double IMPLAUSIBLE_WINDOW_RATIO = 4.0;
+
   public static final String P_PR_ELEMENT = "pr.element";
 
   @Override
@@ -41,11 +47,14 @@ public class WindowAndPresetsOp extends WindowOp {
       setParam(P_IMAGE_ELEMENT, img);
       removeParam(P_PR_ELEMENT);
 
-      if (img != null
-          && img != previousImage
-          && LangUtil.nullToTrue((Boolean) getParam(ActionW.DEFAULT_PRESET.cmd()))
-          && !isMrSeries(event)) {
-        applyDefaultPreset(img, false);
+      if (img != null && img != previousImage) {
+        PresetWindowLevel preset = (PresetWindowLevel) getParam(ActionW.PRESET.cmd());
+        if (preset != null && preset.isAutoLevel()) {
+          applyAutoPreset(img);
+        } else if (LangUtil.nullToTrue((Boolean) getParam(ActionW.DEFAULT_PRESET.cmd()))
+            && !isMrSeries(event)) {
+          applyDefaultPreset(img, false, false);
+        }
       }
     } else if (OpEvent.RESET_DISPLAY.equals(type) || OpEvent.SERIES_CHANGE.equals(type)) {
       ImageElement img = event.image();
@@ -53,7 +62,7 @@ public class WindowAndPresetsOp extends WindowOp {
       PrDicomObject pr = (PrDicomObject) getParam(P_PR_ELEMENT);
       removeParam(P_PR_ELEMENT);
       if (img != null) {
-        applyDefaultPreset(img, pr != null);
+        applyDefaultPreset(img, pr != null, isMrSeries(event));
       }
     } else if (OpEvent.APPLY_PR.equals(type)) {
       ImageElement img = event.image();
@@ -79,7 +88,7 @@ public class WindowAndPresetsOp extends WindowOp {
             DefaultWlPresentation wlp = new DefaultWlPresentation(null, pixelPadding);
             preset = imageElement.getDefaultPreset(wlp);
           }
-          setPreset(preset, img, pixelPadding);
+          setPreset(preset, img, pixelPadding, true);
         }
       }
     }
@@ -93,7 +102,8 @@ public class WindowAndPresetsOp extends WindowOp {
     return "MR".equalsIgnoreCase(modality);
   }
 
-  private void applyDefaultPreset(ImageElement img, boolean reloadPresetList) {
+  private void applyDefaultPreset(
+      ImageElement img, boolean reloadPresetList, boolean validateMrPreset) {
     if (!img.isImageAvailable()) {
       // Ensure to load image before calling the default preset that requires pixel min and max
       img.getImage();
@@ -101,21 +111,81 @@ public class WindowAndPresetsOp extends WindowOp {
 
     boolean pixelPadding = LangUtil.nullToTrue((Boolean) getParam(ActionW.IMAGE_PIX_PADDING.cmd()));
     PresetWindowLevel preset = null;
+    boolean defaultPreset = true;
     if (img instanceof DicomImageElement imageElement) {
       DefaultWlPresentation wlp = new DefaultWlPresentation(null, pixelPadding);
       if (reloadPresetList) {
         imageElement.getPresetList(wlp, true);
       }
       preset = imageElement.getDefaultPreset(wlp);
+      double imageMin = imageElement.getMinValue(wlp);
+      double imageMax = imageElement.getMaxValue(wlp);
+      if (validateMrPreset && isImplausiblePreset(preset, imageMin, imageMax)) {
+        PresetWindowLevel autoPreset = findAutoPreset(imageElement, wlp);
+        if (autoPreset != null) {
+          LOGGER.warn(
+              "Ignoring implausible MR DICOM window/level preset W:{}, L:{} for image range [{}, {}]",
+              preset.getWindow(),
+              preset.getLevel(),
+              imageMin,
+              imageMax);
+          preset = autoPreset;
+          defaultPreset = false;
+        }
+      }
     }
-    setPreset(preset, img, pixelPadding);
+    setPreset(preset, img, pixelPadding, defaultPreset);
   }
 
-  private void setPreset(PresetWindowLevel preset, ImageElement img, boolean pixelPadding) {
+  private static PresetWindowLevel findAutoPreset(
+      DicomImageElement image, DefaultWlPresentation wlp) {
+    return image.getPresetList(wlp).stream()
+        .filter(PresetWindowLevel::isAutoLevel)
+        .findFirst()
+        .orElse(null);
+  }
+
+  private void applyAutoPreset(ImageElement img) {
+    if (!img.isImageAvailable()) {
+      img.getImage();
+    }
+
+    boolean pixelPadding = LangUtil.nullToTrue((Boolean) getParam(ActionW.IMAGE_PIX_PADDING.cmd()));
+    if (img instanceof DicomImageElement imageElement) {
+      DefaultWlPresentation wlp = new DefaultWlPresentation(null, pixelPadding);
+      PresetWindowLevel autoPreset = findAutoPreset(imageElement, wlp);
+      if (autoPreset != null) {
+        setPreset(autoPreset, img, pixelPadding, false);
+      }
+    }
+  }
+
+  public static boolean isImplausiblePreset(
+      PresetWindowLevel preset, double imageMin, double imageMax) {
+    if (preset == null
+        || preset.isAutoLevel()
+        || !Double.isFinite(imageMin)
+        || !Double.isFinite(imageMax)
+        || imageMax <= imageMin) {
+      return false;
+    }
+
+    double imageRange = imageMax - imageMin;
+    double imageMidpoint = imageMin + imageRange / 2.0;
+    double levelDistanceRatio = Math.abs(preset.getLevel() - imageMidpoint) / imageRange;
+    double windowRatio = Math.abs(preset.getWindow()) / imageRange;
+
+    // Requiring both large offsets keeps intentionally broad clinical presets valid.
+    return levelDistanceRatio >= IMPLAUSIBLE_LEVEL_DISTANCE_RATIO
+        && windowRatio >= IMPLAUSIBLE_WINDOW_RATIO;
+  }
+
+  private void setPreset(
+      PresetWindowLevel preset, ImageElement img, boolean pixelPadding, boolean defaultPreset) {
     boolean p = preset != null;
     PrDicomObject pr = (PrDicomObject) getParam(P_PR_ELEMENT);
     setParam(ActionW.PRESET.cmd(), preset);
-    setParam(ActionW.DEFAULT_PRESET.cmd(), true);
+    setParam(ActionW.DEFAULT_PRESET.cmd(), defaultPreset);
     DefaultWlPresentation wlp = new DefaultWlPresentation(pr, pixelPadding);
     setParam(ActionW.WINDOW.cmd(), p ? preset.getWindow() : img.getDefaultWindow(wlp));
     setParam(ActionW.LEVEL.cmd(), p ? preset.getLevel() : img.getDefaultLevel(wlp));

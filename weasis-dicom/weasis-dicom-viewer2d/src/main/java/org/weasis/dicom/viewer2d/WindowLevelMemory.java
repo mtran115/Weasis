@@ -11,6 +11,7 @@ package org.weasis.dicom.viewer2d;
 
 import java.util.Optional;
 import org.dcm4che3.data.Tag;
+import org.dcm4che3.img.lut.PresetWindowLevel;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.dicom.codec.TagD;
@@ -22,6 +23,7 @@ final class WindowLevelMemory {
   void remember(
       MediaSeries<?> series,
       boolean defaultPreset,
+      PresetWindowLevel preset,
       Number window,
       Number level,
       LutShape lutShape) {
@@ -32,8 +34,9 @@ final class WindowLevelMemory {
     if (defaultPreset || window == null || level == null) {
       series.setTag(MEMORY_TAG, null);
     } else {
+      Mode mode = preset != null && preset.isAutoLevel() ? Mode.AUTO : Mode.MANUAL;
       series.setTag(
-          MEMORY_TAG, new State(window.doubleValue(), level.doubleValue(), lutShape));
+          MEMORY_TAG, new State(mode, window.doubleValue(), level.doubleValue(), lutShape));
     }
   }
 
@@ -46,9 +49,15 @@ final class WindowLevelMemory {
         .map(State.class::cast);
   }
 
-  static boolean shouldRefreshDefaultPreset(
-      MediaSeries<?> series, boolean hasPreset, boolean invalidWindowLevel) {
-    return (hasPreset || invalidWindowLevel) && (!isMrSeries(series) || invalidWindowLevel);
+  static boolean shouldRefreshPreset(
+      MediaSeries<?> series, PresetWindowLevel preset, boolean invalidWindowLevel) {
+    if (invalidWindowLevel) {
+      return true;
+    }
+    if (preset == null) {
+      return false;
+    }
+    return !isMrSeries(series) || preset.isAutoLevel();
   }
 
   static boolean isMrSeries(MediaSeries<?> series) {
@@ -56,5 +65,10 @@ final class WindowLevelMemory {
     return "MR".equalsIgnoreCase(modality);
   }
 
-  record State(double window, double level, LutShape lutShape) {}
+  enum Mode {
+    AUTO,
+    MANUAL
+  }
+
+  record State(Mode mode, double window, double level, LutShape lutShape) {}
 }

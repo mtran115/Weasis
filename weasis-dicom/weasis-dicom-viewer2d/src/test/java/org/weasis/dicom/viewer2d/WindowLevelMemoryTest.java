@@ -14,7 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.event.KeyEvent;
 import org.dcm4che3.data.Tag;
+import org.dcm4che3.img.lut.PresetWindowLevel;
 import org.junit.jupiter.api.Test;
 import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.codec.TagD;
@@ -27,9 +29,10 @@ class WindowLevelMemoryTest {
     WindowLevelMemory memory = new WindowLevelMemory();
     DicomSeries series = buildSeries("mr-1", "MR");
 
-    memory.remember(series, false, 850.5, 425.25, LutShape.SIGMOID);
+    memory.remember(series, false, null, 850.5, 425.25, LutShape.SIGMOID);
 
     WindowLevelMemory.State state = memory.recall(series).orElseThrow();
+    assertSame(WindowLevelMemory.Mode.MANUAL, state.mode());
     assertEquals(850.5, state.window());
     assertEquals(425.25, state.level());
     assertSame(LutShape.SIGMOID, state.lutShape());
@@ -39,9 +42,9 @@ class WindowLevelMemoryTest {
   void selectingDefaultPresetForgetsManualValues() {
     WindowLevelMemory memory = new WindowLevelMemory();
     DicomSeries series = buildSeries("mr-2", "MR");
-    memory.remember(series, false, 900.0, 450.0, LutShape.LINEAR);
+    memory.remember(series, false, null, 900.0, 450.0, LutShape.LINEAR);
 
-    memory.remember(series, true, 600.0, 300.0, LutShape.LINEAR);
+    memory.remember(series, true, null, 600.0, 300.0, LutShape.LINEAR);
 
     assertTrue(memory.recall(series).isEmpty());
   }
@@ -51,7 +54,7 @@ class WindowLevelMemoryTest {
     WindowLevelMemory memory = new WindowLevelMemory();
     DicomSeries series = buildSeries("ct-1", "CT");
 
-    memory.remember(series, false, 400.0, 40.0, LutShape.LINEAR);
+    memory.remember(series, false, null, 400.0, 40.0, LutShape.LINEAR);
 
     assertTrue(memory.recall(series).isEmpty());
   }
@@ -60,7 +63,7 @@ class WindowLevelMemoryTest {
   void doesNotCarryValuesIntoReimportedSeries() {
     WindowLevelMemory memory = new WindowLevelMemory();
     DicomSeries original = buildSeries("mr-3", "MR");
-    memory.remember(original, false, 700.0, 350.0, LutShape.LINEAR);
+    memory.remember(original, false, null, 700.0, 350.0, LutShape.LINEAR);
 
     DicomSeries reimported = buildSeries("mr-3", "MR");
 
@@ -68,29 +71,63 @@ class WindowLevelMemoryTest {
   }
 
   @Test
-  void keepsValidMrWindowLevelStableAcrossImages() {
+  void remembersAutoLevelAsAMode() {
     DicomSeries series = buildSeries("mr-4", "MR");
+    PresetWindowLevel autoPreset = preset(true);
 
-    assertFalse(WindowLevelMemory.shouldRefreshDefaultPreset(series, true, false));
+    WindowLevelMemory memory = new WindowLevelMemory();
+    memory.remember(series, false, autoPreset, 210.0, 105.0, LutShape.LINEAR);
+
+    WindowLevelMemory.State state = memory.recall(series).orElseThrow();
+    assertSame(WindowLevelMemory.Mode.AUTO, state.mode());
+  }
+
+  @Test
+  void keepsManualMrWindowLevelStableAcrossImages() {
+    DicomSeries series = buildSeries("mr-5", "MR");
+
+    assertFalse(WindowLevelMemory.shouldRefreshPreset(series, null, false));
+  }
+
+  @Test
+  void refreshesAutoLevelForEachMrImage() {
+    DicomSeries series = buildSeries("mr-6", "MR");
+
+    assertTrue(WindowLevelMemory.shouldRefreshPreset(series, preset(true), false));
+  }
+
+  @Test
+  void keepsDicomMrPresetStableAcrossImages() {
+    DicomSeries series = buildSeries("mr-7", "MR");
+
+    assertFalse(WindowLevelMemory.shouldRefreshPreset(series, preset(false), false));
   }
 
   @Test
   void refreshesInvalidMrWindowLevel() {
-    DicomSeries series = buildSeries("mr-5", "MR");
+    DicomSeries series = buildSeries("mr-8", "MR");
 
-    assertTrue(WindowLevelMemory.shouldRefreshDefaultPreset(series, true, true));
+    assertTrue(WindowLevelMemory.shouldRefreshPreset(series, preset(false), true));
   }
 
   @Test
   void retainsPerImagePresetBehaviorForNonMrSeries() {
-    DicomSeries series = buildSeries("ct-2", "CT");
+    DicomSeries series = buildSeries("ct-9", "CT");
 
-    assertTrue(WindowLevelMemory.shouldRefreshDefaultPreset(series, true, false));
+    assertTrue(WindowLevelMemory.shouldRefreshPreset(series, preset(false), false));
   }
 
   private static DicomSeries buildSeries(String uid, String modality) {
     DicomSeries series = new DicomSeries(uid);
     series.setTagNoNull(TagD.get(Tag.Modality), modality);
     return series;
+  }
+
+  private static PresetWindowLevel preset(boolean autoLevel) {
+    PresetWindowLevel preset = new PresetWindowLevel("Preset", 800.0, 400.0, LutShape.LINEAR);
+    if (autoLevel) {
+      preset.setKeyCode(KeyEvent.VK_0);
+    }
+    return preset;
   }
 }

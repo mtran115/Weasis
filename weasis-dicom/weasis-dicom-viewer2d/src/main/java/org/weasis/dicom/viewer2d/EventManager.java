@@ -106,6 +106,7 @@ import org.weasis.dicom.codec.PRSpecialElement;
 import org.weasis.dicom.codec.PresentationStateReader;
 import org.weasis.dicom.codec.SortSeriesStack;
 import org.weasis.dicom.codec.TagD;
+import org.weasis.dicom.codec.display.WindowAndPresetsOp;
 import org.weasis.dicom.codec.geometry.ImageOrientation;
 import org.weasis.dicom.codec.utils.DicomResource;
 import org.weasis.dicom.explorer.DicomModel;
@@ -405,11 +406,10 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
 
           // Assume the image cannot display when win =1 and level = 0
           boolean invalidWindowLevel =
-              windowAction.get().getSliderValue() <= 1
-                  && levelAction.get().getSliderValue() == 0;
-          // MR instances can contain inconsistent per-image VOI tags; retain the series baseline.
-          if (WindowLevelMemory.shouldRefreshDefaultPreset(
-              view2d.getSeries(), oldPreset != null, invalidWindowLevel)) {
+              windowAction.get().getSliderValue() <= 1 && levelAction.get().getSliderValue() == 0;
+          // Keep manual and DICOM MR baselines stable, but let Auto Level follow each image.
+          if (WindowLevelMemory.shouldRefreshPreset(
+              view2d.getSeries(), oldPreset, invalidWindowLevel)) {
             if (isDefaultPresetSelected) {
               newPreset = image.getDefaultPreset(wlp);
             } else {
@@ -869,7 +869,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
       adjustKeyboardWindowLevel(view, false, 1);
     } else if (shortcutManager.matches(
         ShortcutManager.ID_DICOM_WINDOW_LEVEL_RESET, keyEvent, modifiers)) {
-      getFirstWindowLevelPreset().ifPresent(preset -> applyKeyboardPreset(view, preset));
+      getResetWindowLevelPreset(view).ifPresent(preset -> applyKeyboardPreset(view, preset));
     } else if (shortcutManager.matches(
         ShortcutManager.ID_DICOM_WINDOW_LEVEL_PREVIOUS, keyEvent, modifiers)) {
       restorePreviousKeyboardWindowLevel(view);
@@ -919,19 +919,13 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     captureWindowLevelState(view)
         .ifPresent(
             current -> {
-              boolean defaultPreset =
-                  getFirstWindowLevelPreset().filter(preset::equals).isPresent();
-              KeyboardWindowLevelState updated =
-                  new KeyboardWindowLevelState(
-                      current.series(),
-                      preset.getWindow(),
-                      preset.getLevel(),
-                      preset.getLutShape(),
-                      preset,
-                      defaultPreset);
-              if (applyKeyboardWindowLevelState(view, updated)) {
-                previousWindowLevels.put(view, current);
-              }
+              getAction(ActionW.PRESET)
+                  .filter(ActionState::isActionEnabled)
+                  .ifPresent(
+                      action -> {
+                        action.setSelectedItem(preset);
+                        previousWindowLevels.put(view, current);
+                      });
             });
   }
 
@@ -1011,6 +1005,29 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
         .map(ComboItemListener::getFirstItem)
         .filter(PresetWindowLevel.class::isInstance)
         .map(PresetWindowLevel.class::cast);
+  }
+
+  private Optional<PresetWindowLevel> getResetWindowLevelPreset(
+      ViewCanvas<DicomImageElement> view) {
+    Optional<PresetWindowLevel> defaultPreset = getFirstWindowLevelPreset();
+    if (defaultPreset.isEmpty() || !WindowLevelMemory.isMrSeries(view.getSeries())) {
+      return defaultPreset;
+    }
+
+    DicomImageElement image = view.getImage();
+    if (image == null) {
+      return defaultPreset;
+    }
+    boolean pixelPadding =
+        view.getDisplayOpManager()
+            .getParamValue(WindowOp.OP_NAME, ActionW.IMAGE_PIX_PADDING.cmd(), Boolean.class)
+            .orElse(Boolean.TRUE);
+    DefaultWlPresentation wlp = new DefaultWlPresentation(null, pixelPadding);
+    if (WindowAndPresetsOp.isImplausiblePreset(
+        defaultPreset.get(), image.getMinValue(wlp), image.getMaxValue(wlp))) {
+      return getWindowLevelPreset(KeyEvent.VK_0).or(() -> defaultPreset);
+    }
+    return defaultPreset;
   }
 
   private Optional<PresetWindowLevel> getWindowLevelPreset(int dicomKeyCode) {

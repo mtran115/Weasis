@@ -13,6 +13,7 @@ import java.awt.image.RenderedImage;
 import java.io.File;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +56,7 @@ import org.weasis.dicom.param.AttributeEditorContext;
 import org.weasis.opencv.data.ImageCV;
 import org.weasis.opencv.data.LookupTableCV;
 import org.weasis.opencv.data.PlanarImage;
+import org.weasis.opencv.op.lut.DefaultWlPresentation;
 import org.weasis.opencv.op.lut.LutParameters;
 import org.weasis.opencv.op.lut.LutShape;
 import org.weasis.opencv.op.lut.PresentationStateLut;
@@ -470,6 +472,36 @@ public class DicomImageElement extends ImageElement implements DicomElement {
   public double getDefaultLevel(WlPresentation wlp) {
     PresetWindowLevel defaultPreset = getDefaultPreset(wlp);
     return (defaultPreset != null) ? defaultPreset.getLevel() : super.getDefaultLevel(null);
+  }
+
+  @Override
+  public PlanarImage getRenderedImageForThumbnail(PlanarImage imageSource) {
+    String modality = TagD.getTagValue(mediaIO, Tag.Modality, String.class);
+    if (!"MR".equalsIgnoreCase(modality)) {
+      return getRenderedImage(imageSource);
+    }
+
+    DefaultWlPresentation wlp = new DefaultWlPresentation(null, true);
+    PresetWindowLevel defaultPreset = getDefaultPreset(wlp);
+    if (!WindowAndPresetsOp.isImplausiblePreset(
+        defaultPreset, getMinValue(wlp), getMaxValue(wlp))) {
+      return getRenderedImage(imageSource);
+    }
+
+    PresetWindowLevel autoPreset =
+        getPresetList(wlp).stream().filter(PresetWindowLevel::isAutoLevel).findFirst().orElse(null);
+    if (autoPreset == null) {
+      return getRenderedImage(imageSource);
+    }
+
+    Map<String, Object> params = new HashMap<>();
+    params.put(ActionW.WINDOW.cmd(), autoPreset.getWindow());
+    params.put(ActionW.LEVEL.cmd(), autoPreset.getLevel());
+    params.put(ActionW.LEVEL_MIN.cmd(), getMinValue(wlp));
+    params.put(ActionW.LEVEL_MAX.cmd(), getMaxValue(wlp));
+    params.put(ActionW.LUT_SHAPE.cmd(), autoPreset.getLutShape());
+    params.put(ActionW.IMAGE_PIX_PADDING.cmd(), Boolean.TRUE);
+    return getRenderedImage(imageSource, params);
   }
 
   @Override

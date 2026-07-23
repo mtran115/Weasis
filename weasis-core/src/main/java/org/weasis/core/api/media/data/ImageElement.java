@@ -303,6 +303,10 @@ public class ImageElement extends MediaElement {
     return getRenderedImage(imageSource, null);
   }
 
+  public PlanarImage getRenderedImageForThumbnail(final PlanarImage imageSource) {
+    return getRenderedImage(imageSource);
+  }
+
   /**
    * @param imageSource is the RenderedImage upon which transformation is done
    * @param params rendering parameters
