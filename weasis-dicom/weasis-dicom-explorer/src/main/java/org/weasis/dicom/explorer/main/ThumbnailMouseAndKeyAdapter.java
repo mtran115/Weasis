@@ -61,7 +61,7 @@ import org.weasis.dicom.explorer.wado.LoadSeries;
 
 public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyListener {
   private static volatile HoveredThumbnail hoveredThumbnail;
-  private static boolean numpadDispatcherInstalled;
+  private static boolean thumbnailShortcutDispatcherInstalled;
 
   private final DicomSeries series;
   private final DicomModel dicomModel;
@@ -78,7 +78,7 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
       DicomModel dicomModel,
       LoadSeries loadSeries,
       DicomImageElement selectedImage) {
-    installNumpadDispatcher();
+    installThumbnailShortcutDispatcher();
     this.series = Objects.requireNonNull(series);
     this.dicomModel = Objects.requireNonNull(dicomModel);
     this.loadSeries = loadSeries;
@@ -156,56 +156,52 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
     }
   }
 
-  private static synchronized void installNumpadDispatcher() {
-    if (numpadDispatcherInstalled) {
+  private static synchronized void installThumbnailShortcutDispatcher() {
+    if (thumbnailShortcutDispatcherInstalled) {
       return;
     }
     KeyboardFocusManager.getCurrentKeyboardFocusManager()
-        .addKeyEventDispatcher(ThumbnailMouseAndKeyAdapter::dispatchNumpadShortcut);
-    numpadDispatcherInstalled = true;
+        .addKeyEventDispatcher(ThumbnailMouseAndKeyAdapter::dispatchThumbnailShortcut);
+    thumbnailShortcutDispatcherInstalled = true;
   }
 
-  private static boolean dispatchNumpadShortcut(KeyEvent e) {
-    if (e.getID() != KeyEvent.KEY_PRESSED || e.isConsumed()) {
-      return false;
-    }
-
-    if (dispatchViewerLayoutShortcut(e)) {
-      return true;
-    }
-
-    int viewIndex = getNumpadViewIndex(e);
-    if (viewIndex < 0) {
+  private static boolean dispatchThumbnailShortcut(KeyEvent e) {
+    if (e.getID() != KeyEvent.KEY_PRESSED || e.isConsumed() || isEditingText()) {
       return false;
     }
 
     HoveredThumbnail target = hoveredThumbnail;
-    if (target == null) {
-      return false;
+    if (target != null) {
+      int viewIndex = getViewSlotIndex(e);
+      if (viewIndex >= 0) {
+        if (openSeriesInViewSlot(
+            target.series(), target.dicomModel(), target.selectedImage(), viewIndex)) {
+          e.consume();
+          return true;
+        }
+        return false;
+      }
     }
 
-    if (openSeriesInViewSlot(
-        target.series(), target.dicomModel(), target.selectedImage(), viewIndex)) {
-      e.consume();
-      return true;
-    }
-    return false;
+    return dispatchViewerLayoutShortcut(e);
   }
 
   private static boolean dispatchViewerLayoutShortcut(KeyEvent e) {
-    if (!isHoveringThumbnailOrViewerFocused() || isEditingText()) {
+    if (!isHoveringThumbnailOrViewerFocused()) {
       return false;
     }
 
     ShortcutManager sm = ShortcutManager.getInstance();
+    int keyCode = getShortcutKeyCode(e);
+    int modifiers = e.getModifiers();
     String layoutId = null;
-    if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X1, e)) {
+    if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X1, keyCode, modifiers)) {
       layoutId = "1x1";
-    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X2, e)) {
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X2, keyCode, modifiers)) {
       layoutId = "1x2";
-    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X3, e)) {
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X3, keyCode, modifiers)) {
       layoutId = "1x3";
-    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X4, e)) {
+    } else if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X4, keyCode, modifiers)) {
       layoutId = "1x4";
     }
 
@@ -249,21 +245,40 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
     }
   }
 
-  private static int getNumpadViewIndex(KeyEvent e) {
-    return switch (e.getKeyCode()) {
-      case KeyEvent.VK_NUMPAD1 -> 0;
-      case KeyEvent.VK_NUMPAD2 -> 1;
-      case KeyEvent.VK_NUMPAD3 -> 2;
-      case KeyEvent.VK_NUMPAD4 -> 3;
-      default -> {
-        char keyChar = e.getKeyChar();
-        if (e.getKeyLocation() == KeyEvent.KEY_LOCATION_NUMPAD
-            && keyChar >= '1'
-            && keyChar <= '4') {
-          yield keyChar - '1';
-        }
-        yield -1;
-      }
+  private static int getViewSlotIndex(KeyEvent e) {
+    return getViewSlotIndex(getShortcutKeyCode(e), e.getModifiers());
+  }
+
+  static int getViewSlotIndex(int keyCode, int modifiers) {
+    ShortcutManager sm = ShortcutManager.getInstance();
+    if (sm.matches(ShortcutManager.ID_EXPLORER_OPEN_IN_VIEW_1, keyCode, modifiers)) {
+      return 0;
+    } else if (sm.matches(ShortcutManager.ID_EXPLORER_OPEN_IN_VIEW_2, keyCode, modifiers)) {
+      return 1;
+    } else if (sm.matches(ShortcutManager.ID_EXPLORER_OPEN_IN_VIEW_3, keyCode, modifiers)) {
+      return 2;
+    } else if (sm.matches(ShortcutManager.ID_EXPLORER_OPEN_IN_VIEW_4, keyCode, modifiers)) {
+      return 3;
+    }
+    return -1;
+  }
+
+  private static int getShortcutKeyCode(KeyEvent e) {
+    if (e.getKeyLocation() != KeyEvent.KEY_LOCATION_NUMPAD) {
+      return e.getKeyCode();
+    }
+    return switch (e.getKeyChar()) {
+      case '0' -> KeyEvent.VK_NUMPAD0;
+      case '1' -> KeyEvent.VK_NUMPAD1;
+      case '2' -> KeyEvent.VK_NUMPAD2;
+      case '3' -> KeyEvent.VK_NUMPAD3;
+      case '4' -> KeyEvent.VK_NUMPAD4;
+      case '5' -> KeyEvent.VK_NUMPAD5;
+      case '6' -> KeyEvent.VK_NUMPAD6;
+      case '7' -> KeyEvent.VK_NUMPAD7;
+      case '8' -> KeyEvent.VK_NUMPAD8;
+      case '9' -> KeyEvent.VK_NUMPAD9;
+      default -> e.getKeyCode();
     };
   }
 

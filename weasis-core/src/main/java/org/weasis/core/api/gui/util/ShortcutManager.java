@@ -412,6 +412,10 @@ public final class ShortcutManager {
   public static final String ID_EXPLORER_SELECT_LAST = "explorer.selectLast";
   public static final String ID_EXPLORER_SELECT_LAST_ALT = "explorer.selectLastAlt";
   public static final String ID_EXPLORER_SELECT_ALL = "explorer.selectAll";
+  public static final String ID_EXPLORER_OPEN_IN_VIEW_1 = "explorer.openInView1";
+  public static final String ID_EXPLORER_OPEN_IN_VIEW_2 = "explorer.openInView2";
+  public static final String ID_EXPLORER_OPEN_IN_VIEW_3 = "explorer.openInView3";
+  public static final String ID_EXPLORER_OPEN_IN_VIEW_4 = "explorer.openInView4";
 
   // -- Registration --
   /**
@@ -1028,6 +1032,34 @@ public final class ShortcutManager {
         ShortcutContext.DICOM_EXPLORER,
         KeyEvent.VK_A,
         KeyEvent.CTRL_MASK);
+    register(
+        ID_EXPLORER_OPEN_IN_VIEW_1,
+        Messages.getString("ShortcutManager.explorer_open_view_1"),
+        CATEGORY_DICOM_EXPLORER,
+        ShortcutContext.DICOM_EXPLORER,
+        KeyEvent.VK_NUMPAD1,
+        0);
+    register(
+        ID_EXPLORER_OPEN_IN_VIEW_2,
+        Messages.getString("ShortcutManager.explorer_open_view_2"),
+        CATEGORY_DICOM_EXPLORER,
+        ShortcutContext.DICOM_EXPLORER,
+        KeyEvent.VK_NUMPAD2,
+        0);
+    register(
+        ID_EXPLORER_OPEN_IN_VIEW_3,
+        Messages.getString("ShortcutManager.explorer_open_view_3"),
+        CATEGORY_DICOM_EXPLORER,
+        ShortcutContext.DICOM_EXPLORER,
+        KeyEvent.VK_NUMPAD3,
+        0);
+    register(
+        ID_EXPLORER_OPEN_IN_VIEW_4,
+        Messages.getString("ShortcutManager.explorer_open_view_4"),
+        CATEGORY_DICOM_EXPLORER,
+        ShortcutContext.DICOM_EXPLORER,
+        KeyEvent.VK_NUMPAD4,
+        0);
   }
 
   /**
