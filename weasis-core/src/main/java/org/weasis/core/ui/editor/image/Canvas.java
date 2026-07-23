@@ -81,7 +81,9 @@ public interface Canvas {
    *
    * @return the fit-height ratio
    */
-  double getFitHeightViewScale();
+  default double getFitHeightViewScale() {
+    return getBestFitViewScale();
+  }
 
   default double getActualPixelZoomPresetViewScale() {
     return adjustViewScale(0.5);
