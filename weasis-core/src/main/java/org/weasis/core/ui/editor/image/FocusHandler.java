@@ -76,6 +76,11 @@ public final class FocusHandler<E extends ImageElement> extends MouseActionAdapt
   }
 
   @Override
+  public void mouseEntered(MouseEvent evt) {
+    activateViewUnderPointer();
+  }
+
+  @Override
   public void mouseDragged(MouseEvent evt) {
     if (buttonPressActive) {
       evt.consume();
@@ -84,6 +89,10 @@ public final class FocusHandler<E extends ImageElement> extends MouseActionAdapt
 
   @Override
   public void mouseWheelMoved(MouseWheelEvent e) {
+    activateViewUnderPointer();
+  }
+
+  private void activateViewUnderPointer() {
     ImageViewerEventManager<E> eventManager = viewCanvas.getEventManager();
     if (eventManager == null) {
       return;
@@ -97,9 +106,10 @@ public final class FocusHandler<E extends ImageElement> extends MouseActionAdapt
     if (!container.equals(eventManager.getSelectedView2dContainer())) {
       eventManager.setSelectedView2dContainer(container);
     }
-    if (!container.getSelectedViewCanvas().equals(viewCanvas)) {
+    if (container.getSelectedViewCanvas() != viewCanvas) {
       container.setSelectedImagePane(viewCanvas);
     }
+    viewCanvas.getJComponent().requestFocusInWindow();
   }
 
   @Override

@@ -11,6 +11,7 @@ package org.weasis.core.api.gui.util;
 
 import java.awt.Dimension;
 import java.util.Arrays;
+import java.util.Objects;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.Icon;
 import javax.swing.JComboBox;
@@ -103,6 +104,15 @@ public abstract class ComboItemListener<T> extends BasicActionState
 
   public synchronized void setSelectedItem(Object object) {
     model.setSelectedItem(object);
+  }
+
+  /** Selects an item and invokes its action even when it is already selected. */
+  public synchronized void setSelectedItemAndTriggerAction(Object object) {
+    if (Objects.equals(model.getSelectedItem(), object)) {
+      itemStateChanged(object);
+    } else {
+      model.setSelectedItem(object);
+    }
   }
 
   public synchronized void setSelectedItemWithoutTriggerAction(Object object) {

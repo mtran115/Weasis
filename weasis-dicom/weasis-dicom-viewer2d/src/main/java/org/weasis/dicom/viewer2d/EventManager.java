@@ -923,7 +923,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
                   .filter(ActionState::isActionEnabled)
                   .ifPresent(
                       action -> {
-                        action.setSelectedItem(preset);
+                        action.setSelectedItemAndTriggerAction(preset);
                         previousWindowLevels.put(view, current);
                       });
             });
