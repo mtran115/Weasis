@@ -757,6 +757,12 @@ public class View2d extends DefaultView2d<DicomImageElement> {
   }
 
   @Override
+  protected boolean preserveZoomOnImageChange(DicomImageElement imgElement) {
+    String modality = TagD.getTagValue(series, Tag.Modality, String.class);
+    return EventManager.preserveZoomBetweenImages(modality);
+  }
+
+  @Override
   public void reset() {
     super.reset();
     if (getActionValue(ActionW.PR_STATE.cmd()) instanceof PRSpecialElement pr) {

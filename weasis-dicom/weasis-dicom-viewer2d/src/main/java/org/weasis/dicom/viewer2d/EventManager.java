@@ -1094,6 +1094,10 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     return modality != null && XRAY_MODALITIES.contains(modality.strip().toUpperCase(Locale.ROOT));
   }
 
+  static boolean preserveZoomBetweenImages(String modality) {
+    return !isXrayModality(modality);
+  }
+
   static KernelData getDefaultImageFilter(String modality) {
     return isXrayModality(modality) ? KernelData.SHARPEN_MORE : KernelData.NONE;
   }

@@ -1608,8 +1608,19 @@ public abstract class DefaultView2d<E extends ImageElement> extends GraphicsPane
     return msd == null ? location : location + msd.getTargetLocation() - msd.getSourceLocation();
   }
 
-  /** Set the image while preserving the current zoom mode (best-fit / real-size / current). */
+  /** Whether image navigation should carry the current zoom into the next image. */
+  protected boolean preserveZoomOnImageChange(E imgElement) {
+    return true;
+  }
+
+  /** Set the image while applying the viewport's image-navigation zoom policy. */
   private void applyImagePreservingZoom(E imgElement) {
+    if (!preserveZoomOnImageChange(imgElement)) {
+      actionsInView.put(ViewCanvas.ZOOM_TYPE_CMD, ZoomType.BEST_FIT);
+      setImage(imgElement);
+      return;
+    }
+
     Double zoomFactor = (Double) actionsInView.get(ActionW.ZOOM.cmd());
     if (zoomFactor != null && zoomFactor >= 0.0) {
       Object zoomType = actionsInView.get(ViewCanvas.ZOOM_TYPE_CMD);

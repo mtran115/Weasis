@@ -57,8 +57,25 @@ class EventManagerTest {
     assertSame(KernelData.NONE, EventManager.getDefaultImageFilter(modality));
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"CR", "cr", "DX", "DR", "MG", "RF", "XA", "IO", "PX", " DX "})
+  void resetsZoomBetweenXrayImages(String modality) {
+    assertFalse(EventManager.preserveZoomBetweenImages(modality));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"MR", "CT", "US", "NM", "PT", "OT", "XC"})
+  void preservesZoomBetweenStackImages(String modality) {
+    assertTrue(EventManager.preserveZoomBetweenImages(modality));
+  }
+
   @Test
   void leavesMissingModalityUnfilteredByDefault() {
     assertSame(KernelData.NONE, EventManager.getDefaultImageFilter(null));
+  }
+
+  @Test
+  void preservesZoomWhenModalityIsMissing() {
+    assertTrue(EventManager.preserveZoomBetweenImages(null));
   }
 }
