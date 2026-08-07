@@ -33,8 +33,9 @@ import org.weasis.opencv.op.lut.DefaultWlPresentation;
 public class WindowAndPresetsOp extends WindowOp {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(WindowAndPresetsOp.class);
-  private static final double IMPLAUSIBLE_LEVEL_DISTANCE_RATIO = 2.0;
-  private static final double IMPLAUSIBLE_WINDOW_RATIO = 4.0;
+  private static final double MIN_USABLE_DISPLAY_SPAN = 0.25;
+  private static final double DARK_DISPLAY_CEILING = 0.25;
+  private static final double BRIGHT_DISPLAY_FLOOR = 0.75;
 
   public static final String P_PR_ELEMENT = "pr.element";
 
@@ -51,9 +52,12 @@ public class WindowAndPresetsOp extends WindowOp {
         PresetWindowLevel preset = (PresetWindowLevel) getParam(ActionW.PRESET.cmd());
         if (preset != null && preset.isAutoLevel()) {
           applyAutoPreset(img);
-        } else if (LangUtil.nullToTrue((Boolean) getParam(ActionW.DEFAULT_PRESET.cmd()))
-            && !isMrSeries(event)) {
-          applyDefaultPreset(img, false, false);
+        } else if (LangUtil.nullToTrue((Boolean) getParam(ActionW.DEFAULT_PRESET.cmd()))) {
+          if (isMrSeries(event)) {
+            applyAutoPresetIfImplausible(img, preset);
+          } else {
+            applyDefaultPreset(img, false, false);
+          }
         }
       }
     } else if (OpEvent.RESET_DISPLAY.equals(type) || OpEvent.SERIES_CHANGE.equals(type)) {
@@ -160,24 +164,76 @@ public class WindowAndPresetsOp extends WindowOp {
     }
   }
 
+  private void applyAutoPresetIfImplausible(ImageElement img, PresetWindowLevel preset) {
+    if (!img.isImageAvailable()) {
+      img.getImage();
+    }
+    if (!(img instanceof DicomImageElement imageElement)) {
+      return;
+    }
+
+    boolean pixelPadding = LangUtil.nullToTrue((Boolean) getParam(ActionW.IMAGE_PIX_PADDING.cmd()));
+    DefaultWlPresentation wlp = new DefaultWlPresentation(null, pixelPadding);
+    double window =
+        preset == null ? getNumberParam(ActionW.WINDOW.cmd(), Double.NaN) : preset.getWindow();
+    double level =
+        preset == null ? getNumberParam(ActionW.LEVEL.cmd(), Double.NaN) : preset.getLevel();
+    double imageMin = imageElement.getMinValue(wlp);
+    double imageMax = imageElement.getMaxValue(wlp);
+    if (!isImplausibleWindowLevel(window, level, imageMin, imageMax)) {
+      return;
+    }
+
+    PresetWindowLevel autoPreset = findAutoPreset(imageElement, wlp);
+    if (autoPreset != null) {
+      LOGGER.warn(
+          "Switching implausible MR default window/level W:{}, L:{} to Auto Level for image range [{}, {}]",
+          window,
+          level,
+          imageMin,
+          imageMax);
+      setPreset(autoPreset, img, pixelPadding, false);
+    }
+  }
+
+  private double getNumberParam(String key, double defaultValue) {
+    Object value = getParam(key);
+    return value instanceof Number number ? number.doubleValue() : defaultValue;
+  }
+
   public static boolean isImplausiblePreset(
       PresetWindowLevel preset, double imageMin, double imageMax) {
-    if (preset == null
-        || preset.isAutoLevel()
+    if (preset == null || preset.isAutoLevel()) {
+      return false;
+    }
+    return isImplausibleWindowLevel(preset.getWindow(), preset.getLevel(), imageMin, imageMax);
+  }
+
+  public static boolean isImplausibleWindowLevel(
+      double window, double level, double imageMin, double imageMax) {
+    double windowWidth = Math.abs(window);
+    if (!Double.isFinite(windowWidth)
+        || windowWidth <= 0.0
+        || !Double.isFinite(level)
         || !Double.isFinite(imageMin)
         || !Double.isFinite(imageMax)
         || imageMax <= imageMin) {
       return false;
     }
 
-    double imageRange = imageMax - imageMin;
-    double imageMidpoint = imageMin + imageRange / 2.0;
-    double levelDistanceRatio = Math.abs(preset.getLevel() - imageMidpoint) / imageRange;
-    double windowRatio = Math.abs(preset.getWindow()) / imageRange;
+    double windowMin = level - windowWidth / 2.0;
+    double displayedMin = clampToDisplay((imageMin - windowMin) / windowWidth);
+    double displayedMax = clampToDisplay((imageMax - windowMin) / windowWidth);
+    double displayedSpan = displayedMax - displayedMin;
 
-    // Requiring both large offsets keeps intentionally broad clinical presets valid.
-    return levelDistanceRatio >= IMPLAUSIBLE_LEVEL_DISTANCE_RATIO
-        && windowRatio >= IMPLAUSIBLE_WINDOW_RATIO;
+    // Keep broad, centered clinical presets. Fall back only when the entire pixel range is
+    // compressed into an extreme dark or bright portion of the available grayscale.
+    return displayedSpan < MIN_USABLE_DISPLAY_SPAN
+        && (displayedMax <= DARK_DISPLAY_CEILING || displayedMin >= BRIGHT_DISPLAY_FLOOR);
+  }
+
+  private static double clampToDisplay(double value) {
+    return Math.max(0.0, Math.min(1.0, value));
   }
 
   private void setPreset(

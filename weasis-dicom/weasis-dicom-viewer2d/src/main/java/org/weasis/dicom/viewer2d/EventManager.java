@@ -140,8 +140,8 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   private static final double CURRENT_ZOOM_MOUSE_SENSITIVITY = 2.0;
   private static final double ZOOM_SENSITIVITY_MIGRATION_TOLERANCE = 0.03;
   private static final String ZOOM_SENSITIVITY_MIGRATED_KEY = "zoomSensitivityMigratedV5";
-  private static final Set<String> KEYBOARD_WINDOW_LEVEL_MODALITIES =
-      Set.of("MR", "CR", "DX", "DR", "MG", "RF", "XA", "IO", "PX");
+  private static final Set<String> XRAY_MODALITIES =
+      Set.of("CR", "DX", "DR", "MG", "RF", "XA", "IO", "PX");
 
   public static final List<String> functions =
       List.of(
@@ -403,13 +403,39 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
               new DefaultWlPresentation(pr == null ? null : pr.getPrDicomObject(), pixelPadding);
 
           List<PresetWindowLevel> newPresetList = image.getPresetList(wlp);
+          double imageMin = image.getMinValue(wlp);
+          double imageMax = image.getMaxValue(wlp);
+
+          if (isDefaultPresetSelected
+              && WindowLevelMemory.isMrSeries(series)
+              && WindowAndPresetsOp.isImplausibleWindowLevel(
+                  windowAction.get().getRealValue(),
+                  levelAction.get().getRealValue(),
+                  imageMin,
+                  imageMax)) {
+            newPreset =
+                newPresetList.stream()
+                    .filter(PresetWindowLevel::isAutoLevel)
+                    .findFirst()
+                    .orElse(null);
+            if (newPreset != null) {
+              LOGGER.warn(
+                  "Switching implausible MR default window/level W:{}, L:{} to Auto Level for image range [{}, {}]",
+                  windowAction.get().getRealValue(),
+                  levelAction.get().getRealValue(),
+                  imageMin,
+                  imageMax);
+              isDefaultPresetSelected = false;
+            }
+          }
 
           // Assume the image cannot display when win =1 and level = 0
           boolean invalidWindowLevel =
               windowAction.get().getSliderValue() <= 1 && levelAction.get().getSliderValue() == 0;
           // Keep manual and DICOM MR baselines stable, but let Auto Level follow each image.
-          if (WindowLevelMemory.shouldRefreshPreset(
-              view2d.getSeries(), oldPreset, invalidWindowLevel)) {
+          if (newPreset == null
+              && WindowLevelMemory.shouldRefreshPreset(
+                  view2d.getSeries(), oldPreset, invalidWindowLevel)) {
             if (isDefaultPresetSelected) {
               newPreset = image.getDefaultPreset(wlp);
             } else {
@@ -451,11 +477,11 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
                   .orElse(null);
 
           if (levelMin == null || levelMax == null) {
-            levelMin = Math.min(levelValue - windowValue / 2.0, image.getMinValue(wlp));
-            levelMax = Math.max(levelValue + windowValue / 2.0, image.getMaxValue(wlp));
+            levelMin = Math.min(levelValue - windowValue / 2.0, imageMin);
+            levelMax = Math.max(levelValue + windowValue / 2.0, imageMax);
           } else {
-            levelMin = Math.min(levelMin, image.getMinValue(wlp));
-            levelMax = Math.max(levelMax, image.getMaxValue(wlp));
+            levelMin = Math.min(levelMin, imageMin);
+            levelMax = Math.max(levelMax, imageMax);
           }
 
           // FIX : setting actionInView here without firing a propertyChange avoid another call to
@@ -1061,7 +1087,15 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
 
   static boolean isKeyboardWindowLevelModality(String modality) {
     return modality != null
-        && KEYBOARD_WINDOW_LEVEL_MODALITIES.contains(modality.toUpperCase(Locale.ROOT));
+        && ("MR".equalsIgnoreCase(modality.strip()) || isXrayModality(modality));
+  }
+
+  static boolean isXrayModality(String modality) {
+    return modality != null && XRAY_MODALITIES.contains(modality.strip().toUpperCase(Locale.ROOT));
+  }
+
+  static KernelData getDefaultImageFilter(String modality) {
+    return isXrayModality(modality) ? KernelData.SHARPEN_MORE : KernelData.NONE;
   }
 
   private static double clampToSliderRange(SliderChangeListener action, double value) {

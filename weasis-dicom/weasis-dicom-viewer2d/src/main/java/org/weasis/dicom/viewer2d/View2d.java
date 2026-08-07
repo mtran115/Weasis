@@ -225,6 +225,10 @@ public class View2d extends DefaultView2d<DicomImageElement> {
     disOp.setParamValue(WindowOp.OP_NAME, ActionW.IMAGE_PIX_PADDING.cmd(), true);
     disOp.setParamValue(WindowOp.OP_NAME, ActionW.DEFAULT_PRESET.cmd(), true);
     disOp.setParamValue(WindowOp.OP_NAME, ActionW.PRESET.cmd(), null);
+    disOp.setParamValue(
+        FilterOp.OP_NAME,
+        FilterOp.P_KERNEL_DATA,
+        EventManager.getDefaultImageFilter(TagD.getTagValue(series, Tag.Modality, String.class)));
 
     initKOActionWState();
   }

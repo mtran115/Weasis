@@ -35,22 +35,43 @@ import org.weasis.opencv.op.lut.WlPresentation;
 class WindowAndPresetsOpTest {
 
   @Test
-  void imageChangePreservesSeriesWindowLevelWhenDefaultPresetIsActive() {
+  void imageChangePreservesPlausibleSeriesWindowLevelWhenDefaultPresetIsActive() {
     WindowAndPresetsOp op = new WindowAndPresetsOp();
     DicomImageElement image = mockImage(820.0, 410.0, 0.0, 1023.0);
     op.setParam(ActionW.DEFAULT_PRESET.cmd(), true);
-    op.setParam(ActionW.WINDOW.cmd(), 12000.0);
-    op.setParam(ActionW.LEVEL.cmd(), 6000.0);
+    op.setParam(ActionW.WINDOW.cmd(), 820.0);
+    op.setParam(ActionW.LEVEL.cmd(), 410.0);
     op.setParam(ActionW.LEVEL_MIN.cmd(), -100.0);
-    op.setParam(ActionW.LEVEL_MAX.cmd(), 12100.0);
+    op.setParam(ActionW.LEVEL_MAX.cmd(), 1123.0);
 
     op.handleImageOpEvent(new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("MR"), image, null));
 
     assertSame(image, op.getParam(WindowOp.P_IMAGE_ELEMENT));
-    assertEquals(12000.0, op.getParam(ActionW.WINDOW.cmd()));
-    assertEquals(6000.0, op.getParam(ActionW.LEVEL.cmd()));
+    assertEquals(820.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(410.0, op.getParam(ActionW.LEVEL.cmd()));
     assertEquals(-100.0, op.getParam(ActionW.LEVEL_MIN.cmd()));
-    assertEquals(12100.0, op.getParam(ActionW.LEVEL_MAX.cmd()));
+    assertEquals(1123.0, op.getParam(ActionW.LEVEL_MAX.cmd()));
+  }
+
+  @Test
+  void imageChangeSwitchesImplausibleMrDefaultWindowLevelToAuto() {
+    WindowAndPresetsOp op = new WindowAndPresetsOp();
+    DicomImageElement image = mockImage(210.0, 105.0, 0.0, 210.0);
+    PresetWindowLevel dicomPreset = preset("Default 1 [DICOM]", 1860.0, 1070.0, false);
+    PresetWindowLevel autoPreset = preset("Auto Level [Image]", 210.0, 105.0, true);
+    when(image.getPresetList(any(WlPresentation.class)))
+        .thenReturn(List.of(dicomPreset, autoPreset));
+    op.setParam(ActionW.PRESET.cmd(), dicomPreset);
+    op.setParam(ActionW.DEFAULT_PRESET.cmd(), true);
+    op.setParam(ActionW.WINDOW.cmd(), dicomPreset.getWindow());
+    op.setParam(ActionW.LEVEL.cmd(), dicomPreset.getLevel());
+
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("MR"), image, null));
+
+    assertSame(autoPreset, op.getParam(ActionW.PRESET.cmd()));
+    assertFalse((Boolean) op.getParam(ActionW.DEFAULT_PRESET.cmd()));
+    assertEquals(210.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(105.0, op.getParam(ActionW.LEVEL.cmd()));
   }
 
   @Test
@@ -163,15 +184,22 @@ class WindowAndPresetsOpTest {
     WindowAndPresetsOp op = new WindowAndPresetsOp();
     DicomImageElement image = mockImage(820.0, 410.0, 0.0, 1023.0);
     op.setParam(ActionW.DEFAULT_PRESET.cmd(), false);
-    op.setParam(ActionW.WINDOW.cmd(), 275.0);
-    op.setParam(ActionW.LEVEL.cmd(), 145.0);
+    op.setParam(ActionW.WINDOW.cmd(), 12000.0);
+    op.setParam(ActionW.LEVEL.cmd(), 6000.0);
 
-    op.handleImageOpEvent(ImageOpEvent.withImage(OpEvent.IMAGE_CHANGE, image));
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("MR"), image, null));
 
     assertSame(image, op.getParam(WindowOp.P_IMAGE_ELEMENT));
-    assertEquals(275.0, op.getParam(ActionW.WINDOW.cmd()));
-    assertEquals(145.0, op.getParam(ActionW.LEVEL.cmd()));
+    assertEquals(12000.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(6000.0, op.getParam(ActionW.LEVEL.cmd()));
     assertFalse((Boolean) op.getParam(ActionW.DEFAULT_PRESET.cmd()));
+  }
+
+  @Test
+  void broadCenteredClinicalPresetIsNotRejected() {
+    PresetWindowLevel preset = preset("Broad centered preset", 10000.0, 500.0, false);
+
+    assertFalse(WindowAndPresetsOp.isImplausiblePreset(preset, 450.0, 550.0));
   }
 
   private static DicomImageElement mockImage(double window, double level, double min, double max) {
