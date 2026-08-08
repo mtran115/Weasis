@@ -42,7 +42,10 @@ public class Singleton {
   private static final String LOCALHOST = "127.0.0.1";
   private static final File SI_FILEDIR =
       new File(
-          System.getProperty("user.home") + File.separator + ".weasis", "singleton"); // NON-NLS
+          System.getProperty(
+              "weasis.path", // NON-NLS
+              System.getProperty("user.home", "") + File.separator + ".weasis"), // NON-NLS
+          "singleton"); // NON-NLS
   private static final String SI_MAGICWORD = "si.init";
   private static final String SI_ARG = "si.arg";
   private static final String SI_PROP = "si.prop";

@@ -29,8 +29,11 @@ import org.weasis.pref.ConfigData;
 public class AppLauncher extends WeasisLauncher implements Singleton.SingletonApp {
 
   static {
-    String home = System.getProperty("user.home", "");
-    File bootLog = new File(home + File.separator + ".weasis" + File.separator + "log");
+    String home =
+        System.getProperty(
+            "weasis.path", // NON-NLS
+            System.getProperty("user.home", "") + File.separator + ".weasis"); // NON-NLS
+    File bootLog = new File(home, "log"); // NON-NLS
     bootLog.mkdirs();
 
     LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();

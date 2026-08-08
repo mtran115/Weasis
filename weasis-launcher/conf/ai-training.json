@@ -1,0 +1,11 @@
+{
+  "weasisPreferences": [
+    {
+      "code": "org.osgi.framework.storage",
+      "value": "${weasis.path}/cache-dev",
+      "description": "Keep the experimental bundle cache inside its isolated runtime directory",
+      "type": "A",
+      "category": "FELIX_CONFIG"
+    }
+  ]
+}
