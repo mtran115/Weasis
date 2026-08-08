@@ -452,6 +452,12 @@
                 </artifactItem>
                 <artifactItem>
                   <groupId>org.weasis.dicom</groupId>
+                  <artifactId>weasis-dicom-report-composer</artifactId>
+                  <version>${app.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.weasis.dicom</groupId>
                   <artifactId>weasis-dicom-sr</artifactId>
                   <version>${app.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>

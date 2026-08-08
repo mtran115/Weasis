@@ -144,8 +144,8 @@
     },
     {
       "code": "felix.auto.start.70",
-      "value": "file:${maven.localRepository}/org/weasis/dicom/weasis-dicom-viewer2d/${app.version}/weasis-dicom-viewer2d-${app.version}.jar file:${maven.localRepository}/org/weasis/dicom/weasis-dicom-sr/${app.version}/weasis-dicom-sr-${app.version}.jar",
-      "description": "DICOM Viewer 2D and SR viewer",
+      "value": "file:${maven.localRepository}/org/weasis/dicom/weasis-dicom-viewer2d/${app.version}/weasis-dicom-viewer2d-${app.version}.jar file:${maven.localRepository}/org/weasis/dicom/weasis-dicom-report-composer/${app.version}/weasis-dicom-report-composer-${app.version}.jar file:${maven.localRepository}/org/weasis/dicom/weasis-dicom-sr/${app.version}/weasis-dicom-sr-${app.version}.jar",
+      "description": "DICOM Viewer 2D, report composer and SR viewer",
       "type": "A",
       "category": "FELIX_INSTALL"
     },

@@ -144,8 +144,8 @@
     },
     {
       "code": "felix.auto.start.70",
-      "value": "${dollar}{weasis.codebase.url}/bundle/weasis-dicom-viewer2d-${app.version}.jar${xz.ext} ${dollar}{weasis.codebase.url}/bundle/weasis-dicom-sr-${app.version}.jar${xz.ext}",
-      "description": "DICOM Viewer 2D and SR viewer",
+      "value": "${dollar}{weasis.codebase.url}/bundle/weasis-dicom-viewer2d-${app.version}.jar${xz.ext} ${dollar}{weasis.codebase.url}/bundle/weasis-dicom-report-composer-${app.version}.jar${xz.ext} ${dollar}{weasis.codebase.url}/bundle/weasis-dicom-sr-${app.version}.jar${xz.ext}",
+      "description": "DICOM Viewer 2D, report composer and SR viewer",
       "type": "A",
       "category": "FELIX_INSTALL"
     },

@@ -24,6 +24,16 @@ fi
 
 # Keep the native macOS renderer by default; set false only as a crash workaround.
 JAVA2D_METAL="${WEASIS_JAVA2D_METAL:-true}"
+JAVA_USER_HOME="${WEASIS_USER_HOME:-$HOME}"
+GOSH_PORT="${WEASIS_GOSH_PORT:-17179}"
+
+WEASIS_JAVA_PROPERTIES=()
+if [[ -n "${WEASIS_PROFILE:-}" ]]; then
+  WEASIS_JAVA_PROPERTIES+=("-Dweasis.profile=$WEASIS_PROFILE")
+fi
+if [[ -n "${WEASIS_NAME:-}" ]]; then
+  WEASIS_JAVA_PROPERTIES+=("-Dweasis.name=$WEASIS_NAME")
+fi
 
 if [[ ! -f "$LAUNCHER_JAR" || ! -f "$FELIX_JAR" ]]; then
   echo "Weasis is not built yet, or Felix is missing."
@@ -38,7 +48,9 @@ cd "$ROOT/weasis-launcher"
 exec "$JAVA_CMD" \
   -Xms64m \
   -Xmx768m \
-  -Dgosh.port=17179 \
+  "-Duser.home=$JAVA_USER_HOME" \
+  "-Dgosh.port=$GOSH_PORT" \
+  "${WEASIS_JAVA_PROPERTIES[@]}" \
   --enable-native-access=ALL-UNNAMED \
   "-Dsun.java2d.metal=$JAVA2D_METAL" \
   -Dapple.laf.useScreenMenuBar=true \
