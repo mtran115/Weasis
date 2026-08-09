@@ -12,19 +12,26 @@ package org.weasis.dicom.reportcomposer;
 import bibliothek.gui.dock.common.CLocation;
 import bibliothek.gui.dock.common.mode.ExtendedMode;
 import com.formdev.flatlaf.util.SystemFileChooser;
+import java.awt.AWTEvent;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Desktop;
 import java.awt.Dimension;
+import java.awt.EventQueue;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.MouseInfo;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.AWTEventListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -48,6 +55,7 @@ import javax.swing.JTextArea;
 import javax.swing.ListSelectionModel;
 import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import org.weasis.core.api.gui.Insertable;
 import org.weasis.core.api.gui.util.GuiExecutor;
@@ -60,11 +68,14 @@ import org.weasis.core.ui.docking.PluginTool;
 import org.weasis.core.ui.editor.SeriesViewerEvent;
 import org.weasis.core.ui.editor.SeriesViewerEvent.EVENT;
 import org.weasis.core.ui.editor.SeriesViewerListener;
+import org.weasis.core.ui.editor.image.DefaultView2d;
+import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.reportcomposer.ArrowAnnotationDialog.AnnotationResult;
 import org.weasis.dicom.reportcomposer.CasePacketExporter.ExportResult;
 import org.weasis.dicom.reportcomposer.DicomContextReader.Selection;
-import org.weasis.dicom.reportcomposer.WristFindingCatalog.FindingChoice;
-import org.weasis.dicom.reportcomposer.WristFindingCatalog.GeneratedFinding;
+import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
+import org.weasis.dicom.reportcomposer.MriFindingCatalog.FindingChoice;
+import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
 
 public class ReportComposerTool extends PluginTool implements SeriesViewerListener {
   public static final String BUTTON_NAME = "Report Composer";
@@ -73,11 +84,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private static final int FIELD_COLUMNS = 28;
 
   private final Map<String, ReportDraft> drafts = new LinkedHashMap<>();
+  private final Map<String, ExamTemplate> draftExamTemplates = new LinkedHashMap<>();
   private final CasePacketExporter packetExporter = new CasePacketExporter();
   private final JTabbedPane tabs = new JTabbedPane();
   private final JLabel patientLabel = new JLabel("No active DICOM study");
   private final JLabel examLabel = new JLabel("Select an image to begin");
   private final JLabel accessionLabel = new JLabel(" ");
+  private final JComboBox<ExamTemplate> examCombo = new JComboBox<>();
   private final JComboBox<String> categoryCombo = new JComboBox<>();
   private final JComboBox<String> structureCombo = new JComboBox<>();
   private final JComboBox<FindingChoice> findingCombo = new JComboBox<>();
@@ -97,20 +110,26 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JButton exportButton = new JButton("Export Instruction Packet");
   private final JButton openExportButton =
       iconButton(ActionIcon.OPEN_EXTERNAL, "Open exported case folder");
+  private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
 
   private ReportDraft currentDraft;
   private String editingFindingId;
   private Path outputDirectory;
   private Path lastExportDirectory;
+  private boolean updatingCatalogControls;
+  private DefaultView2d<DicomImageElement> lastActiveCanvas;
+  private DefaultView2d<DicomImageElement> lastInteractedCanvas;
+  private boolean canvasInteractionListenerInstalled;
 
   public ReportComposerTool() {
     super(BUTTON_NAME, POSITION.EAST, ExtendedMode.NORMALIZED, Insertable.Type.TOOL_EXT, 145);
     dockable.setTitleIcon(ResourceUtil.getIcon(OtherIcon.KEY_IMAGE));
+    dockable.setMinimizable(true);
     setDockableWidth(390);
     initializeOutputDirectory();
     buildInterface();
     updateOutputFolderLabel();
-    updateCatalogControls();
+    initializeCatalogControls();
     GuiExecutor.execute(this::synchronizeStudy);
   }
 
@@ -120,11 +139,80 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   @Override
+  public void addNotify() {
+    super.addNotify();
+    if (!canvasInteractionListenerInstalled) {
+      Toolkit.getDefaultToolkit()
+          .addAWTEventListener(
+              canvasInteractionListener,
+              AWTEvent.MOUSE_EVENT_MASK
+                  | AWTEvent.MOUSE_WHEEL_EVENT_MASK
+                  | AWTEvent.KEY_EVENT_MASK);
+      canvasInteractionListenerInstalled = true;
+    }
+  }
+
+  @Override
+  public void removeNotify() {
+    if (canvasInteractionListenerInstalled) {
+      Toolkit.getDefaultToolkit().removeAWTEventListener(canvasInteractionListener);
+      canvasInteractionListenerInstalled = false;
+    }
+    super.removeNotify();
+  }
+
+  @Override
   public void changingViewContentEvent(SeriesViewerEvent event) {
     EVENT type = event.getEventType();
     if (EVENT.SELECT.equals(type) || EVENT.SELECT_VIEW.equals(type) || EVENT.LAYOUT.equals(type)) {
+      boolean pointerInsideComposer = isPointerInsideComposer();
+      AWTEvent currentEvent = EventQueue.getCurrentEvent();
+      boolean hoverActivation =
+          currentEvent instanceof MouseEvent mouseEvent
+              && mouseEvent.getID() == MouseEvent.MOUSE_ENTERED;
+      if (shouldRememberViewerSelection(type, pointerInsideComposer, hoverActivation)) {
+        DicomContextReader.selectedCanvas(event).ifPresent(canvas -> lastActiveCanvas = canvas);
+      }
       GuiExecutor.execute(this::synchronizeStudy);
     }
+  }
+
+  static boolean shouldRememberViewerSelection(
+      EVENT type, boolean pointerInsideComposer, boolean hoverActivation) {
+    return EVENT.LAYOUT.equals(type) || (!pointerInsideComposer && !hoverActivation);
+  }
+
+  static boolean isDeliberateCanvasMouseEvent(int eventId) {
+    return eventId == MouseEvent.MOUSE_PRESSED
+        || eventId == MouseEvent.MOUSE_RELEASED
+        || eventId == MouseEvent.MOUSE_WHEEL;
+  }
+
+  private void trackCanvasInteraction(AWTEvent event) {
+    if (event instanceof MouseEvent mouseEvent
+        && isDeliberateCanvasMouseEvent(mouseEvent.getID())) {
+      Optional<DefaultView2d<DicomImageElement>> sourceCanvas = Optional.empty();
+      if (mouseEvent.getSource() instanceof Component component) {
+        sourceCanvas = DicomContextReader.canvasFor(component);
+      }
+      sourceCanvas
+          .or(() -> DicomContextReader.canvasAt(mouseEvent.getLocationOnScreen()))
+          .ifPresent(canvas -> lastInteractedCanvas = canvas);
+    } else if (event instanceof KeyEvent keyEvent
+        && keyEvent.getID() == KeyEvent.KEY_RELEASED
+        && keyEvent.getSource() instanceof Component component) {
+      DicomContextReader.canvasFor(component).ifPresent(canvas -> lastInteractedCanvas = canvas);
+    }
+  }
+
+  private boolean isPointerInsideComposer() {
+    var pointer = MouseInfo.getPointerInfo();
+    if (pointer == null || !isShowing()) {
+      return false;
+    }
+    Point point = new Point(pointer.getLocation());
+    SwingUtilities.convertPointFromScreen(point, this);
+    return contains(point);
   }
 
   @Override
@@ -170,12 +258,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private JPanel buildFindingBuilder() {
     JPanel builder = new JPanel(new GridBagLayout());
-    builder.setBorder(BorderFactory.createTitledBorder("Wrist MRI finding"));
+    builder.setBorder(BorderFactory.createTitledBorder("MRI finding"));
     GridBagConstraints constraints = new GridBagConstraints();
     constraints.gridx = 0;
     constraints.gridy = 0;
     constraints.anchor = GridBagConstraints.LINE_START;
     constraints.insets = new Insets(3, 4, 3, 4);
+    builder.add(new JLabel("Exam"), constraints);
+    constraints.gridy++;
     builder.add(new JLabel("Category"), constraints);
     constraints.gridy++;
     builder.add(new JLabel("Structure"), constraints);
@@ -191,6 +281,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     constraints.gridy = 0;
     constraints.weightx = 1.0;
     constraints.fill = GridBagConstraints.HORIZONTAL;
+    builder.add(examCombo, constraints);
+    constraints.gridy++;
     builder.add(categoryCombo, constraints);
     constraints.gridy++;
     builder.add(structureCombo, constraints);
@@ -207,7 +299,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     constraints.fill = GridBagConstraints.HORIZONTAL;
     builder.add(includeInImpression, constraints);
 
-    categoryCombo.addActionListener(event -> updateCatalogControls());
+    examCombo.addActionListener(event -> examTemplateChanged());
+    categoryCombo.addActionListener(event -> updateCategoryControls());
     structureCombo.addActionListener(event -> applyCatalogPhrase());
     findingCombo.addActionListener(event -> applyCatalogPhrase());
     includeInImpression.addActionListener(
@@ -309,23 +402,73 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     return content;
   }
 
-  private void updateCatalogControls() {
-    String selectedCategory = (String) categoryCombo.getSelectedItem();
-    if (categoryCombo.getItemCount() == 0) {
-      for (String category : WristFindingCatalog.categories()) {
-        categoryCombo.addItem(category);
-      }
-      selectedCategory = (String) categoryCombo.getSelectedItem();
+  private void initializeCatalogControls() {
+    updatingCatalogControls = true;
+    for (ExamTemplate exam : MriFindingCatalog.exams()) {
+      examCombo.addItem(exam);
     }
+    examCombo.setSelectedItem(MriFindingCatalog.defaultExam());
+    updatingCatalogControls = false;
+    updateCatalogControls();
+  }
+
+  private void examTemplateChanged() {
+    if (updatingCatalogControls) {
+      return;
+    }
+    if (currentDraft != null && examCombo.getSelectedItem() instanceof ExamTemplate exam) {
+      draftExamTemplates.put(currentDraft.context().draftKey(), exam);
+    }
+    updateCatalogControls();
+  }
+
+  private void updateCatalogControls() {
+    if (updatingCatalogControls) {
+      return;
+    }
+    ExamTemplate exam = selectedExamTemplate();
+    updatingCatalogControls = true;
+    categoryCombo.removeAllItems();
+    for (String category : MriFindingCatalog.categories(exam)) {
+      categoryCombo.addItem(category);
+    }
+    populateCategoryControls(exam, (String) categoryCombo.getSelectedItem());
+    updatingCatalogControls = false;
+    applyCatalogPhrase();
+  }
+
+  private void updateCategoryControls() {
+    if (updatingCatalogControls) {
+      return;
+    }
+    updatingCatalogControls = true;
+    populateCategoryControls(selectedExamTemplate(), (String) categoryCombo.getSelectedItem());
+    updatingCatalogControls = false;
+    applyCatalogPhrase();
+  }
+
+  private void populateCategoryControls(ExamTemplate exam, String category) {
     structureCombo.removeAllItems();
-    for (String structure : WristFindingCatalog.structures(selectedCategory)) {
+    for (String structure : MriFindingCatalog.structures(exam, category)) {
       structureCombo.addItem(structure);
     }
     findingCombo.removeAllItems();
-    for (FindingChoice finding : WristFindingCatalog.findings(selectedCategory)) {
+    for (FindingChoice finding : MriFindingCatalog.findings(exam, category)) {
       findingCombo.addItem(finding);
     }
-    applyCatalogPhrase();
+  }
+
+  private ExamTemplate selectedExamTemplate() {
+    return examCombo.getSelectedItem() instanceof ExamTemplate exam
+        ? exam
+        : MriFindingCatalog.defaultExam();
+  }
+
+  private void selectExamTemplate(ExamTemplate exam) {
+    updatingCatalogControls = true;
+    examCombo.setSelectedItem(exam);
+    updatingCatalogControls = false;
+    updateCatalogControls();
   }
 
   private void applyCatalogPhrase() {
@@ -333,7 +476,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       return;
     }
     GeneratedFinding generated =
-        WristFindingCatalog.generate(
+        MriFindingCatalog.generate(
+            selectedExamTemplate(),
             (String) categoryCombo.getSelectedItem(),
             (String) structureCombo.getSelectedItem(),
             (FindingChoice) findingCombo.getSelectedItem());
@@ -345,7 +489,18 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void synchronizeStudy() {
-    Optional<Selection> selection = DicomContextReader.selected();
+    synchronizeStudy(activeSelection());
+  }
+
+  private Optional<Selection> activeSelection() {
+    Optional<Selection> selection = DicomContextReader.fromVisible(lastInteractedCanvas);
+    if (selection.isEmpty()) {
+      selection = DicomContextReader.fromVisible(lastActiveCanvas);
+    }
+    return selection.isPresent() ? selection : DicomContextReader.selected();
+  }
+
+  private void synchronizeStudy(Optional<Selection> selection) {
     if (selection.isEmpty() || !selection.get().context().hasStudy()) {
       boolean draftChanged = currentDraft != null;
       currentDraft = null;
@@ -373,6 +528,15 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         context.accessionNumber().isBlank()
             ? "Accession not available"
             : "Accession: " + context.accessionNumber());
+    if (draftChanged) {
+      ExamTemplate template =
+          draftExamTemplates.computeIfAbsent(
+              context.draftKey(),
+              ignored ->
+                  MriFindingCatalog.inferExam(context.examTitle())
+                      .orElse(MriFindingCatalog.defaultExam()));
+      selectExamTemplate(template);
+    }
     if (draftChanged || contextChanged) {
       refreshAll();
     }
@@ -454,12 +618,12 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void captureKeyImage() {
-    Optional<Selection> selection = DicomContextReader.selected();
+    Optional<Selection> selection = activeSelection();
     if (selection.isEmpty() || !selection.get().context().hasStudy()) {
       showWarning("Select a DICOM image before capturing a key image.");
       return;
     }
-    synchronizeStudy();
+    synchronizeStudy(selection);
     if (currentDraft == null) {
       return;
     }

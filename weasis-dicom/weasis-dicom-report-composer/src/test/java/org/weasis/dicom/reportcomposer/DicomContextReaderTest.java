@@ -1,0 +1,70 @@
+/*
+ * Copyright (c) 2026 Weasis Team and other contributors.
+ *
+ * This program and the accompanying materials are made available under the terms of the Eclipse
+ * Public License 2.0 which is available at https://www.eclipse.org/legal/epl-2.0, or the Apache
+ * License, Version 2.0 which is available at https://www.apache.org/licenses/LICENSE-2.0.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
+ */
+package org.weasis.dicom.reportcomposer;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.awt.event.MouseEvent;
+import org.junit.jupiter.api.Test;
+import org.weasis.core.ui.editor.SeriesViewer;
+import org.weasis.core.ui.editor.SeriesViewerEvent;
+import org.weasis.core.ui.editor.SeriesViewerEvent.EVENT;
+import org.weasis.core.ui.editor.image.DefaultView2d;
+import org.weasis.core.ui.editor.image.ImageViewerPlugin;
+import org.weasis.dicom.codec.DicomImageElement;
+
+class DicomContextReaderTest {
+  @Test
+  void readsTheSelectedCanvasFromTheViewerEvent() {
+    @SuppressWarnings("unchecked")
+    ImageViewerPlugin<DicomImageElement> viewer = mock(ImageViewerPlugin.class);
+    @SuppressWarnings("unchecked")
+    DefaultView2d<DicomImageElement> canvas = mock(DefaultView2d.class);
+    when(viewer.getSelectedViewCanvas()).thenReturn(canvas);
+
+    SeriesViewerEvent event = new SeriesViewerEvent(viewer, null, null, EVENT.SELECT_VIEW);
+
+    assertSame(canvas, DicomContextReader.selectedCanvas(event).orElseThrow());
+  }
+
+  @Test
+  void ignoresEventsFromNonImageViewers() {
+    SeriesViewer<?> viewer = mock(SeriesViewer.class);
+    SeriesViewerEvent event = new SeriesViewerEvent(viewer, null, null, EVENT.SELECT_VIEW);
+
+    assertTrue(DicomContextReader.selectedCanvas(event).isEmpty());
+  }
+
+  @Test
+  void ignoresFocusSelectionWhileThePointerIsInsideTheComposer() {
+    assertFalse(ReportComposerTool.shouldRememberViewerSelection(EVENT.SELECT_VIEW, true, false));
+    assertTrue(ReportComposerTool.shouldRememberViewerSelection(EVENT.SELECT_VIEW, false, false));
+    assertTrue(ReportComposerTool.shouldRememberViewerSelection(EVENT.LAYOUT, true, false));
+  }
+
+  @Test
+  void ignoresSelectionCausedOnlyByCrossingAViewer() {
+    assertFalse(ReportComposerTool.shouldRememberViewerSelection(EVENT.SELECT_VIEW, false, true));
+    assertTrue(ReportComposerTool.shouldRememberViewerSelection(EVENT.LAYOUT, false, true));
+  }
+
+  @Test
+  void crossingAnotherCanvasDoesNotCountAsAnInteraction() {
+    assertFalse(ReportComposerTool.isDeliberateCanvasMouseEvent(MouseEvent.MOUSE_ENTERED));
+    assertFalse(ReportComposerTool.isDeliberateCanvasMouseEvent(MouseEvent.MOUSE_MOVED));
+    assertTrue(ReportComposerTool.isDeliberateCanvasMouseEvent(MouseEvent.MOUSE_PRESSED));
+    assertTrue(ReportComposerTool.isDeliberateCanvasMouseEvent(MouseEvent.MOUSE_RELEASED));
+    assertTrue(ReportComposerTool.isDeliberateCanvasMouseEvent(MouseEvent.MOUSE_WHEEL));
+  }
+}

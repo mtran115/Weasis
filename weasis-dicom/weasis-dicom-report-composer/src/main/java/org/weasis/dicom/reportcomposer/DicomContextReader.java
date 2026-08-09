@@ -9,15 +9,20 @@
  */
 package org.weasis.dicom.reportcomposer;
 
+import java.awt.Component;
+import java.awt.Point;
 import java.awt.image.BufferedImage;
 import java.awt.image.RenderedImage;
 import java.time.temporal.TemporalAccessor;
 import java.util.Optional;
+import javax.swing.SwingUtilities;
 import org.dcm4che3.data.Tag;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
 import org.weasis.core.api.media.data.TagReadable;
+import org.weasis.core.ui.editor.SeriesViewerEvent;
 import org.weasis.core.ui.editor.image.DefaultView2d;
+import org.weasis.core.ui.editor.image.ImageViewerPlugin;
 import org.weasis.core.ui.editor.image.ViewCanvas;
 import org.weasis.core.ui.editor.image.ViewTransferHandler;
 import org.weasis.dicom.codec.DicomImageElement;
@@ -31,17 +36,69 @@ final class DicomContextReader {
 
   static Optional<Selection> selected() {
     ViewCanvas<DicomImageElement> view = EventManager.getInstance().getSelectedViewPane();
+    return from(view);
+  }
+
+  static Optional<DefaultView2d<DicomImageElement>> selectedCanvas(SeriesViewerEvent event) {
+    if (!(event.getSeriesViewer() instanceof ImageViewerPlugin<?> viewer)) {
+      return Optional.empty();
+    }
+    return dicomCanvas(viewer.getSelectedViewCanvas());
+  }
+
+  static Optional<DefaultView2d<DicomImageElement>> canvasFor(Component component) {
+    Component current = component;
+    while (current != null) {
+      if (current instanceof ViewCanvas<?> view) {
+        return dicomCanvas(view);
+      }
+      current = current.getParent();
+    }
+    return Optional.empty();
+  }
+
+  static Optional<DefaultView2d<DicomImageElement>> canvasAt(Point screenPoint) {
+    ImageViewerPlugin<DicomImageElement> viewer =
+        EventManager.getInstance().getSelectedView2dContainer();
+    if (viewer == null || screenPoint == null) {
+      return Optional.empty();
+    }
+    for (ViewCanvas<DicomImageElement> view : viewer.getImagePanels()) {
+      var component = view.getJComponent();
+      if (!component.isShowing()) {
+        continue;
+      }
+      Point localPoint = new Point(screenPoint);
+      SwingUtilities.convertPointFromScreen(localPoint, component);
+      if (component.contains(localPoint)) {
+        return dicomCanvas(view);
+      }
+    }
+    return Optional.empty();
+  }
+
+  static Optional<Selection> fromVisible(ViewCanvas<?> view) {
+    if (view == null || !view.getJComponent().isShowing()) {
+      return Optional.empty();
+    }
+    return from(view);
+  }
+
+  static Optional<Selection> from(ViewCanvas<?> view) {
     if (view == null
-        || view.getImage() == null
-        || view.getSeries() == null
-        || !(view instanceof DefaultView2d<?> defaultView)) {
+        || !(view.getImage() instanceof DicomImageElement image)
+        || !(view.getSeries() instanceof MediaSeries<?> genericSeries)) {
+      return Optional.empty();
+    }
+
+    Optional<DefaultView2d<DicomImageElement>> dicomCanvas = dicomCanvas(view);
+    if (dicomCanvas.isEmpty()) {
       return Optional.empty();
     }
 
     @SuppressWarnings("unchecked")
-    DefaultView2d<DicomImageElement> canvas = (DefaultView2d<DicomImageElement>) defaultView;
-    DicomImageElement image = view.getImage();
-    MediaSeries<DicomImageElement> series = view.getSeries();
+    MediaSeries<DicomImageElement> series = (MediaSeries<DicomImageElement>) genericSeries;
+    DefaultView2d<DicomImageElement> canvas = dicomCanvas.get();
     MediaSeriesGroup study = InfoLayer.getParent(series, DicomModel.study);
     MediaSeriesGroup patient = InfoLayer.getParent(series, DicomModel.patient);
 
@@ -62,9 +119,18 @@ final class DicomContextReader {
             series.getSeriesNumber(),
             value(Tag.SeriesDescription, image, series),
             value(Tag.InstanceNumber, image, series),
-            view.getFrameIndex() + 1,
+            canvas.getFrameIndex() + 1,
             series.size(null));
     return Optional.of(new Selection(context, reference, canvas));
+  }
+
+  private static Optional<DefaultView2d<DicomImageElement>> dicomCanvas(ViewCanvas<?> view) {
+    if (!(view instanceof DefaultView2d<?> defaultView)) {
+      return Optional.empty();
+    }
+    @SuppressWarnings("unchecked")
+    DefaultView2d<DicomImageElement> canvas = (DefaultView2d<DicomImageElement>) defaultView;
+    return Optional.of(canvas);
   }
 
   private static String value(int tag, TagReadable... sources) {

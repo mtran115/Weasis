@@ -48,10 +48,10 @@ final class ArrowRenderer {
     RenderingHints oldHints = graphics.getRenderingHints();
     graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-    float foregroundStroke = Math.max(3.0f, Math.min(width, height) / 220.0f);
-    float outlineStroke = foregroundStroke + Math.max(2.0f, foregroundStroke * 0.75f);
-    double headLength = Math.max(18.0, Math.min(distance * 0.42, Math.min(width, height) * 0.09));
-    double headHalfWidth = headLength * 0.48;
+    float foregroundStroke = Math.max(2.0f, Math.min(width, height) / 320.0f);
+    float outlineStroke = foregroundStroke + Math.max(1.5f, foregroundStroke * 0.65f);
+    double headLength = Math.max(12.0, Math.min(distance * 0.28, Math.min(width, height) * 0.045));
+    double headHalfWidth = headLength * 0.38;
     double unitX = dx / distance;
     double unitY = dy / distance;
     double baseX = tipX - unitX * headLength;

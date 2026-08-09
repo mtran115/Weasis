@@ -7,16 +7,20 @@ final formatted radiology report.
 ## Workflow
 
 1. Open a DICOM study and show the **Report Composer** tool on the right side of the 2D viewer.
-2. In **Compose**, choose a wrist category, structure, and finding. Edit the generated finding or
-   impression when needed, then add it to the study draft.
-3. In **Key Images**, capture the active viewer. Click or drag on the preview to place an arrow,
-   or keep the key image without an arrow. The series and image reference are recorded
-   automatically.
+2. In **Compose**, confirm the automatically selected MRI exam, then choose a category, structure,
+   and finding. Edit the generated finding or impression when needed, then add it to the study
+   draft. A manual exam selection is remembered for that study while Weasis remains open.
+3. In **Key Images**, capture the active viewer. Press on the finding to place the arrowhead, then
+   drag outward to place its tail, or click the finding for a short automatic arrow. You can also
+   keep the key image without an arrow. The series and image reference are recorded automatically.
 4. Edit the key-image caption when the arrow instruction needs clarification.
 5. In **Preview**, choose the approved Google Drive transcription folder and export the packet.
 
 The selected destination is remembered locally. Each study has a separate in-memory draft while
 Weasis remains open.
+
+Use the minus button in the Report Composer title bar to collapse the panel to its right-edge tab.
+Reopening the tab preserves the current in-memory study draft.
 
 ## Exported Packet
 
@@ -37,7 +41,10 @@ specially formatted report template.
 
 ## Version 1 Boundaries
 
-- The structured phrase catalog currently covers wrist MRI findings.
+- The starter phrase catalog covers brain, cervical spine, thoracic spine, lumbar spine, shoulder,
+  elbow, wrist, hand, hip, knee, ankle, and foot MRI, with a General MRI fallback.
+- Catalog phrases are editable workflow aids rather than diagnostic decision support. The reading
+  radiologist remains responsible for reviewing the generated findings and impression.
 - Drafts are not persisted after Weasis exits.
 - A capture supports one optional arrow. Capture the view again for another arrow or image.
 - Export is local filesystem output. A Google Drive-synced folder handles delivery; the module does

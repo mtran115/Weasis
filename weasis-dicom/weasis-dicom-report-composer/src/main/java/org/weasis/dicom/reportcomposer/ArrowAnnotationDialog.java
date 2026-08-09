@@ -54,7 +54,7 @@ final class ArrowAnnotationDialog extends JDialog {
     setLayout(new BorderLayout(8, 8));
     JLabel instructions =
         new JLabel(
-            "Drag from the arrow tail to the finding, or click the finding for automatic placement.",
+            "Press on the finding, then drag outward to place the tail, or click for an automatic arrow.",
             SwingConstants.CENTER);
     instructions.setBorder(GuiUtils.getEmptyBorder(8, 8, 0, 8));
     add(instructions, BorderLayout.NORTH);
@@ -97,9 +97,28 @@ final class ArrowAnnotationDialog extends JDialog {
 
   record AnnotationResult(boolean accepted, ArrowPlacement placement) {}
 
+  static ArrowPlacement placementFromHeadFirstGesture(
+      Point arrowHead, Point arrowTail, int imageWidth, int imageHeight) {
+    double width = Math.max(1, imageWidth - 1);
+    double height = Math.max(1, imageHeight - 1);
+    return new ArrowPlacement(
+        arrowTail.x / width, arrowTail.y / height, arrowHead.x / width, arrowHead.y / height);
+  }
+
+  static Point automaticTailFor(Point arrowHead, int imageWidth, int imageHeight) {
+    int offset = Math.clamp(Math.min(imageWidth, imageHeight) / 12, 28, 80);
+    int maxX = imageWidth - 1;
+    int maxY = imageHeight - 1;
+    int directionX = arrowHead.x > maxX / 2 ? -1 : 1;
+    int directionY = arrowHead.y > maxY / 2 ? -1 : 1;
+    return new Point(
+        Math.clamp(arrowHead.x + directionX * offset, 0, maxX),
+        Math.clamp(arrowHead.y + directionY * offset, 0, maxY));
+  }
+
   private static final class ArrowCanvas extends JComponent {
     private final BufferedImage image;
-    private Point pressPoint;
+    private Point arrowHeadPoint;
     private ArrowPlacement placement;
     private java.util.function.Consumer<ArrowPlacement> placementListener = ignored -> {};
 
@@ -112,40 +131,38 @@ final class ArrowAnnotationDialog extends JDialog {
           new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent event) {
-              pressPoint = toImagePoint(event.getPoint());
+              arrowHeadPoint = toImagePoint(event.getPoint());
             }
 
             @Override
             public void mouseDragged(MouseEvent event) {
-              Point current = toImagePoint(event.getPoint());
-              if (pressPoint != null && current != null) {
-                setPlacement(toPlacement(pressPoint, current));
+              Point arrowTail = toImagePoint(event.getPoint());
+              if (arrowHeadPoint != null && arrowTail != null) {
+                setPlacement(
+                    placementFromHeadFirstGesture(
+                        arrowHeadPoint, arrowTail, image.getWidth(), image.getHeight()));
               }
             }
 
             @Override
             public void mouseReleased(MouseEvent event) {
-              Point releasePoint = toImagePoint(event.getPoint());
-              if (releasePoint == null) {
-                pressPoint = null;
+              Point arrowTail = toImagePoint(event.getPoint());
+              if (arrowTail == null) {
+                arrowHeadPoint = null;
                 return;
               }
-              if (pressPoint == null || pressPoint.distance(releasePoint) < 6.0) {
-                int offset = Math.max(50, Math.min(image.getWidth(), image.getHeight()) / 7);
-                Point automaticTail =
-                    new Point(
-                        Math.max(0, releasePoint.x - offset), Math.max(0, releasePoint.y - offset));
-                if (automaticTail.distance(releasePoint) < 10.0) {
-                  automaticTail =
-                      new Point(
-                          Math.min(image.getWidth() - 1, releasePoint.x + offset),
-                          Math.min(image.getHeight() - 1, releasePoint.y + offset));
-                }
-                setPlacement(toPlacement(automaticTail, releasePoint));
+              Point arrowHead = arrowHeadPoint == null ? arrowTail : arrowHeadPoint;
+              if (arrowHeadPoint == null || arrowHeadPoint.distance(arrowTail) < 6.0) {
+                arrowTail = automaticTailFor(arrowHead, image.getWidth(), image.getHeight());
+                setPlacement(
+                    placementFromHeadFirstGesture(
+                        arrowHead, arrowTail, image.getWidth(), image.getHeight()));
               } else {
-                setPlacement(toPlacement(pressPoint, releasePoint));
+                setPlacement(
+                    placementFromHeadFirstGesture(
+                        arrowHead, arrowTail, image.getWidth(), image.getHeight()));
               }
-              pressPoint = null;
+              arrowHeadPoint = null;
             }
           };
       addMouseListener(mouseAdapter);
@@ -192,12 +209,6 @@ final class ArrowAnnotationDialog extends JDialog {
       int y = (int) Math.round((componentPoint.y - bounds.y) * scaleY);
       return new Point(
           Math.clamp(x, 0, image.getWidth() - 1), Math.clamp(y, 0, image.getHeight() - 1));
-    }
-
-    private ArrowPlacement toPlacement(Point tail, Point tip) {
-      double width = Math.max(1, image.getWidth() - 1);
-      double height = Math.max(1, image.getHeight() - 1);
-      return new ArrowPlacement(tail.x / width, tail.y / height, tip.x / width, tip.y / height);
     }
 
     private Rectangle imageBounds() {
