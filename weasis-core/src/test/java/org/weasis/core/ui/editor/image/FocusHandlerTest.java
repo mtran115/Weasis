@@ -9,16 +9,23 @@
  */
 package org.weasis.core.ui.editor.image;
 
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import javax.swing.JComponent;
+import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.weasis.core.api.gui.util.WinUtil;
 import org.weasis.core.api.media.data.ImageElement;
+import org.weasis.core.api.media.data.MediaSeries;
 
 class FocusHandlerTest {
 
@@ -48,5 +55,28 @@ class FocusHandlerTest {
     verify(eventManager).setSelectedView2dContainer(container);
     verify(container).setSelectedImagePane(viewCanvas);
     verify(component).requestFocusInWindow();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void postLoadFocusUsesPopulatedPaneWhenSelectionAdvancedToEmptyPane() throws Exception {
+    ImageViewerPlugin<ImageElement> container = mock(ImageViewerPlugin.class, CALLS_REAL_METHODS);
+    ViewCanvas<ImageElement> emptyView = mock(ViewCanvas.class);
+    ViewCanvas<ImageElement> populatedView = mock(ViewCanvas.class);
+    MediaSeries<ImageElement> series = mock(MediaSeries.class);
+    JComponent component = mock(JComponent.class);
+
+    when(populatedView.getSeries()).thenReturn(series);
+    when(populatedView.getJComponent()).thenReturn(component);
+    doReturn(emptyView).when(container).getSelectedViewCanvas();
+    doReturn(List.of(emptyView, populatedView)).when(container).getImagePanels();
+    doNothing().when(container).setSelectedImagePane(populatedView);
+
+    container.requestFocusInSelectedImagePane();
+    SwingUtilities.invokeAndWait(() -> {});
+
+    verify(container).setSelectedImagePane(populatedView);
+    verify(populatedView).setFocused(true);
+    verify(component, atLeastOnce()).requestFocusInWindow();
   }
 }

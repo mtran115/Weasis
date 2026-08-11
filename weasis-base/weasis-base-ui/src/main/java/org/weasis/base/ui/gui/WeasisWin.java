@@ -461,6 +461,8 @@ public class WeasisWin {
             }
             if (focusPolicy.shouldBringToFront()) {
               viewer.setSelectedAndGetFocus();
+              viewer.setSelected(true);
+              viewer.requestFocusInSelectedImagePane();
             }
             return;
           }
@@ -532,6 +534,9 @@ public class WeasisWin {
         }
         if (bringToFront) {
           viewer.setSelected(true);
+          if (viewer instanceof ImageViewerPlugin imageViewer) {
+            imageViewer.requestFocusInSelectedImagePane();
+          }
         }
       } else {
         viewer.close();

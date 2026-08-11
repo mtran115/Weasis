@@ -29,6 +29,7 @@ import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import net.miginfocom.swing.MigLayout;
 import org.weasis.core.Messages;
 import org.weasis.core.api.explorer.model.DataExplorerModel;
@@ -192,6 +193,28 @@ public abstract class ImageViewerPlugin<E extends ImageElement> extends ViewerPl
 
   public ViewCanvas<E> getSelectedViewCanvas() {
     return selectedImagePane;
+  }
+
+  /** Gives keyboard focus to the selected populated image pane after a viewer is opened. */
+  public void requestFocusInSelectedImagePane() {
+    ViewCanvas<E> viewCanvas = getSelectedViewCanvas();
+    if (viewCanvas == null || viewCanvas.getSeries() == null) {
+      viewCanvas =
+          getImagePanels().stream()
+              .filter(view -> view.getSeries() != null)
+              .findFirst()
+              .orElse(null);
+    }
+    if (viewCanvas == null) {
+      return;
+    }
+
+    setSelectedImagePane(viewCanvas);
+    viewCanvas.setFocused(true);
+
+    JComponent component = viewCanvas.getJComponent();
+    component.requestFocusInWindow();
+    SwingUtilities.invokeLater(component::requestFocusInWindow);
   }
 
   public List<ViewCanvas<E>> getView2ds() {
