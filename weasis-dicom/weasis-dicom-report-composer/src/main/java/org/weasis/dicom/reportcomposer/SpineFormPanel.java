@@ -36,31 +36,36 @@ import javax.swing.JTextField;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
-import org.weasis.dicom.reportcomposer.CervicalSpineFindingBuilder.Curvature;
-import org.weasis.dicom.reportcomposer.CervicalSpineFindingBuilder.Laterality;
-import org.weasis.dicom.reportcomposer.CervicalSpineFindingBuilder.LevelSelection;
-import org.weasis.dicom.reportcomposer.CervicalSpineFindingBuilder.OverviewFinding;
-import org.weasis.dicom.reportcomposer.CervicalSpineFindingBuilder.Selection;
-import org.weasis.dicom.reportcomposer.CervicalSpineFindingBuilder.Severity;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.AlignmentFinding;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Laterality;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.LevelSelection;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.OverviewFinding;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.ProtrusionLocation;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Selection;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Severity;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.SpineRegion;
 
-final class CervicalSpineFormPanel extends JPanel {
+final class SpineFormPanel extends JPanel {
   private static final Laterality[] LATERALITIES = {
     Laterality.LEFT, Laterality.RIGHT, Laterality.BILATERAL
   };
   private static final Severity[] SEVERITIES = {Severity.MILD, Severity.MODERATE, Severity.SEVERE};
 
-  private final JCheckBox straightening = new JCheckBox("Straightening");
-  private final JCheckBox reversal = new JCheckBox("Reversal");
+  private final SpineRegion region;
+  private final Map<AlignmentFinding, JCheckBox> alignmentControls =
+      new EnumMap<>(AlignmentFinding.class);
   private final Map<OverviewFinding, OverviewControls> overviewControls =
       new EnumMap<>(OverviewFinding.class);
   private final Map<String, LevelControls> levelControls = new LinkedHashMap<>();
-  private final JButton resetButton = iconButton(ActionIcon.RESET, "Clear C-spine form");
+  private final JButton resetButton;
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");
 
-  CervicalSpineFormPanel() {
+  SpineFormPanel(SpineRegion region) {
+    this.region = region;
+    resetButton = iconButton(ActionIcon.RESET, "Clear " + region.formLabel() + " form");
     setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
-    setBorder(BorderFactory.createTitledBorder("Structured C-spine findings"));
+    setBorder(BorderFactory.createTitledBorder("Structured " + region.formLabel() + " findings"));
     add(stretch(buildAlignmentPanel()));
     add(stretch(buildOverviewPanel()));
     add(stretch(buildLevelPanel()));
@@ -68,20 +73,11 @@ final class CervicalSpineFormPanel extends JPanel {
     setAlignmentX(LEFT_ALIGNMENT);
     Dimension preferred = getPreferredSize();
     setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
-
-    straightening.addActionListener(
-        event -> {
-          if (straightening.isSelected()) {
-            reversal.setSelected(false);
-          }
-        });
-    reversal.addActionListener(
-        event -> {
-          if (reversal.isSelected()) {
-            straightening.setSelected(false);
-          }
-        });
     resetButton.addActionListener(event -> clearSelections());
+  }
+
+  SpineRegion region() {
+    return region;
   }
 
   void addSubmitListener(ActionListener listener) {
@@ -93,10 +89,12 @@ final class CervicalSpineFormPanel extends JPanel {
   }
 
   Selection selection() {
-    Curvature curvature =
-        reversal.isSelected()
-            ? Curvature.REVERSAL
-            : straightening.isSelected() ? Curvature.STRAIGHTENING : Curvature.NONE;
+    AlignmentFinding alignment =
+        alignmentControls.entrySet().stream()
+            .filter(entry -> entry.getValue().isSelected())
+            .map(Map.Entry::getKey)
+            .findFirst()
+            .orElse(AlignmentFinding.NONE);
     EnumMap<OverviewFinding, List<String>> overviewSelections =
         new EnumMap<>(OverviewFinding.class);
     overviewControls.forEach(
@@ -107,12 +105,11 @@ final class CervicalSpineFormPanel extends JPanel {
         });
     List<LevelSelection> levels =
         levelControls.values().stream().map(LevelControls::selection).toList();
-    return new Selection(curvature, overviewSelections, levels);
+    return new Selection(region, alignment, overviewSelections, levels);
   }
 
   void clearSelections() {
-    straightening.setSelected(false);
-    reversal.setSelected(false);
+    alignmentControls.values().forEach(checkBox -> checkBox.setSelected(false));
     overviewControls.values().forEach(OverviewControls::clear);
     levelControls.values().forEach(LevelControls::clear);
   }
@@ -120,8 +117,19 @@ final class CervicalSpineFormPanel extends JPanel {
   private JPanel buildAlignmentPanel() {
     JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEADING, 8, 3));
     panel.setBorder(BorderFactory.createTitledBorder("Alignment"));
-    panel.add(straightening);
-    panel.add(reversal);
+    for (AlignmentFinding finding : region.alignmentFindings()) {
+      JCheckBox checkBox = new JCheckBox(finding.toString());
+      alignmentControls.put(finding, checkBox);
+      checkBox.addActionListener(
+          event -> {
+            if (checkBox.isSelected()) {
+              alignmentControls.values().stream()
+                  .filter(other -> other != checkBox)
+                  .forEach(other -> other.setSelected(false));
+            }
+          });
+      panel.add(checkBox);
+    }
     return panel;
   }
 
@@ -141,7 +149,7 @@ final class CervicalSpineFormPanel extends JPanel {
     JPanel panel = new JPanel();
     panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
     panel.setBorder(BorderFactory.createTitledBorder("Levels"));
-    for (String level : CervicalSpineFindingBuilder.LEVELS) {
+    for (String level : region.levels()) {
       LevelControls controls = new LevelControls(level);
       levelControls.put(level, controls);
       panel.add(stretch(controls.panel()));
@@ -181,7 +189,7 @@ final class CervicalSpineFormPanel extends JPanel {
     update.run();
   }
 
-  private static final class OverviewControls {
+  private final class OverviewControls {
     private final JPanel panel = new JPanel(new BorderLayout(2, 2));
     private final JCheckBox enabled;
     private final List<JCheckBox> levels = new ArrayList<>();
@@ -190,9 +198,9 @@ final class CervicalSpineFormPanel extends JPanel {
       enabled = new JCheckBox(finding.toString());
       enabled.setToolTipText("Leave all levels clear for an unlocalized finding");
       panel.add(enabled, BorderLayout.NORTH);
-      JPanel levelGrid = new JPanel(new GridLayout(2, 3, 3, 0));
+      JPanel levelGrid = new JPanel(new GridLayout(0, 3, 3, 0));
       levelGrid.setBorder(GuiUtils.getEmptyBorder(0, 16, 3, 0));
-      for (String level : CervicalSpineFindingBuilder.LEVELS) {
+      for (String level : region.levels()) {
         JCheckBox levelCheckBox = new JCheckBox(level);
         levels.add(levelCheckBox);
         levelGrid.add(levelCheckBox);
@@ -223,14 +231,16 @@ final class CervicalSpineFormPanel extends JPanel {
     }
   }
 
-  private static final class LevelControls {
+  private final class LevelControls {
     private final String level;
     private final JPanel panel = new JPanel(new GridBagLayout());
     private final JCheckBox bulge = new JCheckBox("Bulge");
     private final JCheckBox protrusion = new JCheckBox("Protrusion");
+    private final Map<ProtrusionLocation, JCheckBox> protrusionLocations =
+        new EnumMap<>(ProtrusionLocation.class);
     private final LateralizedControl facetArthrosis = new LateralizedControl("Facet arthrosis");
-    private final LateralizedControl uncovertebralHypertrophy =
-        new LateralizedControl("Uncovertebral hypertrophy");
+    private final LateralizedControl posteriorElementHypertrophy =
+        new LateralizedControl(region.posteriorElementLabel());
     private final JCheckBox foraminalStenosis = new JCheckBox("Foraminal stenosis");
     private final JComboBox<Laterality> foraminalLaterality = new JComboBox<>(LATERALITIES);
     private final JComboBox<Severity> foraminalSeverity = new JComboBox<>(SEVERITIES);
@@ -254,10 +264,24 @@ final class CervicalSpineFormPanel extends JPanel {
       panel.add(
           GuiUtils.getFlowLayoutPanel(FlowLayout.LEADING, 4, 0, bulge, protrusion), constraints);
 
-      addLateralizedRow(2, facetArthrosis);
-      addLateralizedRow(3, uncovertebralHypertrophy);
+      JPanel protrusionLocationPanel = new JPanel(new GridLayout(0, 2, 4, 0));
+      protrusionLocationPanel.setBorder(GuiUtils.getEmptyBorder(0, 18, 2, 0));
+      for (ProtrusionLocation location : ProtrusionLocation.values()) {
+        JCheckBox locationCheckBox = new JCheckBox(location.toString());
+        locationCheckBox.setSelected(location == ProtrusionLocation.CENTRAL);
+        protrusionLocations.put(location, locationCheckBox);
+        protrusionLocationPanel.add(locationCheckBox);
+      }
+      constraints = constraints(2);
+      constraints.gridwidth = 3;
+      constraints.fill = GridBagConstraints.HORIZONTAL;
+      panel.add(protrusionLocationPanel, constraints);
+      bindEnabled(protrusion, protrusionLocations.values().toArray(JComponent[]::new));
 
-      constraints = constraints(4);
+      addLateralizedRow(3, facetArthrosis);
+      addLateralizedRow(4, posteriorElementHypertrophy);
+
+      constraints = constraints(5);
       panel.add(foraminalStenosis, constraints);
       constraints.gridx = 1;
       panel.add(foraminalLaterality, constraints);
@@ -266,7 +290,7 @@ final class CervicalSpineFormPanel extends JPanel {
       foraminalLaterality.setSelectedItem(Laterality.BILATERAL);
       bindEnabled(foraminalStenosis, foraminalLaterality, foraminalSeverity);
 
-      constraints = constraints(5);
+      constraints = constraints(6);
       panel.add(new JLabel("Free text"), constraints);
       constraints.gridx = 1;
       constraints.gridwidth = 2;
@@ -291,19 +315,36 @@ final class CervicalSpineFormPanel extends JPanel {
       return new LevelSelection(
           level,
           bulge.isSelected(),
-          protrusion.isSelected(),
+          selectedProtrusionLocations(),
           freeText.getText(),
           facetArthrosis.laterality(),
-          uncovertebralHypertrophy.laterality(),
+          posteriorElementHypertrophy.laterality(),
           foraminalSide,
           stenosisSeverity);
+    }
+
+    private List<ProtrusionLocation> selectedProtrusionLocations() {
+      if (!protrusion.isSelected()) {
+        return List.of();
+      }
+      List<ProtrusionLocation> selected =
+          protrusionLocations.entrySet().stream()
+              .filter(entry -> entry.getValue().isSelected())
+              .map(Map.Entry::getKey)
+              .toList();
+      return selected.isEmpty() ? List.of(ProtrusionLocation.CENTRAL) : selected;
     }
 
     void clear() {
       bulge.setSelected(false);
       protrusion.setSelected(false);
+      protrusionLocations.forEach(
+          (location, checkBox) -> {
+            checkBox.setSelected(location == ProtrusionLocation.CENTRAL);
+            checkBox.setEnabled(false);
+          });
       facetArthrosis.clear();
-      uncovertebralHypertrophy.clear();
+      posteriorElementHypertrophy.clear();
       foraminalStenosis.setSelected(false);
       foraminalLaterality.setSelectedItem(Laterality.BILATERAL);
       foraminalSeverity.setSelectedItem(Severity.MILD);
@@ -321,7 +362,7 @@ final class CervicalSpineFormPanel extends JPanel {
       panel.add(control.comboBox(), constraints);
     }
 
-    private static GridBagConstraints constraints(int row) {
+    private GridBagConstraints constraints(int row) {
       GridBagConstraints constraints = new GridBagConstraints();
       constraints.gridx = 0;
       constraints.gridy = row;

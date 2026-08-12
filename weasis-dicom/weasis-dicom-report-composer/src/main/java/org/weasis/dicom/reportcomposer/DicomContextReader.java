@@ -17,6 +17,7 @@ import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 import org.dcm4che3.data.Tag;
 import org.weasis.core.api.media.data.MediaSeries;
@@ -27,6 +28,8 @@ import org.weasis.core.ui.editor.image.DefaultView2d;
 import org.weasis.core.ui.editor.image.ImageViewerPlugin;
 import org.weasis.core.ui.editor.image.ViewCanvas;
 import org.weasis.core.ui.editor.image.ViewTransferHandler;
+import org.weasis.core.ui.model.layer.GraphicLayer;
+import org.weasis.core.ui.model.layer.LayerType;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.TagD;
 import org.weasis.dicom.explorer.DicomModel;
@@ -188,10 +191,29 @@ final class DicomContextReader {
     return null;
   }
 
+  static <T> T captureWithoutReferenceLines(
+      Optional<GraphicLayer> referenceLines, Supplier<T> capture) {
+    if (referenceLines.isEmpty()) {
+      return capture.get();
+    }
+
+    GraphicLayer layer = referenceLines.get();
+    Boolean previousVisibility = layer.getVisible();
+    layer.setVisible(false);
+    try {
+      return capture.get();
+    } finally {
+      layer.setVisible(previousVisibility);
+    }
+  }
+
   record Selection(
       CaseContext context, ImageReference reference, DefaultView2d<DicomImageElement> canvas) {
     BufferedImage captureView() {
-      RenderedImage rendered = ViewTransferHandler.createComponentImage(canvas, true);
+      RenderedImage rendered =
+          captureWithoutReferenceLines(
+              canvas.getGraphicManager().findLayerByType(LayerType.CROSSLINES),
+              () -> ViewTransferHandler.createComponentImage(canvas, true));
       if (rendered instanceof BufferedImage bufferedImage) {
         return bufferedImage;
       }

@@ -7,9 +7,10 @@ final formatted radiology report.
 ## Workflow
 
 1. Open a DICOM study and show the **Report Composer** tool on the right side of the 2D viewer.
-2. In **Compose**, confirm the automatically selected MRI exam. Cervical spine MRI opens a
-   structured form for alignment, level-selectable degenerative changes, and per-level disc,
-   facet, uncovertebral, foraminal, and free-text findings. Other exams use the phrase catalog.
+2. In **Compose**, confirm the automatically selected MRI exam. Cervical, thoracic, and lumbar
+   spine MRI each open a region-specific structured form for alignment, level-selectable
+   degenerative changes, and per-level disc, facet, posterior-element, foraminal, and free-text
+   findings. Other exams use the phrase catalog.
    The shared **Report text / instructions** box accepts any additional text for every exam and
    saves it automatically in the current study draft.
    Press **Add Selected Findings**, or move directly to **Key Images** or **Preview** to add the
@@ -53,12 +54,13 @@ into the separately maintained, specially formatted report template.
 
 - The starter phrase catalog covers brain, cervical spine, thoracic spine, lumbar spine, shoulder,
   elbow, wrist, hand, hip, knee, ankle, and foot MRI, with a General MRI fallback.
-- The cervical spine form can add several findings at once. Use **Other Finding** for anything not
-  represented by its structured controls; both paths feed the same findings and key-image lists.
+- The cervical, thoracic, and lumbar spine forms can add several findings at once. Use **Other
+  Finding** for anything not represented by their structured controls; both paths feed the same
+  findings and key-image lists.
 - Catalog phrases are editable workflow aids rather than diagnostic decision support. The reading
   radiologist remains responsible for reviewing the generated findings and impression.
 - Drafts are not persisted after Weasis exits.
-- A capture supports one optional arrow. Capture the view again for another arrow or image.
+- A capture supports multiple optional arrows.
 - Export is local filesystem output. A Google Drive-synced folder handles delivery; the module does
   not call Google APIs or any AI service.
 - The packet includes patient information, so its destination must remain within the approved

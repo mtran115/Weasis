@@ -39,6 +39,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,6 +85,7 @@ import org.weasis.dicom.reportcomposer.DicomContextReader.ViewportSelection;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.FindingChoice;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.SpineRegion;
 
 public class ReportComposerTool extends PluginTool implements SeriesViewerListener {
   public static final String BUTTON_NAME = "Report Composer";
@@ -104,14 +106,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JComboBox<String> categoryCombo = new JComboBox<>();
   private final JComboBox<String> structureCombo = new JComboBox<>();
   private final JComboBox<FindingChoice> findingCombo = new JComboBox<>();
-  private final CervicalSpineFormPanel cervicalSpineForm = new CervicalSpineFormPanel();
+  private final Map<SpineRegion, SpineFormPanel> spineForms = new EnumMap<>(SpineRegion.class);
   private final JTextArea reportInstructions = textArea(4);
   private final JTextArea findingText = textArea(3);
   private final JTextArea impressionText = textArea(2);
   private final JCheckBox includeInImpression = new JCheckBox("Include in impression", true);
   private final JButton saveFindingButton = new JButton("Add");
   private final JButton cancelEditButton = new JButton("Cancel Edit");
-  private final JButton backToCervicalButton = new JButton("C-spine Form");
+  private final JButton backToSpineButton = new JButton("Spine Form");
   private final DefaultListModel<FindingEntry> findingModel = new DefaultListModel<>();
   private final JList<FindingEntry> findingList = new JList<>(findingModel);
   private final DefaultListModel<KeyImageCapture> keyImageModel = new DefaultListModel<>();
@@ -133,7 +135,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private Path lastExportDirectory;
   private boolean updatingCatalogControls;
   private boolean updatingReportInstructions;
-  private boolean cervicalStructuredMode;
+  private boolean structuredSpineMode;
   private JPanel genericFindingBuilder;
   private DefaultView2d<DicomImageElement> lastActiveCanvas;
   private DefaultView2d<DicomImageElement> lastInteractedCanvas;
@@ -248,7 +250,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     tabs.addTab("Preview", buildPreviewTab());
     tabs.addChangeListener(
         event -> {
-          savePendingCervicalFindings();
+          savePendingSpineFindings();
           if (tabs.getSelectedIndex() == 1) {
             refreshCaptureViewports();
           }
@@ -339,10 +341,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     JPanel content = verticalPanel();
     content.add(fillWidth(buildExamSelector()));
     content.add(fillWidth(buildReportInstructions()));
-    cervicalSpineForm.setVisible(false);
-    cervicalSpineForm.addSubmitListener(event -> saveCervicalFindings());
-    cervicalSpineForm.addOtherFindingListener(event -> showOtherCervicalFinding());
-    content.add(fillWidth(cervicalSpineForm));
+    for (SpineRegion region : SpineRegion.values()) {
+      SpineFormPanel form = new SpineFormPanel(region);
+      form.setVisible(false);
+      form.addSubmitListener(event -> saveSpineFindings(form));
+      form.addOtherFindingListener(event -> showOtherSpineFinding());
+      spineForms.put(region, form);
+      content.add(fillWidth(form));
+    }
     genericFindingBuilder = buildFindingBuilder();
     content.add(fillWidth(genericFindingBuilder));
     content.add(fillWidth(buildFindingList()));
@@ -433,14 +439,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     saveFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.PLUS));
     saveFindingButton.setToolTipText("Add finding to the current study");
     saveFindingButton.addActionListener(event -> saveFinding());
-    backToCervicalButton.setIcon(ResourceUtil.getIcon(ActionIcon.PREVIOUS));
-    backToCervicalButton.setVisible(false);
-    backToCervicalButton.addActionListener(event -> showStructuredCervicalForm());
+    backToSpineButton.setIcon(ResourceUtil.getIcon(ActionIcon.PREVIOUS));
+    backToSpineButton.setVisible(false);
+    backToSpineButton.addActionListener(event -> showStructuredSpineForm());
     cancelEditButton.setVisible(false);
     cancelEditButton.addActionListener(event -> cancelFindingEdit());
     JPanel buttons =
         GuiUtils.getFlowLayoutPanel(
-            FlowLayout.TRAILING, 6, 4, backToCervicalButton, cancelEditButton, saveFindingButton);
+            FlowLayout.TRAILING, 6, 4, backToSpineButton, cancelEditButton, saveFindingButton);
     constraints.gridy++;
     builder.add(buttons, constraints);
     return builder;
@@ -557,7 +563,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (currentDraft != null && examCombo.getSelectedItem() instanceof ExamTemplate exam) {
       draftExamTemplates.put(currentDraft.context().draftKey(), exam);
     }
-    cervicalStructuredMode = selectedExamTemplate() == ExamTemplate.CERVICAL_SPINE;
+    structuredSpineMode = selectedSpineRegion().isPresent();
     updateCatalogControls();
   }
 
@@ -608,7 +614,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     updatingCatalogControls = true;
     examCombo.setSelectedItem(exam);
     updatingCatalogControls = false;
-    cervicalStructuredMode = exam == ExamTemplate.CERVICAL_SPINE;
+    structuredSpineMode = SpineRegion.fromExam(exam).isPresent();
     updateCatalogControls();
   }
 
@@ -616,23 +622,31 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (genericFindingBuilder == null) {
       return;
     }
-    boolean cervical = selectedExamTemplate() == ExamTemplate.CERVICAL_SPINE;
-    boolean showStructured = cervical && cervicalStructuredMode && editingFindingId == null;
-    cervicalSpineForm.setVisible(showStructured);
+    Optional<SpineRegion> selectedRegion = selectedSpineRegion();
+    boolean showStructured =
+        selectedRegion.isPresent() && structuredSpineMode && editingFindingId == null;
+    spineForms.forEach(
+        (region, form) -> form.setVisible(showStructured && region == selectedRegion.orElse(null)));
     genericFindingBuilder.setVisible(!showStructured);
-    backToCervicalButton.setVisible(cervical && !showStructured && editingFindingId == null);
+    backToSpineButton.setVisible(
+        selectedRegion.isPresent() && !showStructured && editingFindingId == null);
+    selectedRegion.ifPresent(region -> backToSpineButton.setText(region.formLabel() + " Form"));
     revalidate();
     repaint();
   }
 
-  private void showOtherCervicalFinding() {
-    cervicalStructuredMode = false;
+  private Optional<SpineRegion> selectedSpineRegion() {
+    return SpineRegion.fromExam(selectedExamTemplate());
+  }
+
+  private void showOtherSpineFinding() {
+    structuredSpineMode = false;
     updateFindingBuilderVisibility();
     applyCatalogPhrase();
   }
 
-  private void showStructuredCervicalForm() {
-    cervicalStructuredMode = true;
+  private void showStructuredSpineForm() {
+    structuredSpineMode = true;
     updateFindingBuilderVisibility();
   }
 
@@ -703,7 +717,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             ? "Accession not available"
             : "Accession: " + context.accessionNumber());
     if (draftChanged) {
-      cervicalSpineForm.clearSelections();
+      spineForms.values().forEach(SpineFormPanel::clearSelections);
       ExamTemplate template =
           draftExamTemplates.computeIfAbsent(
               context.draftKey(),
@@ -754,28 +768,29 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     refreshPreview();
   }
 
-  private void saveCervicalFindings() {
+  private void saveSpineFindings(SpineFormPanel form) {
     if (!requireActiveDraft()) {
       return;
     }
-    appendCervicalFindings(true);
+    appendSpineFindings(form, true);
   }
 
-  private void savePendingCervicalFindings() {
+  private void savePendingSpineFindings() {
+    Optional<SpineRegion> region = selectedSpineRegion();
     if (tabs.getSelectedIndex() == 0
         || currentDraft == null
-        || selectedExamTemplate() != ExamTemplate.CERVICAL_SPINE
+        || region.isEmpty()
         || editingFindingId != null) {
       return;
     }
-    appendCervicalFindings(false);
+    appendSpineFindings(spineForms.get(region.get()), false);
   }
 
-  private boolean appendCervicalFindings(boolean warnWhenEmpty) {
-    var generated = CervicalSpineFindingBuilder.generate(cervicalSpineForm.selection());
+  private boolean appendSpineFindings(SpineFormPanel form, boolean warnWhenEmpty) {
+    var generated = SpineFindingBuilder.generate(form.selection());
     if (generated.isEmpty()) {
       if (warnWhenEmpty) {
-        showWarning("Select at least one C-spine finding.");
+        showWarning("Select at least one " + form.region().formLabel() + " finding.");
       }
       return false;
     }
@@ -787,7 +802,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
               finding.findingText(), finding.impressionText(), !finding.impressionText().isBlank());
       currentDraft.addFinding(lastFinding);
     }
-    cervicalSpineForm.clearSelections();
+    form.clearSelections();
     refreshAll();
     findingList.setSelectedValue(lastFinding, true);
     return true;
@@ -807,7 +822,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     saveFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.DRAW_TEXT));
     saveFindingButton.setToolTipText("Update the selected finding");
     cancelEditButton.setVisible(true);
-    cervicalStructuredMode = false;
+    structuredSpineMode = false;
     updateFindingBuilderVisibility();
   }
 
@@ -817,9 +832,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     saveFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.PLUS));
     saveFindingButton.setToolTipText("Add finding to the current study");
     cancelEditButton.setVisible(false);
-    if (selectedExamTemplate() == ExamTemplate.CERVICAL_SPINE) {
-      cervicalStructuredMode = true;
-    }
+    structuredSpineMode = selectedSpineRegion().isPresent();
     applyCatalogPhrase();
     updateFindingBuilderVisibility();
     refreshAll();

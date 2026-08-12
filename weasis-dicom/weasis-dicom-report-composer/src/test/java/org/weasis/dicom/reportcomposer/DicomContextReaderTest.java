@@ -10,6 +10,7 @@
 package org.weasis.dicom.reportcomposer;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -17,12 +18,15 @@ import static org.mockito.Mockito.when;
 
 import java.awt.event.MouseEvent;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.weasis.core.ui.editor.SeriesViewer;
 import org.weasis.core.ui.editor.SeriesViewerEvent;
 import org.weasis.core.ui.editor.SeriesViewerEvent.EVENT;
 import org.weasis.core.ui.editor.image.DefaultView2d;
 import org.weasis.core.ui.editor.image.ImageViewerPlugin;
+import org.weasis.core.ui.model.layer.LayerType;
+import org.weasis.core.ui.model.layer.imp.DefaultLayer;
 import org.weasis.dicom.codec.DicomImageElement;
 
 class DicomContextReaderTest {
@@ -89,6 +93,37 @@ class DicomContextReaderTest {
         right,
         ReportComposerTool.preferredCaptureCanvas(
             List.of(left, right), removed, right, left, left));
+  }
+
+  @Test
+  void referenceLinesAreHiddenOnlyWhileRenderingTheCapture() {
+    DefaultLayer referenceLines = new DefaultLayer(LayerType.CROSSLINES);
+
+    DicomContextReader.captureWithoutReferenceLines(
+        Optional.of(referenceLines),
+        () -> {
+          assertFalse(referenceLines.getVisible());
+          return null;
+        });
+
+    assertTrue(referenceLines.getVisible());
+  }
+
+  @Test
+  void referenceLineVisibilityIsRestoredWhenCaptureFails() {
+    DefaultLayer referenceLines = new DefaultLayer(LayerType.CROSSLINES);
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            DicomContextReader.captureWithoutReferenceLines(
+                Optional.of(referenceLines),
+                () -> {
+                  assertFalse(referenceLines.getVisible());
+                  throw new IllegalStateException("capture failed");
+                }));
+
+    assertTrue(referenceLines.getVisible());
   }
 
   @SuppressWarnings("unchecked")
