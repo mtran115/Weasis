@@ -21,6 +21,9 @@ import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.GraphicsConfiguration;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -37,6 +40,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import javax.swing.BorderFactory;
@@ -57,6 +61,8 @@ import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import org.weasis.core.api.gui.Insertable;
 import org.weasis.core.api.gui.util.GuiExecutor;
 import org.weasis.core.api.gui.util.GuiUtils;
@@ -65,6 +71,7 @@ import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
 import org.weasis.core.api.util.ResourceUtil.OtherIcon;
 import org.weasis.core.ui.docking.PluginTool;
+import org.weasis.core.ui.editor.ExternalDisplay;
 import org.weasis.core.ui.editor.SeriesViewerEvent;
 import org.weasis.core.ui.editor.SeriesViewerEvent.EVENT;
 import org.weasis.core.ui.editor.SeriesViewerListener;
@@ -73,6 +80,7 @@ import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.reportcomposer.ArrowAnnotationDialog.AnnotationResult;
 import org.weasis.dicom.reportcomposer.CasePacketExporter.ExportResult;
 import org.weasis.dicom.reportcomposer.DicomContextReader.Selection;
+import org.weasis.dicom.reportcomposer.DicomContextReader.ViewportSelection;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.FindingChoice;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
@@ -90,19 +98,26 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JLabel patientLabel = new JLabel("No active DICOM study");
   private final JLabel examLabel = new JLabel("Select an image to begin");
   private final JLabel accessionLabel = new JLabel(" ");
+  private final JButton popOutButton =
+      new JButton("Pop Out", ResourceUtil.getIcon(ActionIcon.OPEN_EXTERNAL));
   private final JComboBox<ExamTemplate> examCombo = new JComboBox<>();
   private final JComboBox<String> categoryCombo = new JComboBox<>();
   private final JComboBox<String> structureCombo = new JComboBox<>();
   private final JComboBox<FindingChoice> findingCombo = new JComboBox<>();
+  private final CervicalSpineFormPanel cervicalSpineForm = new CervicalSpineFormPanel();
+  private final JTextArea reportInstructions = textArea(4);
   private final JTextArea findingText = textArea(3);
   private final JTextArea impressionText = textArea(2);
   private final JCheckBox includeInImpression = new JCheckBox("Include in impression", true);
   private final JButton saveFindingButton = new JButton("Add");
   private final JButton cancelEditButton = new JButton("Cancel Edit");
+  private final JButton backToCervicalButton = new JButton("C-spine Form");
   private final DefaultListModel<FindingEntry> findingModel = new DefaultListModel<>();
   private final JList<FindingEntry> findingList = new JList<>(findingModel);
   private final DefaultListModel<KeyImageCapture> keyImageModel = new DefaultListModel<>();
   private final JList<KeyImageCapture> keyImageList = new JList<>(keyImageModel);
+  private final JComboBox<CaptureViewport> captureViewportCombo = new JComboBox<>();
+  private final JButton captureButton = new JButton("Capture Selected View");
   private final JTextArea keyImageCaption = textArea(2);
   private final JTextArea previewArea = textArea(24);
   private final JLabel outputFolderLabel = new JLabel("No transcription folder selected");
@@ -117,6 +132,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private Path outputDirectory;
   private Path lastExportDirectory;
   private boolean updatingCatalogControls;
+  private boolean updatingReportInstructions;
+  private boolean cervicalStructuredMode;
+  private JPanel genericFindingBuilder;
   private DefaultView2d<DicomImageElement> lastActiveCanvas;
   private DefaultView2d<DicomImageElement> lastInteractedCanvas;
   private boolean canvasInteractionListenerInstalled;
@@ -125,7 +143,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     super(BUTTON_NAME, POSITION.EAST, ExtendedMode.NORMALIZED, Insertable.Type.TOOL_EXT, 145);
     dockable.setTitleIcon(ResourceUtil.getIcon(OtherIcon.KEY_IMAGE));
     dockable.setMinimizable(true);
-    setDockableWidth(390);
+    dockable.setExternalizable(true);
+    setDockableWidth(430);
     initializeOutputDirectory();
     buildInterface();
     updateOutputFolderLabel();
@@ -217,7 +236,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   @Override
   protected void changeToolWindowAnchor(CLocation clocation) {
-    // The composer remains usable at any docking location.
+    GuiExecutor.execute(this::updatePopOutButton);
   }
 
   private void buildInterface() {
@@ -227,21 +246,36 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     tabs.addTab("Compose", buildComposeTab());
     tabs.addTab("Key Images", buildKeyImageTab());
     tabs.addTab("Preview", buildPreviewTab());
+    tabs.addChangeListener(
+        event -> {
+          savePendingCervicalFindings();
+          if (tabs.getSelectedIndex() == 1) {
+            refreshCaptureViewports();
+          }
+        });
     add(tabs, BorderLayout.CENTER);
   }
 
   private JPanel buildCaseHeader() {
-    JPanel header = new JPanel();
-    header.setLayout(new javax.swing.BoxLayout(header, javax.swing.BoxLayout.Y_AXIS));
+    JPanel header = new JPanel(new BorderLayout(8, 0));
+    JPanel caseLabels = new JPanel();
+    caseLabels.setLayout(new javax.swing.BoxLayout(caseLabels, javax.swing.BoxLayout.Y_AXIS));
     patientLabel.setFont(patientLabel.getFont().deriveFont(Font.BOLD, 14f));
     examLabel.setFont(examLabel.getFont().deriveFont(Font.PLAIN, 12f));
     accessionLabel.setForeground(
         GuiUtils.getUICore()
             .getSystemPreferences()
             .getColorProperty("Label.disabledForeground", Color.GRAY));
-    header.add(patientLabel);
-    header.add(examLabel);
-    header.add(accessionLabel);
+    caseLabels.add(patientLabel);
+    caseLabels.add(examLabel);
+    caseLabels.add(accessionLabel);
+    header.add(caseLabels, BorderLayout.CENTER);
+
+    popOutButton.setToolTipText("Move Report Composer to another monitor");
+    popOutButton.setVerticalTextPosition(SwingConstants.CENTER);
+    popOutButton.setHorizontalTextPosition(SwingConstants.RIGHT);
+    popOutButton.addActionListener(event -> togglePopOut());
+    header.add(popOutButton, BorderLayout.EAST);
     header.setBorder(
         BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY),
@@ -249,23 +283,116 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     return header;
   }
 
+  private void togglePopOut() {
+    if (ExtendedMode.EXTERNALIZED.equals(dockable.getExtendedMode())) {
+      dockable.setResizeLocked(true);
+      dockable.setExtendedMode(ExtendedMode.NORMALIZED);
+      return;
+    }
+
+    Rectangle bounds = preferredPopOutBounds(targetDisplayBounds());
+    CLocation externalLocation =
+        CLocation.external(bounds.x, bounds.y, bounds.width, bounds.height);
+    dockable.setDefaultLocation(ExtendedMode.EXTERNALIZED, externalLocation);
+    dockable.setResizeLocked(false);
+    dockable.setLocation(externalLocation);
+  }
+
+  private Rectangle targetDisplayBounds() {
+    GraphicsEnvironment environment = GraphicsEnvironment.getLocalGraphicsEnvironment();
+    GraphicsConfiguration currentConfiguration = getGraphicsConfiguration();
+    GraphicsDevice currentDevice =
+        currentConfiguration == null
+            ? environment.getDefaultScreenDevice()
+            : currentConfiguration.getDevice();
+    GraphicsDevice targetDevice = currentDevice;
+    for (GraphicsDevice device : environment.getScreenDevices()) {
+      if (!device.equals(currentDevice)) {
+        targetDevice = device;
+        break;
+      }
+    }
+    return ExternalDisplay.onScreen(targetDevice).screenBounds();
+  }
+
+  static Rectangle preferredPopOutBounds(Rectangle displayBounds) {
+    int margin =
+        Math.min(24, Math.max(0, Math.min(displayBounds.width, displayBounds.height) / 20));
+    int availableWidth = Math.max(1, displayBounds.width - margin * 2);
+    int availableHeight = Math.max(1, displayBounds.height - margin * 2);
+    int width = Math.min(600, availableWidth);
+    int height = Math.min(1100, availableHeight);
+    return new Rectangle(displayBounds.x + margin, displayBounds.y + margin, width, height);
+  }
+
+  private void updatePopOutButton() {
+    boolean poppedOut = ExtendedMode.EXTERNALIZED.equals(dockable.getExtendedMode());
+    dockable.setResizeLocked(!poppedOut);
+    popOutButton.setText(poppedOut ? "Dock Back" : "Pop Out");
+    popOutButton.setToolTipText(
+        poppedOut
+            ? "Return Report Composer to the Weasis window"
+            : "Move Report Composer to another monitor");
+  }
+
   private Component buildComposeTab() {
     JPanel content = verticalPanel();
-    content.add(buildFindingBuilder());
-    content.add(buildFindingList());
+    content.add(fillWidth(buildExamSelector()));
+    content.add(fillWidth(buildReportInstructions()));
+    cervicalSpineForm.setVisible(false);
+    cervicalSpineForm.addSubmitListener(event -> saveCervicalFindings());
+    cervicalSpineForm.addOtherFindingListener(event -> showOtherCervicalFinding());
+    content.add(fillWidth(cervicalSpineForm));
+    genericFindingBuilder = buildFindingBuilder();
+    content.add(fillWidth(genericFindingBuilder));
+    content.add(fillWidth(buildFindingList()));
     return scroll(content);
+  }
+
+  private JPanel buildReportInstructions() {
+    JPanel panel = new JPanel(new BorderLayout(4, 4));
+    panel.setBorder(BorderFactory.createTitledBorder("Report text / instructions"));
+    reportInstructions.setEnabled(false);
+    reportInstructions
+        .getDocument()
+        .addDocumentListener(
+            new DocumentListener() {
+              @Override
+              public void insertUpdate(DocumentEvent event) {
+                reportInstructionsChanged();
+              }
+
+              @Override
+              public void removeUpdate(DocumentEvent event) {
+                reportInstructionsChanged();
+              }
+
+              @Override
+              public void changedUpdate(DocumentEvent event) {
+                reportInstructionsChanged();
+              }
+            });
+    panel.add(new JScrollPane(reportInstructions), BorderLayout.CENTER);
+    return panel;
+  }
+
+  private JPanel buildExamSelector() {
+    JPanel panel = new JPanel(new BorderLayout(6, 3));
+    panel.setBorder(BorderFactory.createTitledBorder("MRI exam"));
+    panel.add(new JLabel("Exam"), BorderLayout.WEST);
+    panel.add(examCombo, BorderLayout.CENTER);
+    examCombo.addActionListener(event -> examTemplateChanged());
+    return panel;
   }
 
   private JPanel buildFindingBuilder() {
     JPanel builder = new JPanel(new GridBagLayout());
-    builder.setBorder(BorderFactory.createTitledBorder("MRI finding"));
+    builder.setBorder(BorderFactory.createTitledBorder("Finding phrase"));
     GridBagConstraints constraints = new GridBagConstraints();
     constraints.gridx = 0;
     constraints.gridy = 0;
     constraints.anchor = GridBagConstraints.LINE_START;
     constraints.insets = new Insets(3, 4, 3, 4);
-    builder.add(new JLabel("Exam"), constraints);
-    constraints.gridy++;
     builder.add(new JLabel("Category"), constraints);
     constraints.gridy++;
     builder.add(new JLabel("Structure"), constraints);
@@ -281,8 +408,6 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     constraints.gridy = 0;
     constraints.weightx = 1.0;
     constraints.fill = GridBagConstraints.HORIZONTAL;
-    builder.add(examCombo, constraints);
-    constraints.gridy++;
     builder.add(categoryCombo, constraints);
     constraints.gridy++;
     builder.add(structureCombo, constraints);
@@ -299,7 +424,6 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     constraints.fill = GridBagConstraints.HORIZONTAL;
     builder.add(includeInImpression, constraints);
 
-    examCombo.addActionListener(event -> examTemplateChanged());
     categoryCombo.addActionListener(event -> updateCategoryControls());
     structureCombo.addActionListener(event -> applyCatalogPhrase());
     findingCombo.addActionListener(event -> applyCatalogPhrase());
@@ -309,10 +433,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     saveFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.PLUS));
     saveFindingButton.setToolTipText("Add finding to the current study");
     saveFindingButton.addActionListener(event -> saveFinding());
+    backToCervicalButton.setIcon(ResourceUtil.getIcon(ActionIcon.PREVIOUS));
+    backToCervicalButton.setVisible(false);
+    backToCervicalButton.addActionListener(event -> showStructuredCervicalForm());
     cancelEditButton.setVisible(false);
     cancelEditButton.addActionListener(event -> cancelFindingEdit());
     JPanel buttons =
-        GuiUtils.getFlowLayoutPanel(FlowLayout.TRAILING, 6, 4, cancelEditButton, saveFindingButton);
+        GuiUtils.getFlowLayoutPanel(
+            FlowLayout.TRAILING, 6, 4, backToCervicalButton, cancelEditButton, saveFindingButton);
     constraints.gridy++;
     builder.add(buttons, constraints);
     return builder;
@@ -345,10 +473,20 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private Component buildKeyImageTab() {
     JPanel content = new JPanel(new BorderLayout(5, 5));
-    JButton capture = new JButton("Capture Current View");
-    capture.setIcon(ResourceUtil.getIcon(ActionIcon.EDIT_KEY_IMAGE));
-    capture.addActionListener(event -> captureKeyImage());
-    content.add(GuiUtils.getFlowLayoutPanel(FlowLayout.LEADING, 0, 4, capture), BorderLayout.NORTH);
+    JPanel captureControls = verticalPanel();
+    JPanel viewportSelector = new JPanel(new BorderLayout(5, 3));
+    JLabel viewportLabel = new JLabel("Viewport");
+    viewportLabel.setLabelFor(captureViewportCombo);
+    viewportSelector.add(viewportLabel, BorderLayout.WEST);
+    viewportSelector.add(captureViewportCombo, BorderLayout.CENTER);
+    captureControls.add(fillWidth(viewportSelector));
+    captureButton.setIcon(ResourceUtil.getIcon(ActionIcon.EDIT_KEY_IMAGE));
+    captureButton.setEnabled(false);
+    captureButton.addActionListener(event -> captureKeyImage());
+    captureViewportCombo.setMaximumRowCount(4);
+    captureViewportCombo.addActionListener(event -> updateCaptureViewportTooltip());
+    captureControls.add(GuiUtils.getFlowLayoutPanel(FlowLayout.TRAILING, 0, 4, captureButton));
+    content.add(captureControls, BorderLayout.NORTH);
 
     keyImageList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     keyImageList.setCellRenderer(new TooltipListRenderer());
@@ -419,6 +557,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (currentDraft != null && examCombo.getSelectedItem() instanceof ExamTemplate exam) {
       draftExamTemplates.put(currentDraft.context().draftKey(), exam);
     }
+    cervicalStructuredMode = selectedExamTemplate() == ExamTemplate.CERVICAL_SPINE;
     updateCatalogControls();
   }
 
@@ -435,6 +574,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     populateCategoryControls(exam, (String) categoryCombo.getSelectedItem());
     updatingCatalogControls = false;
     applyCatalogPhrase();
+    updateFindingBuilderVisibility();
   }
 
   private void updateCategoryControls() {
@@ -468,7 +608,32 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     updatingCatalogControls = true;
     examCombo.setSelectedItem(exam);
     updatingCatalogControls = false;
+    cervicalStructuredMode = exam == ExamTemplate.CERVICAL_SPINE;
     updateCatalogControls();
+  }
+
+  private void updateFindingBuilderVisibility() {
+    if (genericFindingBuilder == null) {
+      return;
+    }
+    boolean cervical = selectedExamTemplate() == ExamTemplate.CERVICAL_SPINE;
+    boolean showStructured = cervical && cervicalStructuredMode && editingFindingId == null;
+    cervicalSpineForm.setVisible(showStructured);
+    genericFindingBuilder.setVisible(!showStructured);
+    backToCervicalButton.setVisible(cervical && !showStructured && editingFindingId == null);
+    revalidate();
+    repaint();
+  }
+
+  private void showOtherCervicalFinding() {
+    cervicalStructuredMode = false;
+    updateFindingBuilderVisibility();
+    applyCatalogPhrase();
+  }
+
+  private void showStructuredCervicalForm() {
+    cervicalStructuredMode = true;
+    updateFindingBuilderVisibility();
   }
 
   private void applyCatalogPhrase() {
@@ -490,6 +655,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private void synchronizeStudy() {
     synchronizeStudy(activeSelection());
+    refreshCaptureViewports();
   }
 
   private Optional<Selection> activeSelection() {
@@ -497,7 +663,15 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (selection.isEmpty()) {
       selection = DicomContextReader.fromVisible(lastActiveCanvas);
     }
-    return selection.isPresent() ? selection : DicomContextReader.selected();
+    if (selection.isEmpty()) {
+      selection = DicomContextReader.selected();
+    }
+    if (selection.isEmpty()) {
+      String preferredStudyUid =
+          currentDraft == null ? "" : currentDraft.context().studyInstanceUid();
+      selection = DicomContextReader.visibleStudy(preferredStudyUid);
+    }
+    return selection;
   }
 
   private void synchronizeStudy(Optional<Selection> selection) {
@@ -529,6 +703,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             ? "Accession not available"
             : "Accession: " + context.accessionNumber());
     if (draftChanged) {
+      cervicalSpineForm.clearSelections();
       ExamTemplate template =
           draftExamTemplates.computeIfAbsent(
               context.draftKey(),
@@ -571,6 +746,53 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
   }
 
+  private void reportInstructionsChanged() {
+    if (updatingReportInstructions || currentDraft == null) {
+      return;
+    }
+    currentDraft.setReportInstructions(reportInstructions.getText());
+    refreshPreview();
+  }
+
+  private void saveCervicalFindings() {
+    if (!requireActiveDraft()) {
+      return;
+    }
+    appendCervicalFindings(true);
+  }
+
+  private void savePendingCervicalFindings() {
+    if (tabs.getSelectedIndex() == 0
+        || currentDraft == null
+        || selectedExamTemplate() != ExamTemplate.CERVICAL_SPINE
+        || editingFindingId != null) {
+      return;
+    }
+    appendCervicalFindings(false);
+  }
+
+  private boolean appendCervicalFindings(boolean warnWhenEmpty) {
+    var generated = CervicalSpineFindingBuilder.generate(cervicalSpineForm.selection());
+    if (generated.isEmpty()) {
+      if (warnWhenEmpty) {
+        showWarning("Select at least one C-spine finding.");
+      }
+      return false;
+    }
+
+    FindingEntry lastFinding = null;
+    for (GeneratedFinding finding : generated) {
+      lastFinding =
+          FindingEntry.create(
+              finding.findingText(), finding.impressionText(), !finding.impressionText().isBlank());
+      currentDraft.addFinding(lastFinding);
+    }
+    cervicalSpineForm.clearSelections();
+    refreshAll();
+    findingList.setSelectedValue(lastFinding, true);
+    return true;
+  }
+
   private void editSelectedFinding() {
     FindingEntry selected = findingList.getSelectedValue();
     if (selected == null) {
@@ -585,6 +807,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     saveFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.DRAW_TEXT));
     saveFindingButton.setToolTipText("Update the selected finding");
     cancelEditButton.setVisible(true);
+    cervicalStructuredMode = false;
+    updateFindingBuilderVisibility();
   }
 
   private void cancelFindingEdit() {
@@ -593,7 +817,11 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     saveFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.PLUS));
     saveFindingButton.setToolTipText("Add finding to the current study");
     cancelEditButton.setVisible(false);
+    if (selectedExamTemplate() == ExamTemplate.CERVICAL_SPINE) {
+      cervicalStructuredMode = true;
+    }
     applyCatalogPhrase();
+    updateFindingBuilderVisibility();
     refreshAll();
   }
 
@@ -618,9 +846,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void captureKeyImage() {
-    Optional<Selection> selection = activeSelection();
+    Optional<Selection> selection = selectedCaptureSelection();
     if (selection.isEmpty() || !selection.get().context().hasStudy()) {
-      showWarning("Select a DICOM image before capturing a key image.");
+      showWarning("Choose a viewport containing a DICOM image before capturing a key image.");
       return;
     }
     synchronizeStudy(selection);
@@ -639,12 +867,93 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
     String caption = selectedFinding == null ? "" : selectedFinding.findingText();
     KeyImageCapture keyImage =
-        KeyImageCapture.create(
-            selection.get().reference(), viewImage, annotation.placement(), caption);
+        KeyImageCapture.createWithArrows(
+            selection.get().reference(), viewImage, annotation.placements(), caption);
     currentDraft.addKeyImage(keyImage);
     refreshAll();
     keyImageList.setSelectedValue(keyImage, true);
     tabs.setSelectedIndex(1);
+  }
+
+  private Optional<Selection> selectedCaptureSelection() {
+    CaptureViewport viewport =
+        captureViewportCombo.getSelectedItem() instanceof CaptureViewport selected
+            ? selected
+            : null;
+    if (viewport == null) {
+      refreshCaptureViewports();
+      if (!(captureViewportCombo.getSelectedItem() instanceof CaptureViewport refreshed)) {
+        return Optional.empty();
+      }
+      viewport = refreshed;
+    }
+    return DicomContextReader.fromVisible(viewport.canvas());
+  }
+
+  private void refreshCaptureViewports() {
+    DefaultView2d<DicomImageElement> previousCanvas =
+        captureViewportCombo.getSelectedItem() instanceof CaptureViewport viewport
+            ? viewport.canvas()
+            : null;
+    var viewports = DicomContextReader.visibleViewports();
+    List<DefaultView2d<DicomImageElement>> availableCanvases =
+        viewports.stream().map(viewport -> viewport.selection().canvas()).toList();
+    DefaultView2d<DicomImageElement> selectedCanvas =
+        DicomContextReader.selected().map(Selection::canvas).orElse(null);
+    DefaultView2d<DicomImageElement> preferredCanvas =
+        preferredCaptureCanvas(
+            availableCanvases,
+            previousCanvas,
+            lastInteractedCanvas,
+            lastActiveCanvas,
+            selectedCanvas);
+
+    captureViewportCombo.removeAllItems();
+    CaptureViewport preferred = null;
+    for (ViewportSelection viewport : viewports) {
+      CaptureViewport choice = new CaptureViewport(viewport.viewportNumber(), viewport.selection());
+      captureViewportCombo.addItem(choice);
+      if (choice.canvas() == preferredCanvas) {
+        preferred = choice;
+      }
+    }
+    if (preferred != null) {
+      captureViewportCombo.setSelectedItem(preferred);
+    }
+    captureButton.setEnabled(captureViewportCombo.getItemCount() > 0);
+    updateCaptureViewportTooltip();
+  }
+
+  static DefaultView2d<DicomImageElement> preferredCaptureCanvas(
+      List<DefaultView2d<DicomImageElement>> availableCanvases,
+      DefaultView2d<DicomImageElement> previousCanvas,
+      DefaultView2d<DicomImageElement> lastInteractedCanvas,
+      DefaultView2d<DicomImageElement> lastActiveCanvas,
+      DefaultView2d<DicomImageElement> selectedCanvas) {
+    if (containsCanvas(availableCanvases, previousCanvas)) {
+      return previousCanvas;
+    }
+    if (containsCanvas(availableCanvases, lastInteractedCanvas)) {
+      return lastInteractedCanvas;
+    }
+    if (containsCanvas(availableCanvases, lastActiveCanvas)) {
+      return lastActiveCanvas;
+    }
+    if (containsCanvas(availableCanvases, selectedCanvas)) {
+      return selectedCanvas;
+    }
+    return availableCanvases.isEmpty() ? null : availableCanvases.getFirst();
+  }
+
+  private static boolean containsCanvas(
+      List<DefaultView2d<DicomImageElement>> availableCanvases,
+      DefaultView2d<DicomImageElement> candidate) {
+    return candidate != null && availableCanvases.stream().anyMatch(canvas -> canvas == candidate);
+  }
+
+  private void updateCaptureViewportTooltip() {
+    Object selected = captureViewportCombo.getSelectedItem();
+    captureViewportCombo.setToolTipText(selected == null ? null : selected.toString());
   }
 
   private void updateKeyImageCaption() {
@@ -762,10 +1071,26 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       currentDraft.findings().forEach(findingModel::addElement);
       currentDraft.keyImages().forEach(keyImageModel::addElement);
     }
+    refreshReportInstructions();
     selectFinding(selectedFindingId);
     selectKeyImage(selectedKeyImageId);
     refreshPreview();
     exportButton.setEnabled(currentDraft != null);
+  }
+
+  private void refreshReportInstructions() {
+    String value = currentDraft == null ? "" : currentDraft.reportInstructions();
+    reportInstructions.setEnabled(currentDraft != null);
+    if (reportInstructions.getText().equals(value)) {
+      return;
+    }
+    updatingReportInstructions = true;
+    try {
+      reportInstructions.setText(value);
+      reportInstructions.setCaretPosition(0);
+    } finally {
+      updatingReportInstructions = false;
+    }
   }
 
   private void refreshPreview() {
@@ -841,6 +1166,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     text.append("\n\nIMPRESSION\n");
     text.append(
         packet.impressionText().isBlank() ? "[No impression entered]" : packet.impressionText());
+    if (!packet.reportInstructions().isBlank()) {
+      text.append("\n\nADDITIONAL REPORT TEXT / INSTRUCTIONS\n");
+      text.append(packet.reportInstructions());
+    }
     return text.toString();
   }
 
@@ -850,6 +1179,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private static JPanel verticalPanel() {
     return new WidthTrackingPanel();
+  }
+
+  private static <T extends JPanel> T fillWidth(T panel) {
+    panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    Dimension maximum = panel.getMaximumSize();
+    panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, maximum.height));
+    return panel;
   }
 
   private static JScrollPane scroll(Component component) {
@@ -914,6 +1250,17 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
           (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
       component.setToolTipText(value == null ? null : value.toString());
       return component;
+    }
+  }
+
+  private record CaptureViewport(int viewportNumber, Selection selection) {
+    DefaultView2d<DicomImageElement> canvas() {
+      return selection.canvas();
+    }
+
+    @Override
+    public String toString() {
+      return "Viewport " + viewportNumber + " - " + selection.reference().humanReference();
     }
   }
 }

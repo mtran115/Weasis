@@ -14,6 +14,8 @@ import java.awt.Point;
 import java.awt.image.BufferedImage;
 import java.awt.image.RenderedImage;
 import java.time.temporal.TemporalAccessor;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import javax.swing.SwingUtilities;
 import org.dcm4che3.data.Tag;
@@ -37,6 +39,39 @@ final class DicomContextReader {
   static Optional<Selection> selected() {
     ViewCanvas<DicomImageElement> view = EventManager.getInstance().getSelectedViewPane();
     return from(view);
+  }
+
+  static Optional<Selection> visibleStudy(String preferredStudyUid) {
+    String preferred = ComposerText.clean(preferredStudyUid);
+    Selection fallback = null;
+    for (ViewportSelection viewport : visibleViewports()) {
+      Selection selection = viewport.selection();
+      if (fallback == null) {
+        fallback = selection;
+      }
+      if (!preferred.isBlank() && preferred.equals(selection.context().studyInstanceUid())) {
+        return Optional.of(selection);
+      }
+    }
+    return Optional.ofNullable(fallback);
+  }
+
+  static List<ViewportSelection> visibleViewports() {
+    ImageViewerPlugin<DicomImageElement> viewer =
+        EventManager.getInstance().getSelectedView2dContainer();
+    if (viewer == null) {
+      return List.of();
+    }
+
+    List<ViewCanvas<DicomImageElement>> views = viewer.getImagePanels();
+    List<ViewportSelection> selections = new ArrayList<>(views.size());
+    for (int index = 0; index < views.size(); index++) {
+      Optional<Selection> selection = fromVisible(views.get(index));
+      if (selection.isPresent()) {
+        selections.add(new ViewportSelection(index + 1, selection.get()));
+      }
+    }
+    return List.copyOf(selections);
   }
 
   static Optional<DefaultView2d<DicomImageElement>> selectedCanvas(SeriesViewerEvent event) {
@@ -168,4 +203,6 @@ final class DicomContextReader {
       return converted;
     }
   }
+
+  record ViewportSelection(int viewportNumber, Selection selection) {}
 }

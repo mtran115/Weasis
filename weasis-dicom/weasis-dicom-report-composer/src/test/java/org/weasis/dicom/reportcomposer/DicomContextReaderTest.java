@@ -16,6 +16,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.awt.event.MouseEvent;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.weasis.core.ui.editor.SeriesViewer;
 import org.weasis.core.ui.editor.SeriesViewerEvent;
@@ -66,5 +67,32 @@ class DicomContextReaderTest {
     assertTrue(ReportComposerTool.isDeliberateCanvasMouseEvent(MouseEvent.MOUSE_PRESSED));
     assertTrue(ReportComposerTool.isDeliberateCanvasMouseEvent(MouseEvent.MOUSE_RELEASED));
     assertTrue(ReportComposerTool.isDeliberateCanvasMouseEvent(MouseEvent.MOUSE_WHEEL));
+  }
+
+  @Test
+  void explicitCaptureViewportWinsOverLaterViewerActivity() {
+    DefaultView2d<DicomImageElement> left = canvas();
+    DefaultView2d<DicomImageElement> right = canvas();
+
+    assertSame(
+        left,
+        ReportComposerTool.preferredCaptureCanvas(List.of(left, right), left, right, right, right));
+  }
+
+  @Test
+  void captureViewportFallsBackToTheLastInteractedVisibleCanvas() {
+    DefaultView2d<DicomImageElement> removed = canvas();
+    DefaultView2d<DicomImageElement> left = canvas();
+    DefaultView2d<DicomImageElement> right = canvas();
+
+    assertSame(
+        right,
+        ReportComposerTool.preferredCaptureCanvas(
+            List.of(left, right), removed, right, left, left));
+  }
+
+  @SuppressWarnings("unchecked")
+  private static DefaultView2d<DicomImageElement> canvas() {
+    return mock(DefaultView2d.class);
   }
 }

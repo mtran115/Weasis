@@ -30,10 +30,24 @@ class ReportDraftTest {
     draft.addFinding(ligament);
     draft.addFinding(edema);
     draft.moveFinding(edema.id(), -1);
+    draft.setReportInstructions("Mention the chronic scapholunate injury.\nCorrelate with exam.");
 
     ReportPacket packet = draft.snapshot();
     assertEquals(List.of(edema, ligament), packet.findings());
     assertEquals("Lunotriquetral ligament tear.", packet.impressionText());
+    assertEquals(
+        "Mention the chronic scapholunate injury.\nCorrelate with exam.",
+        packet.reportInstructions());
+  }
+
+  @Test
+  void reportInstructionsAloneMakeTheDraftExportable() {
+    ReportDraft draft = new ReportDraft(context("1.2.3", "MRI WRIST"));
+
+    draft.setReportInstructions("Use the postoperative wrist template.");
+
+    assertEquals("Use the postoperative wrist template.", draft.reportInstructions());
+    assertEquals(false, draft.snapshot().isEmpty());
   }
 
   @Test

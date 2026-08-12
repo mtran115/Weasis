@@ -11,6 +11,7 @@ package org.weasis.dicom.reportcomposer;
 
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -18,7 +19,7 @@ public final class KeyImageCapture {
   private final String id;
   private final ImageReference reference;
   private final BufferedImage baseImage;
-  private final ArrowPlacement arrow;
+  private final List<ArrowPlacement> arrows;
   private String caption;
 
   public KeyImageCapture(
@@ -27,10 +28,19 @@ public final class KeyImageCapture {
       BufferedImage baseImage,
       ArrowPlacement arrow,
       String caption) {
+    this(id, reference, baseImage, arrow == null ? List.of() : List.of(arrow), caption);
+  }
+
+  private KeyImageCapture(
+      String id,
+      ImageReference reference,
+      BufferedImage baseImage,
+      List<ArrowPlacement> arrows,
+      String caption) {
     this.id = ComposerText.clean(id);
     this.reference = Objects.requireNonNull(reference);
     this.baseImage = copy(Objects.requireNonNull(baseImage));
-    this.arrow = arrow;
+    this.arrows = List.copyOf(arrows);
     this.caption = ComposerText.sentence(caption);
     if (this.id.isBlank()) {
       throw new IllegalArgumentException("A key image ID is required.");
@@ -39,7 +49,12 @@ public final class KeyImageCapture {
 
   public static KeyImageCapture create(
       ImageReference reference, BufferedImage image, ArrowPlacement arrow, String caption) {
-    return new KeyImageCapture(UUID.randomUUID().toString(), reference, image, arrow, caption);
+    return createWithArrows(reference, image, arrow == null ? List.of() : List.of(arrow), caption);
+  }
+
+  public static KeyImageCapture createWithArrows(
+      ImageReference reference, BufferedImage image, List<ArrowPlacement> arrows, String caption) {
+    return new KeyImageCapture(UUID.randomUUID().toString(), reference, image, arrows, caption);
   }
 
   public String id() {
@@ -51,7 +66,11 @@ public final class KeyImageCapture {
   }
 
   public ArrowPlacement arrow() {
-    return arrow;
+    return arrows.isEmpty() ? null : arrows.getFirst();
+  }
+
+  public List<ArrowPlacement> arrows() {
+    return arrows;
   }
 
   public String caption() {
@@ -63,7 +82,7 @@ public final class KeyImageCapture {
   }
 
   public BufferedImage renderedImage() {
-    return ArrowRenderer.render(baseImage, arrow);
+    return ArrowRenderer.renderAll(baseImage, arrows);
   }
 
   BufferedImage baseImageCopy() {

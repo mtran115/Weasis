@@ -57,8 +57,10 @@ class CasePacketExporterTest {
     assertTrue(Files.isRegularFile(reportText));
     assertTrue(Files.isRegularFile(docx));
     assertTrue(Files.isRegularFile(png));
-    assertTrue(Files.readString(reportText).contains("Patient: DOE, JANE"));
-    assertTrue(Files.readString(reportText).contains("Series 8 (COR PD FS), image 23"));
+    String exportedText = Files.readString(reportText);
+    assertTrue(exportedText.contains("Patient: DOE, JANE"));
+    assertTrue(exportedText.contains("Series 8 (COR PD FS), image 23"));
+    assertTrue(exportedText.contains("Compare directly with the prior MRI."));
     assertNotNull(ImageIO.read(png.toFile()));
     assertFalse(hasTemporaryExportDirectory(temporaryDirectory));
 
@@ -102,7 +104,8 @@ class CasePacketExporterTest {
             image,
             new ArrowPlacement(0.2, 0.75, 0.55, 0.45),
             "Lunotriquetral ligament tear");
-    return new ReportPacket(context, List.of(finding), List.of(keyImage));
+    return new ReportPacket(
+        context, List.of(finding), List.of(keyImage), "Compare directly with the prior MRI.");
   }
 
   private static void verifyDocx(Path docx) throws Exception {
@@ -126,6 +129,7 @@ class CasePacketExporterTest {
       String documentXml = read(zip, "word/document.xml");
       assertTrue(documentXml.contains("TRANSCRIPTION INSTRUCTIONS"));
       assertTrue(documentXml.contains("Tear of the lunotriquetral ligament."));
+      assertTrue(documentXml.contains("Compare directly with the prior MRI."));
       assertTrue(documentXml.contains("r:embed=\"rId2\""));
 
       try (InputStream input = zip.getInputStream(zip.getEntry("word/styles.xml"))) {

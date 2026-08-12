@@ -12,10 +12,19 @@ package org.weasis.dicom.reportcomposer;
 import java.util.List;
 
 public record ReportPacket(
-    CaseContext context, List<FindingEntry> findings, List<KeyImageCapture> keyImages) {
+    CaseContext context,
+    List<FindingEntry> findings,
+    List<KeyImageCapture> keyImages,
+    String reportInstructions) {
   public ReportPacket {
     findings = List.copyOf(findings);
     keyImages = List.copyOf(keyImages);
+    reportInstructions = ComposerText.clean(reportInstructions);
+  }
+
+  public ReportPacket(
+      CaseContext context, List<FindingEntry> findings, List<KeyImageCapture> keyImages) {
+    this(context, findings, keyImages, "");
   }
 
   public String findingsText() {
@@ -35,6 +44,6 @@ public record ReportPacket(
   }
 
   public boolean isEmpty() {
-    return findings.isEmpty() && keyImages.isEmpty();
+    return findings.isEmpty() && keyImages.isEmpty() && reportInstructions.isBlank();
   }
 }

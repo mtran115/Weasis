@@ -15,6 +15,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
+import java.util.List;
 
 final class ArrowRenderer {
   private static final Color ARROW_COLOR = new Color(255, 213, 0);
@@ -22,11 +23,15 @@ final class ArrowRenderer {
   private ArrowRenderer() {}
 
   static BufferedImage render(BufferedImage source, ArrowPlacement placement) {
+    return renderAll(source, placement == null ? List.of() : List.of(placement));
+  }
+
+  static BufferedImage renderAll(BufferedImage source, List<ArrowPlacement> placements) {
     BufferedImage output =
         new BufferedImage(source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_RGB);
     Graphics2D graphics = output.createGraphics();
     graphics.drawImage(source, 0, 0, null);
-    if (placement != null) {
+    for (ArrowPlacement placement : placements) {
       draw(graphics, source.getWidth(), source.getHeight(), placement);
     }
     graphics.dispose();

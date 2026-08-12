@@ -16,6 +16,7 @@ import java.util.Objects;
 
 public final class ReportDraft {
   private CaseContext context;
+  private String reportInstructions = "";
   private final List<FindingEntry> findings = new ArrayList<>();
   private final List<KeyImageCapture> keyImages = new ArrayList<>();
 
@@ -40,6 +41,14 @@ public final class ReportDraft {
 
   public List<KeyImageCapture> keyImages() {
     return Collections.unmodifiableList(keyImages);
+  }
+
+  public String reportInstructions() {
+    return reportInstructions;
+  }
+
+  public void setReportInstructions(String reportInstructions) {
+    this.reportInstructions = ComposerText.clean(reportInstructions);
   }
 
   public void addFinding(FindingEntry finding) {
@@ -74,7 +83,7 @@ public final class ReportDraft {
   }
 
   public ReportPacket snapshot() {
-    return new ReportPacket(context, findings, keyImages);
+    return new ReportPacket(context, findings, keyImages, reportInstructions);
   }
 
   private int indexOfFinding(String id) {

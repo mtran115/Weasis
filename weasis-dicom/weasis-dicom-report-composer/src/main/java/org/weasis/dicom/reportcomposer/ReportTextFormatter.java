@@ -36,6 +36,11 @@ final class ReportTextFormatter {
     String impression = packet.impressionText();
     text.append(impression.isBlank() ? "[No impression entered]" : impression).append('\n');
 
+    if (!packet.reportInstructions().isBlank()) {
+      text.append("\nADDITIONAL REPORT TEXT / INSTRUCTIONS\n");
+      text.append(packet.reportInstructions()).append('\n');
+    }
+
     text.append("\nKEY IMAGE INSTRUCTIONS\n");
     if (packet.keyImages().isEmpty()) {
       text.append("No key images selected.\n");

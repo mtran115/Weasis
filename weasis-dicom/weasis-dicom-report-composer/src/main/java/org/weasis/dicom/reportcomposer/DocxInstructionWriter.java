@@ -319,6 +319,13 @@ final class DocxInstructionWriter {
             }
           }
 
+          if (!packet.reportInstructions().isBlank()) {
+            paragraph(writer, "ADDITIONAL REPORT TEXT / INSTRUCTIONS", "Heading2");
+            for (String line : packet.reportInstructions().split("\\R", -1)) {
+              paragraph(writer, line, "Normal");
+            }
+          }
+
           paragraph(writer, "KEY IMAGE INSTRUCTIONS", "Heading1");
           if (images.isEmpty()) {
             paragraph(writer, "No key images selected.", "Normal");

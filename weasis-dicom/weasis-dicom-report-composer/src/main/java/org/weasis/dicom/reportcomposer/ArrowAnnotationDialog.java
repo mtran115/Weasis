@@ -20,6 +20,8 @@ import java.awt.Window;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
@@ -36,7 +38,7 @@ final class ArrowAnnotationDialog extends JDialog {
   private boolean accepted;
 
   private ArrowAnnotationDialog(Window owner, BufferedImage image) {
-    super(owner, "Key Image Arrow", ModalityType.APPLICATION_MODAL);
+    super(owner, "Key Image Arrows", ModalityType.APPLICATION_MODAL);
     setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
     arrowCanvas = new ArrowCanvas(image);
     init();
@@ -47,25 +49,29 @@ final class ArrowAnnotationDialog extends JDialog {
     ArrowAnnotationDialog dialog = new ArrowAnnotationDialog(owner, image);
     dialog.setLocationRelativeTo(parent);
     dialog.setVisible(true);
-    return new AnnotationResult(dialog.accepted, dialog.arrowCanvas.getPlacement());
+    return new AnnotationResult(dialog.accepted, dialog.arrowCanvas.getPlacements());
   }
 
   private void init() {
     setLayout(new BorderLayout(8, 8));
     JLabel instructions =
         new JLabel(
-            "Press on the finding, then drag outward to place the tail, or click for an automatic arrow.",
+            "Press on a finding and drag outward, or click for an automatic arrow. Repeat as needed.",
             SwingConstants.CENTER);
     instructions.setBorder(GuiUtils.getEmptyBorder(8, 8, 0, 8));
     add(instructions, BorderLayout.NORTH);
     add(arrowCanvas, BorderLayout.CENTER);
 
-    JButton clearButton = new JButton("Clear");
-    clearButton.addActionListener(event -> arrowCanvas.setPlacement(null));
-    JButton noArrowButton = new JButton("Use Without Arrow");
+    JButton undoButton = new JButton("Undo Last");
+    undoButton.setEnabled(false);
+    undoButton.addActionListener(event -> arrowCanvas.removeLastPlacement());
+    JButton clearButton = new JButton("Clear All");
+    clearButton.setEnabled(false);
+    clearButton.addActionListener(event -> arrowCanvas.clearPlacements());
+    JButton noArrowButton = new JButton("Use Without Arrows");
     noArrowButton.addActionListener(
         event -> {
-          arrowCanvas.setPlacement(null);
+          arrowCanvas.clearPlacements();
           accepted = true;
           dispose();
         });
@@ -73,7 +79,14 @@ final class ArrowAnnotationDialog extends JDialog {
     cancelButton.addActionListener(event -> dispose());
     JButton useButton = new JButton("Use Arrow");
     useButton.setEnabled(false);
-    arrowCanvas.setPlacementListener(placement -> useButton.setEnabled(placement != null));
+    arrowCanvas.setPlacementListener(
+        placements -> {
+          boolean hasArrows = !placements.isEmpty();
+          undoButton.setEnabled(hasArrows);
+          clearButton.setEnabled(hasArrows);
+          useButton.setEnabled(hasArrows);
+          useButton.setText(placements.size() == 1 ? "Use Arrow" : "Use Arrows");
+        });
     useButton.addActionListener(
         event -> {
           accepted = true;
@@ -86,6 +99,7 @@ final class ArrowAnnotationDialog extends JDialog {
             java.awt.FlowLayout.TRAILING,
             8,
             8,
+            undoButton,
             clearButton,
             noArrowButton,
             cancelButton,
@@ -95,7 +109,11 @@ final class ArrowAnnotationDialog extends JDialog {
     setSize(new Dimension(980, 760));
   }
 
-  record AnnotationResult(boolean accepted, ArrowPlacement placement) {}
+  record AnnotationResult(boolean accepted, List<ArrowPlacement> placements) {
+    AnnotationResult {
+      placements = List.copyOf(placements);
+    }
+  }
 
   static ArrowPlacement placementFromHeadFirstGesture(
       Point arrowHead, Point arrowTail, int imageWidth, int imageHeight) {
@@ -118,9 +136,10 @@ final class ArrowAnnotationDialog extends JDialog {
 
   private static final class ArrowCanvas extends JComponent {
     private final BufferedImage image;
+    private final List<ArrowPlacement> placements = new ArrayList<>();
     private Point arrowHeadPoint;
-    private ArrowPlacement placement;
-    private java.util.function.Consumer<ArrowPlacement> placementListener = ignored -> {};
+    private ArrowPlacement pendingPlacement;
+    private java.util.function.Consumer<List<ArrowPlacement>> placementListener = ignored -> {};
 
     ArrowCanvas(BufferedImage image) {
       this.image = image;
@@ -138,7 +157,7 @@ final class ArrowAnnotationDialog extends JDialog {
             public void mouseDragged(MouseEvent event) {
               Point arrowTail = toImagePoint(event.getPoint());
               if (arrowHeadPoint != null && arrowTail != null) {
-                setPlacement(
+                setPendingPlacement(
                     placementFromHeadFirstGesture(
                         arrowHeadPoint, arrowTail, image.getWidth(), image.getHeight()));
               }
@@ -149,16 +168,17 @@ final class ArrowAnnotationDialog extends JDialog {
               Point arrowTail = toImagePoint(event.getPoint());
               if (arrowTail == null) {
                 arrowHeadPoint = null;
+                setPendingPlacement(null);
                 return;
               }
               Point arrowHead = arrowHeadPoint == null ? arrowTail : arrowHeadPoint;
               if (arrowHeadPoint == null || arrowHeadPoint.distance(arrowTail) < 6.0) {
                 arrowTail = automaticTailFor(arrowHead, image.getWidth(), image.getHeight());
-                setPlacement(
+                addPlacement(
                     placementFromHeadFirstGesture(
                         arrowHead, arrowTail, image.getWidth(), image.getHeight()));
               } else {
-                setPlacement(
+                addPlacement(
                     placementFromHeadFirstGesture(
                         arrowHead, arrowTail, image.getWidth(), image.getHeight()));
               }
@@ -169,17 +189,40 @@ final class ArrowAnnotationDialog extends JDialog {
       addMouseMotionListener(mouseAdapter);
     }
 
-    void setPlacementListener(java.util.function.Consumer<ArrowPlacement> listener) {
+    void setPlacementListener(java.util.function.Consumer<List<ArrowPlacement>> listener) {
       placementListener = listener == null ? ignored -> {} : listener;
     }
 
-    ArrowPlacement getPlacement() {
-      return placement;
+    List<ArrowPlacement> getPlacements() {
+      return List.copyOf(placements);
     }
 
-    void setPlacement(ArrowPlacement placement) {
-      this.placement = placement;
-      placementListener.accept(placement);
+    void addPlacement(ArrowPlacement placement) {
+      placements.add(placement);
+      pendingPlacement = null;
+      placementsChanged();
+    }
+
+    void removeLastPlacement() {
+      if (!placements.isEmpty()) {
+        placements.removeLast();
+        placementsChanged();
+      }
+    }
+
+    void clearPlacements() {
+      placements.clear();
+      pendingPlacement = null;
+      placementsChanged();
+    }
+
+    private void setPendingPlacement(ArrowPlacement placement) {
+      pendingPlacement = placement;
+      repaint();
+    }
+
+    private void placementsChanged() {
+      placementListener.accept(List.copyOf(placements));
       repaint();
     }
 
@@ -191,9 +234,14 @@ final class ArrowAnnotationDialog extends JDialog {
       graphics2D.setRenderingHint(
           RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
       graphics2D.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, null);
-      if (placement != null) {
+      if (!placements.isEmpty() || pendingPlacement != null) {
         graphics2D.translate(bounds.x, bounds.y);
-        ArrowRenderer.draw(graphics2D, bounds.width, bounds.height, placement);
+        for (ArrowPlacement placement : placements) {
+          ArrowRenderer.draw(graphics2D, bounds.width, bounds.height, placement);
+        }
+        if (pendingPlacement != null) {
+          ArrowRenderer.draw(graphics2D, bounds.width, bounds.height, pendingPlacement);
+        }
       }
       graphics2D.dispose();
     }
