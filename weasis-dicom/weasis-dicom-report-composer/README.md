@@ -84,6 +84,10 @@ mvn -Dweasis.arch=macosx-aarch64 -DskipTests install
 ./scripts/run-report-composer-dev.sh
 ```
 
+The dedicated launcher uses Homebrew OpenJDK 26 to avoid the native macOS Swing accessibility
+crash tracked as OpenJDK JDK-8372757. Override its runtime only when necessary with
+`WEASIS_REPORT_COMPOSER_JAVA_HOME`.
+
 The dedicated launcher uses `~/.weasis-report-composer-dev` for its singleton lock and boot log. A
 distinct `report-composer-v1` profile and source ID give it separate preferences and an OSGi cache
 from the daily-reading build, even though Weasis keeps those profile directories under
