@@ -300,28 +300,12 @@ final class DocxInstructionWriter {
           labeledParagraph(writer, "Accession", available(packet.context().accessionNumber()));
           labeledParagraph(writer, "Study date", available(packet.context().studyDate()));
 
-          paragraph(writer, "REPORT TEXT TO COPY", "Heading1");
-          paragraph(writer, "FINDINGS", "Heading2");
-          if (packet.findings().isEmpty()) {
-            paragraph(writer, "[No findings entered]", "Normal");
+          paragraph(writer, "REPORT TEXT / INSTRUCTIONS", "Heading1");
+          String reportText = packet.reportText();
+          if (reportText.isBlank()) {
+            paragraph(writer, "[No report text entered]", "Normal");
           } else {
-            for (FindingEntry finding : packet.findings()) {
-              paragraph(writer, finding.findingText(), "Normal");
-            }
-          }
-          paragraph(writer, "IMPRESSION", "Heading2");
-          String impression = packet.impressionText();
-          if (impression.isBlank()) {
-            paragraph(writer, "[No impression entered]", "Normal");
-          } else {
-            for (String line : impression.split("\\R")) {
-              paragraph(writer, line, "Normal");
-            }
-          }
-
-          if (!packet.reportInstructions().isBlank()) {
-            paragraph(writer, "ADDITIONAL REPORT TEXT / INSTRUCTIONS", "Heading2");
-            for (String line : packet.reportInstructions().split("\\R", -1)) {
+            for (String line : reportText.split("\\R", -1)) {
               paragraph(writer, line, "Normal");
             }
           }

@@ -67,6 +67,7 @@ import javax.swing.event.DocumentListener;
 import org.weasis.core.api.gui.Insertable;
 import org.weasis.core.api.gui.util.GuiExecutor;
 import org.weasis.core.api.gui.util.GuiUtils;
+import org.weasis.core.api.gui.util.ShortcutManager;
 import org.weasis.core.api.service.WProperties;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
@@ -140,6 +141,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private DefaultView2d<DicomImageElement> lastActiveCanvas;
   private DefaultView2d<DicomImageElement> lastInteractedCanvas;
   private boolean canvasInteractionListenerInstalled;
+  private boolean captureShortcutPending;
+  private boolean nativePopOutInstalled;
 
   public ReportComposerTool() {
     super(BUTTON_NAME, POSITION.EAST, ExtendedMode.NORMALIZED, Insertable.Type.TOOL_EXT, 145);
@@ -171,6 +174,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                   | AWTEvent.KEY_EVENT_MASK);
       canvasInteractionListenerInstalled = true;
     }
+    SwingUtilities.invokeLater(this::installNativePopOutWindow);
   }
 
   @Override
@@ -210,6 +214,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void trackCanvasInteraction(AWTEvent event) {
+    if (event instanceof KeyEvent keyEvent && handleCaptureShortcut(keyEvent)) {
+      return;
+    }
     if (event instanceof MouseEvent mouseEvent
         && isDeliberateCanvasMouseEvent(mouseEvent.getID())) {
       Optional<DefaultView2d<DicomImageElement>> sourceCanvas = Optional.empty();
@@ -224,6 +231,39 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         && keyEvent.getSource() instanceof Component component) {
       DicomContextReader.canvasFor(component).ifPresent(canvas -> lastInteractedCanvas = canvas);
     }
+  }
+
+  private boolean handleCaptureShortcut(KeyEvent event) {
+    if (event.getID() != KeyEvent.KEY_PRESSED
+        || event.isConsumed()
+        || !(event.getSource() instanceof Component component)
+        || DicomContextReader.canvasFor(component).isEmpty()) {
+      return false;
+    }
+
+    ShortcutManager shortcuts = ShortcutManager.getInstance();
+    int viewportNumber;
+    if (shortcuts.matches(ShortcutManager.ID_REPORT_COMPOSER_CAPTURE_VIEW_1, event)) {
+      viewportNumber = 1;
+    } else if (shortcuts.matches(ShortcutManager.ID_REPORT_COMPOSER_CAPTURE_VIEW_2, event)) {
+      viewportNumber = 2;
+    } else {
+      return false;
+    }
+
+    event.consume();
+    if (!captureShortcutPending) {
+      captureShortcutPending = true;
+      SwingUtilities.invokeLater(
+          () -> {
+            try {
+              captureKeyImage(viewportNumber);
+            } finally {
+              captureShortcutPending = false;
+            }
+          });
+    }
+    return true;
   }
 
   private boolean isPointerInsideComposer() {
@@ -292,6 +332,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       return;
     }
 
+    installNativePopOutWindow();
     Rectangle bounds = preferredPopOutBounds(targetDisplayBounds());
     CLocation externalLocation =
         CLocation.external(bounds.x, bounds.y, bounds.width, bounds.height);
@@ -335,6 +376,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         poppedOut
             ? "Return Report Composer to the Weasis window"
             : "Move Report Composer to another monitor");
+  }
+
+  private void installNativePopOutWindow() {
+    if (!nativePopOutInstalled && dockable.getControl() != null) {
+      nativePopOutInstalled =
+          ComposerWindowSupport.installNativePopOut(
+              dockable.getControl(), dockable.intern(), BUTTON_NAME);
+    }
   }
 
   private Component buildComposeTab() {
@@ -859,9 +908,20 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void captureKeyImage() {
-    Optional<Selection> selection = selectedCaptureSelection();
+    captureKeyImage(
+        selectedCaptureSelection(),
+        "Choose a viewport containing a DICOM image before capturing a key image.");
+  }
+
+  private void captureKeyImage(int viewportNumber) {
+    captureKeyImage(
+        captureSelectionForViewport(viewportNumber),
+        "Viewport " + viewportNumber + " does not contain a DICOM image.");
+  }
+
+  private void captureKeyImage(Optional<Selection> selection, String missingSelectionMessage) {
     if (selection.isEmpty() || !selection.get().context().hasStudy()) {
-      showWarning("Choose a viewport containing a DICOM image before capturing a key image.");
+      showWarning(missingSelectionMessage);
       return;
     }
     synchronizeStudy(selection);
@@ -886,6 +946,18 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     refreshAll();
     keyImageList.setSelectedValue(keyImage, true);
     tabs.setSelectedIndex(1);
+  }
+
+  private Optional<Selection> captureSelectionForViewport(int viewportNumber) {
+    refreshCaptureViewports();
+    for (int index = 0; index < captureViewportCombo.getItemCount(); index++) {
+      CaptureViewport viewport = captureViewportCombo.getItemAt(index);
+      if (viewport.viewportNumber() == viewportNumber) {
+        captureViewportCombo.setSelectedIndex(index);
+        return DicomContextReader.fromVisible(viewport.canvas());
+      }
+    }
+    return Optional.empty();
   }
 
   private Optional<Selection> selectedCaptureSelection() {
@@ -1045,7 +1117,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                   + " key image"
                   + (result.keyImageCount() == 1 ? "" : "s")
                   + ".");
-          JOptionPane.showMessageDialog(
+          ComposerDialogSupport.showMessage(
               ReportComposerTool.this,
               "Transcription packet saved to:\n" + result.caseDirectory(),
               BUTTON_NAME,
@@ -1174,20 +1246,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private static String reportBody(ReportPacket packet) {
-    StringBuilder text = new StringBuilder("FINDINGS\n");
-    text.append(packet.findingsText().isBlank() ? "[No findings entered]" : packet.findingsText());
-    text.append("\n\nIMPRESSION\n");
-    text.append(
-        packet.impressionText().isBlank() ? "[No impression entered]" : packet.impressionText());
-    if (!packet.reportInstructions().isBlank()) {
-      text.append("\n\nADDITIONAL REPORT TEXT / INSTRUCTIONS\n");
-      text.append(packet.reportInstructions());
-    }
-    return text.toString();
+    String reportText = packet.reportText();
+    return "REPORT TEXT / INSTRUCTIONS\n"
+        + (reportText.isBlank() ? "[No report text entered]" : reportText);
   }
 
   private void showWarning(String message) {
-    JOptionPane.showMessageDialog(this, message, BUTTON_NAME, JOptionPane.WARNING_MESSAGE);
+    ComposerDialogSupport.showMessage(this, message, BUTTON_NAME, JOptionPane.WARNING_MESSAGE);
   }
 
   private static JPanel verticalPanel() {

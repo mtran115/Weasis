@@ -300,6 +300,8 @@ public final class ShortcutManager {
   public static final String CATEGORY_DOCKING = Messages.getString("ShortcutManager.cat.docking");
   public static final String CATEGORY_DICOM_EXPLORER =
       Messages.getString("ShortcutManager.cat.dicom_explorer");
+  public static final String CATEGORY_REPORT_COMPOSER =
+      Messages.getString("ShortcutManager.cat.report_composer");
   public static final String CATEGORY_OTHER = Messages.getString("ShortcutManager.cat.other");
 
   // -- Shortcut IDs: Viewer --
@@ -384,6 +386,10 @@ public final class ShortcutManager {
   public static final String ID_DICOM_WINDOW_LEVEL_RESET = "dicom.windowLevelReset";
   public static final String ID_DICOM_WINDOW_LEVEL_PREVIOUS = "dicom.windowLevelPrevious";
   public static final String ID_DICOM_WINDOW_LEVEL_AUTO = "dicom.windowLevelAuto";
+
+  // -- Shortcut IDs: Report Composer --
+  public static final String ID_REPORT_COMPOSER_CAPTURE_VIEW_1 = "reportComposer.captureViewport1";
+  public static final String ID_REPORT_COMPOSER_CAPTURE_VIEW_2 = "reportComposer.captureViewport2";
 
   // -- Shortcut IDs: Docking --
   public static final String ID_DOCKING_MAXIMIZE = "docking.maximize";
@@ -930,6 +936,22 @@ public final class ShortcutManager {
         ShortcutContext.MPR,
         KeyEvent.VK_B,
         KeyEvent.CTRL_MASK | KeyEvent.ALT_MASK);
+
+    // ---- Report Composer shortcuts (ReportComposerTool.trackCanvasInteraction()) ----
+    register(
+        ID_REPORT_COMPOSER_CAPTURE_VIEW_1,
+        Messages.getString("ShortcutManager.report_composer_capture_view_1"),
+        CATEGORY_REPORT_COMPOSER,
+        ShortcutContext.DICOM_VIEWER,
+        0,
+        0);
+    register(
+        ID_REPORT_COMPOSER_CAPTURE_VIEW_2,
+        Messages.getString("ShortcutManager.report_composer_capture_view_2"),
+        CATEGORY_REPORT_COMPOSER,
+        ShortcutContext.DICOM_VIEWER,
+        0,
+        0);
 
     // ---- Docking framework tab shortcuts (WeasisWin.createMainPanel()) ----
     register(

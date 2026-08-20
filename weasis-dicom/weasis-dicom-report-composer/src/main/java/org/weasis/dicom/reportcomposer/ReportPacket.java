@@ -10,6 +10,7 @@
 package org.weasis.dicom.reportcomposer;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 public record ReportPacket(
     CaseContext context,
@@ -40,6 +41,13 @@ public record ReportPacket(
         .map(FindingEntry::impressionText)
         .filter(ComposerText::hasText)
         .reduce((a, b) -> a + "\n" + b)
+        .orElse("");
+  }
+
+  public String reportText() {
+    return Stream.of(findingsText(), impressionText(), reportInstructions)
+        .filter(ComposerText::hasText)
+        .reduce((first, second) -> first + "\n" + second)
         .orElse("");
   }
 

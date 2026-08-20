@@ -59,6 +59,10 @@ class CasePacketExporterTest {
     assertTrue(Files.isRegularFile(png));
     String exportedText = Files.readString(reportText);
     assertTrue(exportedText.contains("Patient: DOE, JANE"));
+    assertTrue(exportedText.contains("REPORT TEXT / INSTRUCTIONS"));
+    assertFalse(exportedText.contains("\nFINDINGS\n"));
+    assertFalse(exportedText.contains("\nIMPRESSION\n"));
+    assertFalse(exportedText.contains("ADDITIONAL REPORT TEXT / INSTRUCTIONS"));
     assertTrue(exportedText.contains("Series 8 (COR PD FS), image 23"));
     assertTrue(exportedText.contains("Compare directly with the prior MRI."));
     assertNotNull(ImageIO.read(png.toFile()));

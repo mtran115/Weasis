@@ -19,7 +19,9 @@ final formatted radiology report.
 3. In **Key Images**, choose the viewport by its layout number, series, and current image, then
    capture it. Press on the finding to place the arrowhead, then drag outward to place its tail, or
    click the finding for a short automatic arrow. You can also keep the key image without an arrow.
-   The series and image reference are recorded automatically.
+   The series and image reference are recorded automatically. Assign the **Capture key image from
+   viewport 1** and **Capture key image from viewport 2** actions in Keyboard Shortcuts to capture
+   either viewport directly.
 4. Edit the key-image caption when the arrow instruction needs clarification.
 5. In **Preview**, choose the approved Google Drive transcription folder and export the packet.
 
@@ -45,10 +47,11 @@ PATIENT - EXAM - DATE/
     KI-01 - SERIES 8 IMAGE 23.png
 ```
 
-`TRANSCRIPTION_INSTRUCTIONS.docx` contains patient and exam identifiers, selectable findings and
-impression text, additional free text/instructions, key-image references, and embedded annotated
-images. `REPORT_TEXT.txt` is a plain text fallback. The transcriptionist copies the instructions
-into the separately maintained, specially formatted report template.
+`TRANSCRIPTION_INSTRUCTIONS.docx` contains patient and exam identifiers, one continuous text block
+combining the findings, selected impression text, and additional free text, plus key-image
+references and embedded annotated images. `REPORT_TEXT.txt` is a plain text fallback. The
+transcriptionist copies the instructions into the separately maintained, specially formatted
+report template.
 
 ## Version 1 Boundaries
 

@@ -38,6 +38,13 @@ class ReportDraftTest {
     assertEquals(
         "Mention the chronic scapholunate injury.\nCorrelate with exam.",
         packet.reportInstructions());
+    assertEquals(
+        "Mild dorsal soft-tissue edema.\n"
+            + "Tear of the lunotriquetral ligament.\n"
+            + "Lunotriquetral ligament tear.\n"
+            + "Mention the chronic scapholunate injury.\n"
+            + "Correlate with exam.",
+        packet.reportText());
   }
 
   @Test

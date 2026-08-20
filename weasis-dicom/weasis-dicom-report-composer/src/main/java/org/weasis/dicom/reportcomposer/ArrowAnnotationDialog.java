@@ -17,6 +17,7 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Window;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
@@ -28,6 +29,7 @@ import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
@@ -48,6 +50,7 @@ final class ArrowAnnotationDialog extends JDialog {
     Window owner = SwingUtilities.getWindowAncestor(parent);
     ArrowAnnotationDialog dialog = new ArrowAnnotationDialog(owner, image);
     dialog.setLocationRelativeTo(parent);
+    ComposerDialogSupport.keepInFront(dialog);
     dialog.setVisible(true);
     return new AnnotationResult(dialog.accepted, dialog.arrowCanvas.getPlacements());
   }
@@ -93,6 +96,11 @@ final class ArrowAnnotationDialog extends JDialog {
           dispose();
         });
     getRootPane().setDefaultButton(useButton);
+    getRootPane()
+        .registerKeyboardAction(
+            event -> dispose(),
+            KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+            JComponent.WHEN_IN_FOCUSED_WINDOW);
 
     JPanel buttons =
         GuiUtils.getFlowLayoutPanel(

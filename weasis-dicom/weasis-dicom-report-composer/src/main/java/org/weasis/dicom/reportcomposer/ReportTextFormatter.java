@@ -23,23 +23,9 @@ final class ReportTextFormatter {
     appendField(text, "Study date", context.studyDate());
     appendField(text, "Exam", context.examTitle());
 
-    text.append("\nREPORT TEXT TO COPY\n\nFINDINGS\n");
-    if (packet.findings().isEmpty()) {
-      text.append("[No findings entered]\n");
-    } else {
-      for (FindingEntry finding : packet.findings()) {
-        text.append(finding.findingText()).append('\n');
-      }
-    }
-
-    text.append("\nIMPRESSION\n");
-    String impression = packet.impressionText();
-    text.append(impression.isBlank() ? "[No impression entered]" : impression).append('\n');
-
-    if (!packet.reportInstructions().isBlank()) {
-      text.append("\nADDITIONAL REPORT TEXT / INSTRUCTIONS\n");
-      text.append(packet.reportInstructions()).append('\n');
-    }
+    text.append("\nREPORT TEXT / INSTRUCTIONS\n");
+    String reportText = packet.reportText();
+    text.append(reportText.isBlank() ? "[No report text entered]" : reportText).append('\n');
 
     text.append("\nKEY IMAGE INSTRUCTIONS\n");
     if (packet.keyImages().isEmpty()) {
