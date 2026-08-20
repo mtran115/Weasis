@@ -64,7 +64,6 @@ import org.weasis.core.api.image.WindowOp;
 import org.weasis.core.api.image.util.ImageLayer;
 import org.weasis.core.api.image.util.Unit;
 import org.weasis.core.api.media.data.MediaSeries;
-import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.service.AuditLog;
 import org.weasis.core.ui.dialog.MeasureDialog;
 import org.weasis.core.ui.editor.image.CalibrationView;
@@ -900,42 +899,10 @@ public class View2d extends DefaultView2d<DicomImageElement> {
         if (selSeries != null) {
           // Get the current image of the selected Series
           DicomImageElement selImage = view2DPane.getImage();
-          // Get the first and the last image of the selected Series according to Slice Location
-
-          DicomImageElement firstImage = null;
-          DicomImageElement lastImage = null;
-          double min = Double.MAX_VALUE;
-          double max = -Double.MAX_VALUE;
-          final Iterable<DicomImageElement> list =
-              selSeries.getMedias(
-                  (Filter<DicomImageElement>)
-                      view2DPane.getActionValue(ActionW.FILTERED_SERIES.cmd()),
-                  getCurrentSortComparator());
-          synchronized (selSeries) {
-            for (DicomImageElement dcm : list) {
-              Double loc = (Double) dcm.getTagValue(TagW.SlicePosition);
-              if (loc != null) {
-                if (min > loc) {
-                  min = loc;
-                  firstImage = dcm;
-                }
-                if (max < loc) {
-                  max = loc;
-                  lastImage = dcm;
-                }
-              }
-            }
-          }
 
           GraphicLayer layer = AbstractGraphicModel.getOrBuildLayer(this, LayerType.CROSSLINES);
           // IntersectSlice: display a line representing the center of the slice
           IntersectSlice slice = new IntersectSlice(sliceGeometry);
-          if (firstImage != null && firstImage != lastImage) {
-            addCrossline(firstImage, layer, slice, Color.cyan);
-          }
-          if (lastImage != null && firstImage != lastImage) {
-            addCrossline(lastImage, layer, slice, Color.cyan);
-          }
           if (selImage != null) {
             // IntersectVolume: display a rectangle to show the slice thickness
             if (!addCrossline(selImage, layer, new IntersectVolume(sliceGeometry), Color.blue)) {
