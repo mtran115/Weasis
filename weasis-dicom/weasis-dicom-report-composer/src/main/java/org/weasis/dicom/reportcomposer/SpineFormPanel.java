@@ -57,6 +57,9 @@ final class SpineFormPanel extends JPanel {
   private final Map<OverviewFinding, OverviewControls> overviewControls =
       new EnumMap<>(OverviewFinding.class);
   private final Map<String, LevelControls> levelControls = new LinkedHashMap<>();
+  private final JComboBox<Severity> scoliosisSeverity = new JComboBox<>(SEVERITIES);
+  private final JTextField scoliosisDegrees = new JTextField(5);
+  private final JTextField degenerativeDetails = new JTextField();
   private final JButton resetButton;
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");
@@ -89,12 +92,11 @@ final class SpineFormPanel extends JPanel {
   }
 
   Selection selection() {
-    AlignmentFinding alignment =
+    List<AlignmentFinding> alignments =
         alignmentControls.entrySet().stream()
             .filter(entry -> entry.getValue().isSelected())
             .map(Map.Entry::getKey)
-            .findFirst()
-            .orElse(AlignmentFinding.NONE);
+            .toList();
     EnumMap<OverviewFinding, List<String>> overviewSelections =
         new EnumMap<>(OverviewFinding.class);
     overviewControls.forEach(
@@ -105,42 +107,97 @@ final class SpineFormPanel extends JPanel {
         });
     List<LevelSelection> levels =
         levelControls.values().stream().map(LevelControls::selection).toList();
-    return new Selection(region, alignment, overviewSelections, levels);
+    Severity selectedScoliosisSeverity =
+        alignments.stream().anyMatch(AlignmentFinding::isLumbarScoliosis)
+            ? (Severity) scoliosisSeverity.getSelectedItem()
+            : Severity.NONE;
+    return new Selection(
+        region,
+        alignments,
+        selectedScoliosisSeverity,
+        scoliosisDegrees.getText(),
+        overviewSelections,
+        degenerativeDetails.getText(),
+        levels);
   }
 
   void clearSelections() {
     alignmentControls.values().forEach(checkBox -> checkBox.setSelected(false));
+    scoliosisSeverity.setSelectedItem(Severity.MILD);
+    scoliosisSeverity.setEnabled(false);
+    scoliosisDegrees.setText("");
+    scoliosisDegrees.setEnabled(false);
     overviewControls.values().forEach(OverviewControls::clear);
+    degenerativeDetails.setText("");
     levelControls.values().forEach(LevelControls::clear);
   }
 
   private JPanel buildAlignmentPanel() {
-    JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEADING, 8, 3));
+    JPanel panel = new JPanel();
+    panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
     panel.setBorder(BorderFactory.createTitledBorder("Alignment"));
+    JPanel findingRow = new JPanel(new FlowLayout(FlowLayout.LEADING, 8, 3));
     for (AlignmentFinding finding : region.alignmentFindings()) {
       JCheckBox checkBox = new JCheckBox(finding.toString());
       alignmentControls.put(finding, checkBox);
       checkBox.addActionListener(
           event -> {
             if (checkBox.isSelected()) {
-              alignmentControls.values().stream()
-                  .filter(other -> other != checkBox)
+              alignmentControls.entrySet().stream()
+                  .filter(entry -> entry.getKey() != finding)
+                  .filter(
+                      entry ->
+                          region != SpineRegion.LUMBAR
+                              || (finding.isLumbarScoliosis()
+                                  && entry.getKey().isLumbarScoliosis()))
+                  .map(Map.Entry::getValue)
                   .forEach(other -> other.setSelected(false));
             }
+            updateScoliosisControls();
           });
-      panel.add(checkBox);
+      findingRow.add(checkBox);
+    }
+    panel.add(stretch(findingRow));
+    if (region == SpineRegion.LUMBAR) {
+      scoliosisSeverity.setSelectedItem(Severity.MILD);
+      JPanel scoliosisDetails =
+          GuiUtils.getFlowLayoutPanel(
+              FlowLayout.LEADING,
+              6,
+              1,
+              new JLabel("Scoliosis severity"),
+              scoliosisSeverity,
+              new JLabel("Degrees"),
+              scoliosisDegrees);
+      panel.add(stretch(scoliosisDetails));
+      updateScoliosisControls();
     }
     return panel;
+  }
+
+  private void updateScoliosisControls() {
+    boolean enabled =
+        alignmentControls.entrySet().stream()
+            .anyMatch(entry -> entry.getKey().isLumbarScoliosis() && entry.getValue().isSelected());
+    scoliosisSeverity.setEnabled(enabled);
+    scoliosisDegrees.setEnabled(enabled);
   }
 
   private JPanel buildOverviewPanel() {
     JPanel panel = new JPanel();
     panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
     panel.setBorder(BorderFactory.createTitledBorder("Degenerative changes"));
-    for (OverviewFinding finding : OverviewFinding.values()) {
+    for (OverviewFinding finding : region.overviewFindings()) {
       OverviewControls controls = new OverviewControls(finding);
       overviewControls.put(finding, controls);
       panel.add(stretch(controls.panel()));
+    }
+    if (region == SpineRegion.LUMBAR) {
+      JPanel details = new JPanel(new BorderLayout(6, 0));
+      details.setBorder(GuiUtils.getEmptyBorder(3, 3, 3, 3));
+      details.add(new JLabel("Details"), BorderLayout.WEST);
+      details.add(degenerativeDetails, BorderLayout.CENTER);
+      panel.add(stretch(details));
     }
     return panel;
   }

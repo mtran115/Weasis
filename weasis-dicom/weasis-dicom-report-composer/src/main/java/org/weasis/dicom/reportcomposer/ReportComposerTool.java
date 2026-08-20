@@ -846,15 +846,17 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
     FindingEntry lastFinding = null;
     for (GeneratedFinding finding : generated) {
-      lastFinding =
-          FindingEntry.create(
-              finding.findingText(), finding.impressionText(), !finding.impressionText().isBlank());
+      lastFinding = structuredSpineFinding(finding);
       currentDraft.addFinding(lastFinding);
     }
     form.clearSelections();
     refreshAll();
     findingList.setSelectedValue(lastFinding, true);
     return true;
+  }
+
+  static FindingEntry structuredSpineFinding(GeneratedFinding finding) {
+    return FindingEntry.create(finding.findingText(), finding.impressionText(), false);
   }
 
   private void editSelectedFinding() {

@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -28,11 +29,11 @@ final class SpineFindingBuilder {
     SpineRegion region = selection.region();
     List<GeneratedFinding> findings = new ArrayList<>();
 
-    if (selection.alignment() != AlignmentFinding.NONE) {
+    for (AlignmentFinding alignment : selection.alignments()) {
       findings.add(
           new GeneratedFinding(
-              ComposerText.sentence(selection.alignment().findingText()),
-              ComposerText.sentence(selection.alignment().impressionText())));
+              ComposerText.sentence(alignmentText(selection, alignment, false)),
+              ComposerText.sentence(alignmentText(selection, alignment, true))));
     }
 
     for (OverviewFinding overview : OverviewFinding.values()) {
@@ -48,12 +49,46 @@ final class SpineFindingBuilder {
       }
     }
 
+    if (ComposerText.hasText(selection.degenerativeDetails())) {
+      findings.add(
+          new GeneratedFinding(
+              ComposerText.sentence("Degenerative changes: " + selection.degenerativeDetails()),
+              ""));
+    }
+
     selection.levelSelections().stream()
         .filter(LevelSelection::hasFinding)
         .sorted(Comparator.comparingInt(level -> region.levels().indexOf(level.level())))
         .map(level -> generateLevel(region, level))
         .forEach(findings::add);
     return List.copyOf(findings);
+  }
+
+  private static String alignmentText(
+      Selection selection, AlignmentFinding alignment, boolean impression) {
+    String text = impression ? alignment.impressionText() : alignment.findingText();
+    if (!alignment.isLumbarScoliosis()) {
+      return text;
+    }
+
+    StringBuilder scoliosis =
+        new StringBuilder(capitalize(selection.scoliosisSeverity().phrase()))
+            .append(' ')
+            .append(lowercaseFirst(text));
+    if (ComposerText.hasText(selection.scoliosisDegrees())) {
+      scoliosis.append(" measuring ").append(degreesPhrase(selection.scoliosisDegrees()));
+    }
+    return scoliosis.toString();
+  }
+
+  private static String degreesPhrase(String value) {
+    String cleaned = ComposerText.clean(value);
+    String lowerCase = cleaned.toLowerCase(Locale.ROOT);
+    return lowerCase.endsWith("degree")
+            || lowerCase.endsWith("degrees")
+            || cleaned.endsWith("\u00b0")
+        ? cleaned
+        : cleaned + " degrees";
   }
 
   private static GeneratedFinding generateLevel(SpineRegion region, LevelSelection selection) {
@@ -131,6 +166,10 @@ final class SpineFindingBuilder {
     return value.isEmpty() ? value : Character.toUpperCase(value.charAt(0)) + value.substring(1);
   }
 
+  private static String lowercaseFirst(String value) {
+    return value.isEmpty() ? value : Character.toLowerCase(value.charAt(0)) + value.substring(1);
+  }
+
   enum SpineRegion {
     CERVICAL(
         ExamTemplate.CERVICAL_SPINE,
@@ -156,7 +195,10 @@ final class SpineFindingBuilder {
         "L-spine",
         "lumbar",
         List.of("T12-L1", "L1-2", "L2-3", "L3-4", "L4-5", "L5-S1"),
-        List.of(AlignmentFinding.LUMBAR_STRAIGHTENING, AlignmentFinding.LUMBAR_SCOLIOSIS),
+        List.of(
+            AlignmentFinding.LUMBAR_STRAIGHTENING,
+            AlignmentFinding.LUMBAR_DEXTROSCOLIOSIS,
+            AlignmentFinding.LUMBAR_LEVOSCOLIOSIS),
         "Ligamentum flavum hypertrophy",
         "ligamentum flavum hypertrophy");
 
@@ -205,6 +247,18 @@ final class SpineFindingBuilder {
       return alignmentFindings;
     }
 
+    List<OverviewFinding> overviewFindings() {
+      if (this == LUMBAR) {
+        return List.of(OverviewFinding.SPONDYLOSIS, OverviewFinding.DISC_DEGENERATION);
+      }
+      return List.of(
+          OverviewFinding.SPONDYLOSIS,
+          OverviewFinding.DISC_DEHYDRATION,
+          OverviewFinding.DISC_HEIGHT_LOSS,
+          OverviewFinding.OSTEOPHYTES,
+          OverviewFinding.REACTIVE_ENDPLATE_CHANGES);
+    }
+
     String posteriorElementLabel() {
       return posteriorElementLabel;
     }
@@ -233,7 +287,8 @@ final class SpineFindingBuilder {
     THORACIC_SCOLIOSIS("Scoliosis", "Thoracic scoliosis", "Thoracic scoliosis"),
     LUMBAR_STRAIGHTENING(
         "Straightening", "Straightening of the lumbar lordosis", "Straightened lumbar lordosis"),
-    LUMBAR_SCOLIOSIS("Scoliosis", "Lumbar scoliosis", "Lumbar scoliosis");
+    LUMBAR_DEXTROSCOLIOSIS("Dextroscoliosis", "Lumbar dextroscoliosis", "Lumbar dextroscoliosis"),
+    LUMBAR_LEVOSCOLIOSIS("Levoscoliosis", "Lumbar levoscoliosis", "Lumbar levoscoliosis");
 
     private final String label;
     private final String findingText;
@@ -253,6 +308,10 @@ final class SpineFindingBuilder {
       return impressionText;
     }
 
+    boolean isLumbarScoliosis() {
+      return this == LUMBAR_DEXTROSCOLIOSIS || this == LUMBAR_LEVOSCOLIOSIS;
+    }
+
     @Override
     public String toString() {
       return label;
@@ -261,6 +320,7 @@ final class SpineFindingBuilder {
 
   enum OverviewFinding {
     SPONDYLOSIS("Spondylosis", true),
+    DISC_DEGENERATION("Disc degeneration", true),
     DISC_DEHYDRATION("Disc dehydration", false),
     DISC_HEIGHT_LOSS("Disc height loss", false),
     OSTEOPHYTES("Osteophytes", false),
@@ -277,6 +337,7 @@ final class SpineFindingBuilder {
     String generalizedText(SpineRegion region) {
       return switch (this) {
         case SPONDYLOSIS -> capitalize(region.anatomicAdjective()) + " spondylosis";
+        case DISC_DEGENERATION -> capitalize(region.anatomicAdjective()) + " disc degeneration";
         case DISC_DEHYDRATION -> "Multilevel disc desiccation";
         case DISC_HEIGHT_LOSS -> "Disc height loss";
         case OSTEOPHYTES -> "Endplate osteophytes";
@@ -285,9 +346,11 @@ final class SpineFindingBuilder {
     }
 
     String localizedText(SpineRegion region) {
-      return this == SPONDYLOSIS
-          ? capitalize(region.anatomicAdjective()) + " spondylosis"
-          : generalizedText(region).replace("Multilevel disc", "Disc");
+      return switch (this) {
+        case SPONDYLOSIS -> capitalize(region.anatomicAdjective()) + " spondylosis";
+        case DISC_DEGENERATION -> "Disc degeneration";
+        default -> generalizedText(region).replace("Multilevel disc", "Disc");
+      };
     }
 
     boolean includeInImpression() {
@@ -444,17 +507,59 @@ final class SpineFindingBuilder {
 
   record Selection(
       SpineRegion region,
-      AlignmentFinding alignment,
+      List<AlignmentFinding> alignments,
+      Severity scoliosisSeverity,
+      String scoliosisDegrees,
       Map<OverviewFinding, List<String>> overviewLevels,
+      String degenerativeDetails,
       List<LevelSelection> levelSelections) {
+
+    Selection(
+        SpineRegion region,
+        AlignmentFinding alignment,
+        Map<OverviewFinding, List<String>> overviewLevels,
+        List<LevelSelection> levelSelections) {
+      this(
+          region,
+          alignment == null || alignment == AlignmentFinding.NONE ? List.of() : List.of(alignment),
+          Severity.NONE,
+          "",
+          overviewLevels,
+          "",
+          levelSelections);
+    }
 
     Selection {
       region = Objects.requireNonNull(region);
       SpineRegion selectedRegion = region;
-      alignment = Objects.requireNonNullElse(alignment, AlignmentFinding.NONE);
-      if (alignment != AlignmentFinding.NONE && !region.alignmentFindings().contains(alignment)) {
+      List<AlignmentFinding> requestedAlignments =
+          alignments == null
+              ? List.of()
+              : alignments.stream()
+                  .filter(Objects::nonNull)
+                  .filter(alignment -> alignment != AlignmentFinding.NONE)
+                  .toList();
+      if (requestedAlignments.stream()
+          .anyMatch(alignment -> !selectedRegion.alignmentFindings().contains(alignment))) {
         throw new IllegalArgumentException(
-            "Unsupported alignment finding for " + region.formLabel());
+            "Unsupported alignment finding for " + selectedRegion.formLabel());
+      }
+      alignments =
+          selectedRegion.alignmentFindings().stream()
+              .filter(requestedAlignments::contains)
+              .toList();
+      if (alignments.stream().filter(AlignmentFinding::isLumbarScoliosis).count() > 1) {
+        throw new IllegalArgumentException("Select one lumbar scoliosis direction.");
+      }
+      boolean hasLumbarScoliosis =
+          alignments.stream().anyMatch(AlignmentFinding::isLumbarScoliosis);
+      scoliosisSeverity = Objects.requireNonNullElse(scoliosisSeverity, Severity.NONE);
+      scoliosisDegrees = ComposerText.clean(scoliosisDegrees);
+      if (hasLumbarScoliosis && scoliosisSeverity == Severity.NONE) {
+        scoliosisSeverity = Severity.MILD;
+      } else if (!hasLumbarScoliosis) {
+        scoliosisSeverity = Severity.NONE;
+        scoliosisDegrees = "";
       }
       EnumMap<OverviewFinding, List<String>> overviewCopy = new EnumMap<>(OverviewFinding.class);
       if (overviewLevels != null) {
@@ -469,11 +574,12 @@ final class SpineFindingBuilder {
             });
       }
       overviewLevels = Collections.unmodifiableMap(overviewCopy);
+      degenerativeDetails = ComposerText.clean(degenerativeDetails);
       levelSelections = levelSelections == null ? List.of() : List.copyOf(levelSelections);
       for (LevelSelection level : levelSelections) {
-        if (!region.levels().contains(level.level())) {
+        if (!selectedRegion.levels().contains(level.level())) {
           throw new IllegalArgumentException(
-              "Unsupported " + region.formLabel() + " level: " + level.level());
+              "Unsupported " + selectedRegion.formLabel() + " level: " + level.level());
         }
       }
     }

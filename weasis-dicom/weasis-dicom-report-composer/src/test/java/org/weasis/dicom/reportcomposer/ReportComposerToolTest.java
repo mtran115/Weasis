@@ -10,10 +10,12 @@
 package org.weasis.dicom.reportcomposer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Rectangle;
 import org.junit.jupiter.api.Test;
+import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
 
 class ReportComposerToolTest {
   @Test
@@ -34,5 +36,14 @@ class ReportComposerToolTest {
 
     assertEquals(new Rectangle(15, 15, 370, 270), window);
     assertTrue(display.contains(window));
+  }
+
+  @Test
+  void structuredSpineFindingIsNotRepeatedAsAnImpression() {
+    FindingEntry finding =
+        ReportComposerTool.structuredSpineFinding(
+            new GeneratedFinding("Lumbar spondylosis.", "Lumbar spondylosis."));
+
+    assertFalse(finding.includeInImpression());
   }
 }

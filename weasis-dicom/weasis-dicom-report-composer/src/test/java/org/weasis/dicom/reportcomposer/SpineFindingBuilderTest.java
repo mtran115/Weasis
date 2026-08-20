@@ -187,6 +187,38 @@ class SpineFindingBuilderTest {
   }
 
   @Test
+  void generatesLumbarScoliosisSeverityDegreesAndDegenerativeDetails() {
+    Selection selection =
+        new Selection(
+            SpineRegion.LUMBAR,
+            List.of(AlignmentFinding.LUMBAR_STRAIGHTENING, AlignmentFinding.LUMBAR_DEXTROSCOLIOSIS),
+            Severity.MODERATE,
+            "18",
+            Map.of(
+                OverviewFinding.SPONDYLOSIS,
+                List.of(),
+                OverviewFinding.DISC_DEGENERATION,
+                List.of("L4-5", "L5-S1")),
+            "Most advanced at L5-S1",
+            List.of());
+
+    List<GeneratedFinding> findings = SpineFindingBuilder.generate(selection);
+
+    assertEquals(
+        List.of(
+            new GeneratedFinding(
+                "Straightening of the lumbar lordosis.", "Straightened lumbar lordosis."),
+            new GeneratedFinding(
+                "Moderate lumbar dextroscoliosis measuring 18 degrees.",
+                "Moderate lumbar dextroscoliosis measuring 18 degrees."),
+            new GeneratedFinding("Lumbar spondylosis.", "Lumbar spondylosis."),
+            new GeneratedFinding(
+                "Disc degeneration at L4-5 and L5-S1.", "Disc degeneration at L4-5 and L5-S1."),
+            new GeneratedFinding("Degenerative changes: Most advanced at L5-S1.", "")),
+        findings);
+  }
+
+  @Test
   void emitsLevelsInAnatomicOrderAndUsesOxfordComma() {
     Selection selection =
         new Selection(
@@ -256,6 +288,22 @@ class SpineFindingBuilderTest {
                         AlignmentFinding.NONE,
                         Map.of(),
                         List.of(level("L4-5", Severity.MILD)))));
+  }
+
+  @Test
+  void rejectsBothLumbarScoliosisDirections() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new Selection(
+                SpineRegion.LUMBAR,
+                List.of(
+                    AlignmentFinding.LUMBAR_DEXTROSCOLIOSIS, AlignmentFinding.LUMBAR_LEVOSCOLIOSIS),
+                Severity.MILD,
+                "10",
+                Map.of(),
+                "",
+                List.of()));
   }
 
   private static LevelSelection level(String level, Severity severity) {
