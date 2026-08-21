@@ -103,6 +103,9 @@ final class SpineFindingBuilder {
     addLateralized(details, selection.facetArthrosis(), "facet arthrosis");
     addLateralized(
         details, selection.posteriorElementHypertrophy(), region.posteriorElementFinding());
+    if (selection.spinalCanalSeverity() != Severity.NONE) {
+      details.add(capitalize(selection.spinalCanalSeverity().phrase()) + " spinal canal stenosis");
+    }
     if (selection.foraminalSeverity() != Severity.NONE) {
       details.add(
           capitalize(selection.foraminalSeverity().phrase())
@@ -122,6 +125,9 @@ final class SpineFindingBuilder {
     List<String> impressionParts = new ArrayList<>();
     if (selection.protrusion()) {
       impressionParts.add(protrusionDescription(selection, true));
+    }
+    if (selection.spinalCanalSeverity() != Severity.NONE) {
+      impressionParts.add(selection.spinalCanalSeverity().phrase() + " spinal canal stenosis");
     }
     if (selection.foraminalSeverity() != Severity.NONE) {
       impressionParts.add(
@@ -445,6 +451,7 @@ final class SpineFindingBuilder {
       String freeText,
       Laterality facetArthrosis,
       Laterality posteriorElementHypertrophy,
+      Severity spinalCanalSeverity,
       Laterality foraminalLaterality,
       Severity foraminalSeverity) {
 
@@ -463,12 +470,34 @@ final class SpineFindingBuilder {
       facetArthrosis = Objects.requireNonNullElse(facetArthrosis, Laterality.NONE);
       posteriorElementHypertrophy =
           Objects.requireNonNullElse(posteriorElementHypertrophy, Laterality.NONE);
+      spinalCanalSeverity = Objects.requireNonNullElse(spinalCanalSeverity, Severity.NONE);
       foraminalLaterality = Objects.requireNonNullElse(foraminalLaterality, Laterality.NONE);
       foraminalSeverity = Objects.requireNonNullElse(foraminalSeverity, Severity.NONE);
       if ((foraminalLaterality == Laterality.NONE) != (foraminalSeverity == Severity.NONE)) {
         throw new IllegalArgumentException(
             "Foraminal stenosis requires both laterality and severity.");
       }
+    }
+
+    LevelSelection(
+        String level,
+        boolean bulge,
+        List<ProtrusionLocation> protrusionLocations,
+        String freeText,
+        Laterality facetArthrosis,
+        Laterality posteriorElementHypertrophy,
+        Laterality foraminalLaterality,
+        Severity foraminalSeverity) {
+      this(
+          level,
+          bulge,
+          protrusionLocations,
+          freeText,
+          facetArthrosis,
+          posteriorElementHypertrophy,
+          Severity.NONE,
+          foraminalLaterality,
+          foraminalSeverity);
     }
 
     LevelSelection(
@@ -487,6 +516,7 @@ final class SpineFindingBuilder {
           freeText,
           facetArthrosis,
           posteriorElementHypertrophy,
+          Severity.NONE,
           foraminalLaterality,
           foraminalSeverity);
     }
@@ -501,6 +531,7 @@ final class SpineFindingBuilder {
           || ComposerText.hasText(freeText)
           || facetArthrosis != Laterality.NONE
           || posteriorElementHypertrophy != Laterality.NONE
+          || spinalCanalSeverity != Severity.NONE
           || foraminalSeverity != Severity.NONE;
     }
   }

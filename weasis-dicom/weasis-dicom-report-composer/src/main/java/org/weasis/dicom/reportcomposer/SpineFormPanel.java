@@ -298,6 +298,8 @@ final class SpineFormPanel extends JPanel {
     private final LateralizedControl facetArthrosis = new LateralizedControl("Facet arthrosis");
     private final LateralizedControl posteriorElementHypertrophy =
         new LateralizedControl(region.posteriorElementLabel());
+    private final JCheckBox spinalCanalStenosis = new JCheckBox("Spinal canal stenosis");
+    private final JComboBox<Severity> spinalCanalSeverity = new JComboBox<>(SEVERITIES);
     private final JCheckBox foraminalStenosis = new JCheckBox("Foraminal stenosis");
     private final JComboBox<Laterality> foraminalLaterality = new JComboBox<>(LATERALITIES);
     private final JComboBox<Severity> foraminalSeverity = new JComboBox<>(SEVERITIES);
@@ -338,7 +340,19 @@ final class SpineFormPanel extends JPanel {
       addLateralizedRow(3, facetArthrosis);
       addLateralizedRow(4, posteriorElementHypertrophy);
 
-      constraints = constraints(5);
+      int row = 5;
+      if (region == SpineRegion.LUMBAR) {
+        constraints = constraints(row++);
+        constraints.gridwidth = 2;
+        panel.add(spinalCanalStenosis, constraints);
+        constraints.gridx = 2;
+        constraints.gridwidth = 1;
+        panel.add(spinalCanalSeverity, constraints);
+        spinalCanalSeverity.setSelectedItem(Severity.MILD);
+        bindEnabled(spinalCanalStenosis, spinalCanalSeverity);
+      }
+
+      constraints = constraints(row++);
       panel.add(foraminalStenosis, constraints);
       constraints.gridx = 1;
       panel.add(foraminalLaterality, constraints);
@@ -347,7 +361,7 @@ final class SpineFormPanel extends JPanel {
       foraminalLaterality.setSelectedItem(Laterality.BILATERAL);
       bindEnabled(foraminalStenosis, foraminalLaterality, foraminalSeverity);
 
-      constraints = constraints(6);
+      constraints = constraints(row);
       panel.add(new JLabel("Free text"), constraints);
       constraints.gridx = 1;
       constraints.gridwidth = 2;
@@ -369,6 +383,10 @@ final class SpineFormPanel extends JPanel {
           foraminalStenosis.isSelected()
               ? (Severity) foraminalSeverity.getSelectedItem()
               : Severity.NONE;
+      Severity canalSeverity =
+          region == SpineRegion.LUMBAR && spinalCanalStenosis.isSelected()
+              ? (Severity) spinalCanalSeverity.getSelectedItem()
+              : Severity.NONE;
       return new LevelSelection(
           level,
           bulge.isSelected(),
@@ -376,6 +394,7 @@ final class SpineFormPanel extends JPanel {
           freeText.getText(),
           facetArthrosis.laterality(),
           posteriorElementHypertrophy.laterality(),
+          canalSeverity,
           foraminalSide,
           stenosisSeverity);
     }
@@ -402,6 +421,9 @@ final class SpineFormPanel extends JPanel {
           });
       facetArthrosis.clear();
       posteriorElementHypertrophy.clear();
+      spinalCanalStenosis.setSelected(false);
+      spinalCanalSeverity.setSelectedItem(Severity.MILD);
+      spinalCanalSeverity.setEnabled(false);
       foraminalStenosis.setSelected(false);
       foraminalLaterality.setSelectedItem(Laterality.BILATERAL);
       foraminalSeverity.setSelectedItem(Severity.MILD);

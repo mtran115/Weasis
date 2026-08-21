@@ -156,10 +156,11 @@ class SpineFindingBuilderTest {
         new LevelSelection(
             "L4-5",
             true,
-            false,
-            "Mild spinal canal stenosis",
+            List.of(),
+            "",
             Laterality.BILATERAL,
             Laterality.BILATERAL,
+            Severity.MILD,
             Laterality.LEFT,
             Severity.SEVERE);
     Selection selection =
@@ -177,12 +178,12 @@ class SpineFindingBuilderTest {
         () ->
             assertEquals(
                 "L4-5: Disc bulge. Bilateral facet arthrosis. Bilateral ligamentum flavum "
-                    + "hypertrophy. Severe left neural foraminal stenosis. Mild spinal canal "
+                    + "hypertrophy. Mild spinal canal stenosis. Severe left neural foraminal "
                     + "stenosis.",
                 findings.get(2).findingText()),
         () ->
             assertEquals(
-                "Severe left neural foraminal stenosis at L4-5.",
+                "Mild spinal canal stenosis and severe left neural foraminal stenosis at L4-5.",
                 findings.get(2).impressionText()));
   }
 
@@ -216,6 +217,31 @@ class SpineFindingBuilderTest {
                 "Disc degeneration at L4-5 and L5-S1.", "Disc degeneration at L4-5 and L5-S1."),
             new GeneratedFinding("Degenerative changes: Most advanced at L5-S1.", "")),
         findings);
+  }
+
+  @Test
+  void generatesLumbarSpinalCanalStenosisWithoutAnotherLevelFinding() {
+    LevelSelection level =
+        new LevelSelection(
+            "L3-4",
+            false,
+            List.of(),
+            "",
+            Laterality.NONE,
+            Laterality.NONE,
+            Severity.MODERATE,
+            Laterality.NONE,
+            Severity.NONE);
+
+    GeneratedFinding finding =
+        SpineFindingBuilder.generate(
+                new Selection(SpineRegion.LUMBAR, AlignmentFinding.NONE, Map.of(), List.of(level)))
+            .getFirst();
+
+    assertEquals(
+        new GeneratedFinding(
+            "L3-4: Moderate spinal canal stenosis.", "Moderate spinal canal stenosis at L3-4."),
+        finding);
   }
 
   @Test

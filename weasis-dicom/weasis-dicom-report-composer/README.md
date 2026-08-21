@@ -13,9 +13,11 @@ final formatted radiology report.
    findings. Other exams use the phrase catalog.
    The shared **Report text / instructions** box accepts any additional text for every exam and
    saves it automatically in the current study draft.
-   Press **Add Selected Findings**, or move directly to **Key Images** or **Preview** to add the
-   current selections automatically. Every generated finding remains editable in the study draft.
-   A manual exam selection is remembered for that study while Weasis remains open.
+   Press **Add Selected Findings** to finalize and clear the form, or move directly to **Key
+   Images** or **Preview** to update the draft while preserving the current checkboxes. Reopening
+   Preview does not duplicate unchanged selections. Every generated finding remains editable in
+   the study draft. A manual exam selection is remembered for that study while Weasis remains
+   open.
 3. In **Key Images**, choose the viewport by its layout number, series, and current image, then
    capture it. Press on the finding to place the arrowhead, then drag outward to place its tail, or
    click the finding for a short automatic arrow. You can also keep the key image without an arrow.

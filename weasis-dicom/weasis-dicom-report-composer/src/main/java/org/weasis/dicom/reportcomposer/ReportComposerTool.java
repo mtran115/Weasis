@@ -96,6 +96,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private final Map<String, ReportDraft> drafts = new LinkedHashMap<>();
   private final Map<String, ExamTemplate> draftExamTemplates = new LinkedHashMap<>();
+  private final SpineFindingDraftTracker spineFindingTracker = new SpineFindingDraftTracker();
   private final CasePacketExporter packetExporter = new CasePacketExporter();
   private final JTabbedPane tabs = new JTabbedPane();
   private final JLabel patientLabel = new JLabel("No active DICOM study");
@@ -740,6 +741,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private void synchronizeStudy(Optional<Selection> selection) {
     if (selection.isEmpty() || !selection.get().context().hasStudy()) {
       boolean draftChanged = currentDraft != null;
+      if (currentDraft != null) {
+        spineFindingTracker.finalizeDraft(currentDraft);
+      }
       currentDraft = null;
       patientLabel.setText("No active DICOM study");
       examLabel.setText("Select an image to begin");
@@ -754,6 +758,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     ReportDraft selectedDraft =
         drafts.computeIfAbsent(context.draftKey(), ignored -> new ReportDraft(context));
     boolean draftChanged = currentDraft != selectedDraft;
+    if (draftChanged && currentDraft != null) {
+      spineFindingTracker.finalizeDraft(currentDraft);
+    }
     boolean contextChanged = !selectedDraft.context().equals(context);
     currentDraft = selectedDraft;
     if (contextChanged) {
@@ -821,7 +828,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (!requireActiveDraft()) {
       return;
     }
-    appendSpineFindings(form, true);
+    synchronizeSpineFindings(form, true, true);
   }
 
   private void savePendingSpineFindings() {
@@ -832,31 +839,37 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         || editingFindingId != null) {
       return;
     }
-    appendSpineFindings(spineForms.get(region.get()), false);
+    synchronizeSpineFindings(spineForms.get(region.get()), false, false);
   }
 
-  private boolean appendSpineFindings(SpineFormPanel form, boolean warnWhenEmpty) {
-    var generated = SpineFindingBuilder.generate(form.selection());
-    if (generated.isEmpty()) {
+  private boolean synchronizeSpineFindings(
+      SpineFormPanel form, boolean warnWhenEmpty, boolean clearAfterSave) {
+    var result = spineFindingTracker.synchronize(currentDraft, form.selection());
+    if (!result.hasFindings()) {
       if (warnWhenEmpty) {
         showWarning("Select at least one " + form.region().formLabel() + " finding.");
+      }
+      if (result.changed()) {
+        refreshAll();
       }
       return false;
     }
 
-    FindingEntry lastFinding = null;
-    for (GeneratedFinding finding : generated) {
-      lastFinding = structuredSpineFinding(finding);
-      currentDraft.addFinding(lastFinding);
+    if (clearAfterSave) {
+      spineFindingTracker.finalizeSelection(currentDraft, form.region());
+      form.clearSelections();
     }
-    form.clearSelections();
-    refreshAll();
-    findingList.setSelectedValue(lastFinding, true);
+    if (result.changed()) {
+      refreshAll();
+    }
+    if (result.lastFinding() != null) {
+      findingList.setSelectedValue(result.lastFinding(), true);
+    }
     return true;
   }
 
   static FindingEntry structuredSpineFinding(GeneratedFinding finding) {
-    return FindingEntry.create(finding.findingText(), finding.impressionText(), false);
+    return SpineFindingDraftTracker.createEntry(finding);
   }
 
   private void editSelectedFinding() {
