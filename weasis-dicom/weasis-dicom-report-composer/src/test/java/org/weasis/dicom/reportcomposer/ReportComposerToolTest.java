@@ -12,10 +12,16 @@ package org.weasis.dicom.reportcomposer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 import java.awt.Rectangle;
+import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.weasis.core.ui.editor.image.DefaultView2d;
+import org.weasis.dicom.codec.DicomImageElement;
+import org.weasis.dicom.reportcomposer.DicomContextReader.ViewportCanvas;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
+import org.weasis.dicom.reportcomposer.ReportComposerTool.CaptureViewport;
 
 class ReportComposerToolTest {
   @Test
@@ -45,5 +51,36 @@ class ReportComposerToolTest {
             new GeneratedFinding("Lumbar spondylosis.", "Lumbar spondylosis."));
 
     assertFalse(finding.includeInImpression());
+  }
+
+  @Test
+  void unchangedViewportConfigurationKeepsTheExistingSelectorModel() {
+    DefaultView2d<DicomImageElement> left = canvas();
+    DefaultView2d<DicomImageElement> right = canvas();
+
+    assertTrue(
+        ReportComposerTool.sameViewportConfiguration(
+            List.of(new CaptureViewport(1, left), new CaptureViewport(2, right)),
+            List.of(new ViewportCanvas(1, left), new ViewportCanvas(2, right))));
+  }
+
+  @Test
+  void changedViewportIdentityOrPositionRebuildsTheSelectorModel() {
+    DefaultView2d<DicomImageElement> left = canvas();
+    DefaultView2d<DicomImageElement> right = canvas();
+    List<CaptureViewport> existing =
+        List.of(new CaptureViewport(1, left), new CaptureViewport(2, right));
+
+    assertFalse(
+        ReportComposerTool.sameViewportConfiguration(
+            existing, List.of(new ViewportCanvas(1, left), new ViewportCanvas(2, canvas()))));
+    assertFalse(
+        ReportComposerTool.sameViewportConfiguration(
+            existing, List.of(new ViewportCanvas(2, left), new ViewportCanvas(3, right))));
+  }
+
+  @SuppressWarnings("unchecked")
+  private static DefaultView2d<DicomImageElement> canvas() {
+    return mock(DefaultView2d.class);
   }
 }

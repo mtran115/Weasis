@@ -59,7 +59,7 @@ final class DicomContextReader {
     return Optional.ofNullable(fallback);
   }
 
-  static List<ViewportSelection> visibleViewports() {
+  static List<ViewportCanvas> visibleCanvases() {
     ImageViewerPlugin<DicomImageElement> viewer =
         EventManager.getInstance().getSelectedView2dContainer();
     if (viewer == null) {
@@ -67,12 +67,26 @@ final class DicomContextReader {
     }
 
     List<ViewCanvas<DicomImageElement>> views = viewer.getImagePanels();
-    List<ViewportSelection> selections = new ArrayList<>(views.size());
+    List<ViewportCanvas> canvases = new ArrayList<>(views.size());
     for (int index = 0; index < views.size(); index++) {
-      Optional<Selection> selection = fromVisible(views.get(index));
-      if (selection.isPresent()) {
-        selections.add(new ViewportSelection(index + 1, selection.get()));
+      ViewCanvas<DicomImageElement> view = views.get(index);
+      if (view.getJComponent().isShowing()) {
+        Optional<CurrentImage> current = currentImage(view);
+        if (current.isPresent()) {
+          canvases.add(new ViewportCanvas(index + 1, current.get().canvas()));
+        }
       }
+    }
+    return List.copyOf(canvases);
+  }
+
+  static List<ViewportSelection> visibleViewports() {
+    List<ViewportCanvas> canvases = visibleCanvases();
+    List<ViewportSelection> selections = new ArrayList<>(canvases.size());
+    for (ViewportCanvas viewport : canvases) {
+      Optional<Selection> selection = from(viewport.canvas());
+      selection.ifPresent(
+          value -> selections.add(new ViewportSelection(viewport.viewportNumber(), value)));
     }
     return List.copyOf(selections);
   }
@@ -123,20 +137,13 @@ final class DicomContextReader {
   }
 
   static Optional<Selection> from(ViewCanvas<?> view) {
-    if (view == null
-        || !(view.getImage() instanceof DicomImageElement image)
-        || !(view.getSeries() instanceof MediaSeries<?> genericSeries)) {
+    Optional<CurrentImage> currentImage = currentImage(view);
+    if (currentImage.isEmpty()) {
       return Optional.empty();
     }
-
-    Optional<DefaultView2d<DicomImageElement>> dicomCanvas = dicomCanvas(view);
-    if (dicomCanvas.isEmpty()) {
-      return Optional.empty();
-    }
-
-    @SuppressWarnings("unchecked")
-    MediaSeries<DicomImageElement> series = (MediaSeries<DicomImageElement>) genericSeries;
-    DefaultView2d<DicomImageElement> canvas = dicomCanvas.get();
+    CurrentImage current = currentImage.get();
+    DicomImageElement image = current.image();
+    MediaSeries<DicomImageElement> series = current.series();
     MediaSeriesGroup study = InfoLayer.getParent(series, DicomModel.study);
     MediaSeriesGroup patient = InfoLayer.getParent(series, DicomModel.patient);
 
@@ -150,16 +157,39 @@ final class DicomContextReader {
             value(Tag.StudyDate, study, image, series),
             value(Tag.StudyDescription, study, image, series));
 
-    ImageReference reference =
-        new ImageReference(
-            value(Tag.SeriesInstanceUID, image, series),
-            value(Tag.SOPInstanceUID, image, series),
-            series.getSeriesNumber(),
-            value(Tag.SeriesDescription, image, series),
-            value(Tag.InstanceNumber, image, series),
-            canvas.getFrameIndex() + 1,
-            series.size(null));
-    return Optional.of(new Selection(context, reference, canvas));
+    return Optional.of(new Selection(context, imageReference(current), current.canvas()));
+  }
+
+  static Optional<ImageReference> currentReference(ViewCanvas<?> view) {
+    return currentImage(view).map(DicomContextReader::imageReference);
+  }
+
+  private static Optional<CurrentImage> currentImage(ViewCanvas<?> view) {
+    if (view == null
+        || !(view.getImage() instanceof DicomImageElement image)
+        || !(view.getSeries() instanceof MediaSeries<?> genericSeries)) {
+      return Optional.empty();
+    }
+    Optional<DefaultView2d<DicomImageElement>> canvas = dicomCanvas(view);
+    if (canvas.isEmpty()) {
+      return Optional.empty();
+    }
+    @SuppressWarnings("unchecked")
+    MediaSeries<DicomImageElement> series = (MediaSeries<DicomImageElement>) genericSeries;
+    return Optional.of(new CurrentImage(canvas.get(), image, series));
+  }
+
+  private static ImageReference imageReference(CurrentImage current) {
+    DicomImageElement image = current.image();
+    MediaSeries<DicomImageElement> series = current.series();
+    return new ImageReference(
+        value(Tag.SeriesInstanceUID, image, series),
+        value(Tag.SOPInstanceUID, image, series),
+        series.getSeriesNumber(),
+        value(Tag.SeriesDescription, image, series),
+        value(Tag.InstanceNumber, image, series),
+        current.canvas().getFrameIndex() + 1,
+        series.size(null));
   }
 
   private static Optional<DefaultView2d<DicomImageElement>> dicomCanvas(ViewCanvas<?> view) {
@@ -225,6 +255,13 @@ final class DicomContextReader {
       return converted;
     }
   }
+
+  private record CurrentImage(
+      DefaultView2d<DicomImageElement> canvas,
+      DicomImageElement image,
+      MediaSeries<DicomImageElement> series) {}
+
+  record ViewportCanvas(int viewportNumber, DefaultView2d<DicomImageElement> canvas) {}
 
   record ViewportSelection(int viewportNumber, Selection selection) {}
 }

@@ -9,6 +9,7 @@
  */
 package org.weasis.dicom.reportcomposer;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -20,6 +21,7 @@ import java.awt.event.MouseEvent;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.ui.editor.SeriesViewer;
 import org.weasis.core.ui.editor.SeriesViewerEvent;
 import org.weasis.core.ui.editor.SeriesViewerEvent.EVENT;
@@ -124,6 +126,24 @@ class DicomContextReaderTest {
                 }));
 
     assertTrue(referenceLines.getVisible());
+  }
+
+  @Test
+  void currentReferenceFollowsTheCanvasFrameWithoutRebuildingASelectorEntry() {
+    DefaultView2d<DicomImageElement> canvas = canvas();
+    DicomImageElement image = mock(DicomImageElement.class);
+    @SuppressWarnings("unchecked")
+    MediaSeries<DicomImageElement> series = mock(MediaSeries.class);
+    when(canvas.getImage()).thenReturn(image);
+    when(canvas.getSeries()).thenReturn(series);
+    when(canvas.getFrameIndex()).thenReturn(2, 8);
+    when(series.getSeriesNumber()).thenReturn("4");
+    when(series.size(null)).thenReturn(20);
+
+    ReportComposerTool.CaptureViewport viewport = new ReportComposerTool.CaptureViewport(1, canvas);
+
+    assertEquals("Viewport 1 - Series 4, image 3", viewport.toString());
+    assertEquals("Viewport 1 - Series 4, image 9", viewport.toString());
   }
 
   @SuppressWarnings("unchecked")

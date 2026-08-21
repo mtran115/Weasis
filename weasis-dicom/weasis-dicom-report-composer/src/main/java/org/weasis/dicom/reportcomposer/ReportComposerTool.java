@@ -39,11 +39,13 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
@@ -82,7 +84,7 @@ import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.reportcomposer.ArrowAnnotationDialog.AnnotationResult;
 import org.weasis.dicom.reportcomposer.CasePacketExporter.ExportResult;
 import org.weasis.dicom.reportcomposer.DicomContextReader.Selection;
-import org.weasis.dicom.reportcomposer.DicomContextReader.ViewportSelection;
+import org.weasis.dicom.reportcomposer.DicomContextReader.ViewportCanvas;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.FindingChoice;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
@@ -97,6 +99,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final Map<String, ReportDraft> drafts = new LinkedHashMap<>();
   private final Map<String, ExamTemplate> draftExamTemplates = new LinkedHashMap<>();
   private final SpineFindingDraftTracker spineFindingTracker = new SpineFindingDraftTracker();
+  private final ViewerEventState viewerEventState = new ViewerEventState();
+  private final AtomicBoolean studySynchronizationQueued = new AtomicBoolean();
+  private final AtomicBoolean studySynchronizationRequested = new AtomicBoolean();
   private final CasePacketExporter packetExporter = new CasePacketExporter();
   private final JTabbedPane tabs = new JTabbedPane();
   private final JLabel patientLabel = new JLabel("No active DICOM study");
@@ -190,16 +195,59 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   @Override
   public void changingViewContentEvent(SeriesViewerEvent event) {
     EVENT type = event.getEventType();
-    if (EVENT.SELECT.equals(type) || EVENT.SELECT_VIEW.equals(type) || EVENT.LAYOUT.equals(type)) {
-      boolean pointerInsideComposer = isPointerInsideComposer();
-      AWTEvent currentEvent = EventQueue.getCurrentEvent();
-      boolean hoverActivation =
-          currentEvent instanceof MouseEvent mouseEvent
-              && mouseEvent.getID() == MouseEvent.MOUSE_ENTERED;
-      if (shouldRememberViewerSelection(type, pointerInsideComposer, hoverActivation)) {
-        DicomContextReader.selectedCanvas(event).ifPresent(canvas -> lastActiveCanvas = canvas);
+    if (!EVENT.SELECT.equals(type)
+        && !EVENT.SELECT_VIEW.equals(type)
+        && !EVENT.LAYOUT.equals(type)) {
+      return;
+    }
+
+    Optional<DefaultView2d<DicomImageElement>> selectedCanvas =
+        DicomContextReader.selectedCanvas(event);
+    DefaultView2d<DicomImageElement> canvas = selectedCanvas.orElse(null);
+    Object series = canvas == null ? event.getSeries() : canvas.getSeries();
+    boolean structureChanged =
+        viewerEventState.observe(type, event.getSeriesViewer(), canvas, series);
+
+    // EVENT.SELECT is emitted for every displayed slice. Nothing structural changed, so avoid all
+    // DICOM metadata reads and Swing model updates on this hot path.
+    if (EVENT.SELECT.equals(type) && !structureChanged && canvas == lastActiveCanvas) {
+      return;
+    }
+
+    boolean pointerInsideComposer = isPointerInsideComposer();
+    AWTEvent currentEvent = EventQueue.getCurrentEvent();
+    boolean hoverActivation =
+        currentEvent instanceof MouseEvent mouseEvent
+            && mouseEvent.getID() == MouseEvent.MOUSE_ENTERED;
+    boolean rememberedSelectionChanged = false;
+    if (shouldRememberViewerSelection(type, pointerInsideComposer, hoverActivation)
+        && canvas != null) {
+      rememberedSelectionChanged = lastActiveCanvas != canvas;
+      lastActiveCanvas = canvas;
+    }
+    if (structureChanged || rememberedSelectionChanged) {
+      requestStudySynchronization();
+    }
+  }
+
+  private void requestStudySynchronization() {
+    studySynchronizationRequested.set(true);
+    if (studySynchronizationQueued.compareAndSet(false, true)) {
+      SwingUtilities.invokeLater(this::runQueuedStudySynchronization);
+    }
+  }
+
+  private void runQueuedStudySynchronization() {
+    try {
+      do {
+        studySynchronizationRequested.set(false);
+        synchronizeStudy();
+      } while (studySynchronizationRequested.get());
+    } finally {
+      studySynchronizationQueued.set(false);
+      if (studySynchronizationRequested.get()) {
+        requestStudySynchronization();
       }
-      GuiExecutor.execute(this::synchronizeStudy);
     }
   }
 
@@ -995,9 +1043,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         captureViewportCombo.getSelectedItem() instanceof CaptureViewport viewport
             ? viewport.canvas()
             : null;
-    var viewports = DicomContextReader.visibleViewports();
+    List<ViewportCanvas> viewports = DicomContextReader.visibleCanvases();
     List<DefaultView2d<DicomImageElement>> availableCanvases =
-        viewports.stream().map(viewport -> viewport.selection().canvas()).toList();
+        viewports.stream().map(ViewportCanvas::canvas).toList();
     DefaultView2d<DicomImageElement> selectedCanvas =
         DicomContextReader.selected().map(Selection::canvas).orElse(null);
     DefaultView2d<DicomImageElement> preferredCanvas =
@@ -1008,10 +1056,21 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             lastActiveCanvas,
             selectedCanvas);
 
+    List<CaptureViewport> existingViewports = new ArrayList<>();
+    for (int index = 0; index < captureViewportCombo.getItemCount(); index++) {
+      existingViewports.add(captureViewportCombo.getItemAt(index));
+    }
+    if (sameViewportConfiguration(existingViewports, viewports)) {
+      captureButton.setEnabled(!existingViewports.isEmpty());
+      captureViewportCombo.repaint();
+      updateCaptureViewportTooltip();
+      return;
+    }
+
     captureViewportCombo.removeAllItems();
     CaptureViewport preferred = null;
-    for (ViewportSelection viewport : viewports) {
-      CaptureViewport choice = new CaptureViewport(viewport.viewportNumber(), viewport.selection());
+    for (ViewportCanvas viewport : viewports) {
+      CaptureViewport choice = new CaptureViewport(viewport.viewportNumber(), viewport.canvas());
       captureViewportCombo.addItem(choice);
       if (choice.canvas() == preferredCanvas) {
         preferred = choice;
@@ -1022,6 +1081,22 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
     captureButton.setEnabled(captureViewportCombo.getItemCount() > 0);
     updateCaptureViewportTooltip();
+  }
+
+  static boolean sameViewportConfiguration(
+      List<CaptureViewport> existingViewports, List<ViewportCanvas> visibleViewports) {
+    if (existingViewports.size() != visibleViewports.size()) {
+      return false;
+    }
+    for (int index = 0; index < existingViewports.size(); index++) {
+      CaptureViewport existing = existingViewports.get(index);
+      ViewportCanvas visible = visibleViewports.get(index);
+      if (existing.viewportNumber() != visible.viewportNumber()
+          || existing.canvas() != visible.canvas()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   static DefaultView2d<DicomImageElement> preferredCaptureCanvas(
@@ -1346,14 +1421,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
   }
 
-  private record CaptureViewport(int viewportNumber, Selection selection) {
-    DefaultView2d<DicomImageElement> canvas() {
-      return selection.canvas();
-    }
-
+  record CaptureViewport(int viewportNumber, DefaultView2d<DicomImageElement> canvas) {
     @Override
     public String toString() {
-      return "Viewport " + viewportNumber + " - " + selection.reference().humanReference();
+      String prefix = "Viewport " + viewportNumber;
+      return DicomContextReader.currentReference(canvas)
+          .map(reference -> prefix + " - " + reference.humanReference())
+          .orElse(prefix + " - No image");
     }
   }
 }
