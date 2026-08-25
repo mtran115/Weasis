@@ -321,9 +321,6 @@ final class DocxInstructionWriter {
               }
               String identifier = "KI-" + String.format("%02d", image.number());
               paragraph(writer, identifier + " - " + image.imageReference(), "Heading2");
-              if (!image.caption().isBlank()) {
-                paragraph(writer, image.caption(), "Normal");
-              }
               drawing(writer, image, "rId" + (index + 2), index + 1);
               paragraph(writer, "Separate file: " + image.fileName(), "Normal");
             }
@@ -360,7 +357,7 @@ final class DocxInstructionWriter {
         "name",
         "Key image " + drawingId,
         "descr",
-        image.caption());
+        image.imageReference());
     writer.writeStartElement("wp", "cNvGraphicFramePr", WP);
     emptyNs(writer, "a", "graphicFrameLocks", A, "noChangeAspect", "1");
     writer.writeEndElement();
@@ -370,7 +367,16 @@ final class DocxInstructionWriter {
     writer.writeStartElement("pic", "pic", PIC);
     writer.writeStartElement("pic", "nvPicPr", PIC);
     emptyNs(
-        writer, "pic", "cNvPr", PIC, "id", "0", "name", image.fileName(), "descr", image.caption());
+        writer,
+        "pic",
+        "cNvPr",
+        PIC,
+        "id",
+        "0",
+        "name",
+        image.fileName(),
+        "descr",
+        image.imageReference());
     emptyNs(writer, "pic", "cNvPicPr", PIC);
     writer.writeEndElement();
     writer.writeStartElement("pic", "blipFill", PIC);

@@ -37,6 +37,7 @@ import org.w3c.dom.Element;
 
 class CasePacketExporterTest {
   private static final String W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+  private static final String KEY_IMAGE_CAPTION = "Arrow points to the dorsal component.";
 
   @TempDir Path temporaryDirectory;
 
@@ -65,6 +66,8 @@ class CasePacketExporterTest {
     assertFalse(exportedText.contains("ADDITIONAL REPORT TEXT / INSTRUCTIONS"));
     assertTrue(exportedText.contains("Series 8 (COR PD FS), image 23"));
     assertTrue(exportedText.contains("Compare directly with the prior MRI."));
+    assertFalse(exportedText.contains(KEY_IMAGE_CAPTION));
+    assertEquals(KEY_IMAGE_CAPTION, packet.keyImages().getFirst().caption());
     assertNotNull(ImageIO.read(png.toFile()));
     assertFalse(hasTemporaryExportDirectory(temporaryDirectory));
 
@@ -107,7 +110,7 @@ class CasePacketExporterTest {
             reference,
             image,
             new ArrowPlacement(0.2, 0.75, 0.55, 0.45),
-            "Lunotriquetral ligament tear");
+            KEY_IMAGE_CAPTION);
     return new ReportPacket(
         context, List.of(finding), List.of(keyImage), "Compare directly with the prior MRI.");
   }
@@ -135,6 +138,7 @@ class CasePacketExporterTest {
       assertTrue(documentXml.contains("Tear of the lunotriquetral ligament."));
       assertTrue(documentXml.contains("Compare directly with the prior MRI."));
       assertTrue(documentXml.contains("r:embed=\"rId2\""));
+      assertFalse(documentXml.contains(KEY_IMAGE_CAPTION));
 
       try (InputStream input = zip.getInputStream(zip.getEntry("word/styles.xml"))) {
         Document styles = parseXml(input);

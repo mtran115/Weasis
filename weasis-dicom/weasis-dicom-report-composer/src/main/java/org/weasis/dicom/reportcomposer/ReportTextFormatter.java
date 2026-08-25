@@ -35,9 +35,6 @@ final class ReportTextFormatter {
         KeyImageCapture keyImage = packet.keyImages().get(index);
         text.append("KI-").append(String.format("%02d", index + 1)).append(" - ");
         text.append(keyImage.reference().humanReference());
-        if (!keyImage.caption().isBlank()) {
-          text.append(": ").append(keyImage.caption());
-        }
         text.append('\n');
       }
     }
