@@ -245,6 +245,135 @@ class SpineFindingBuilderTest {
   }
 
   @Test
+  void combinesIndependentCervicalForaminalGradesAndCanalStenosis() {
+    LevelSelection level =
+        new LevelSelection(
+            "C5-6",
+            false,
+            List.of(),
+            "",
+            Laterality.NONE,
+            Laterality.NONE,
+            Severity.MODERATE,
+            Severity.MILD,
+            Severity.SEVERE);
+
+    GeneratedFinding finding =
+        SpineFindingBuilder.generate(
+                new Selection(
+                    SpineRegion.CERVICAL, AlignmentFinding.NONE, Map.of(), List.of(level)))
+            .getFirst();
+
+    assertEquals(
+        new GeneratedFinding(
+            "C5-6: Moderate spinal canal stenosis. Mild left and severe right neural foraminal "
+                + "stenosis.",
+            "Moderate spinal canal stenosis and mild left and severe right neural foraminal "
+                + "stenosis at C5-6."),
+        finding);
+  }
+
+  @Test
+  void generatesBroadBasedLumbarDiscProtrusion() {
+    LevelSelection level =
+        new LevelSelection(
+            "L4-5",
+            false,
+            List.of(ProtrusionLocation.BROAD_BASED),
+            "",
+            Laterality.NONE,
+            Laterality.NONE,
+            Severity.NONE,
+            Laterality.NONE,
+            Severity.NONE);
+
+    GeneratedFinding finding =
+        SpineFindingBuilder.generate(
+                new Selection(SpineRegion.LUMBAR, AlignmentFinding.NONE, Map.of(), List.of(level)))
+            .getFirst();
+
+    assertEquals(
+        new GeneratedFinding(
+            "L4-5: Broad-based disc protrusion.", "Broad-based disc protrusion at L4-5."),
+        finding);
+  }
+
+  @Test
+  void generatesBroadBasedCervicalAndThoracicDiscProtrusions() {
+    LevelSelection cervicalLevel =
+        new LevelSelection(
+            "C5-6",
+            false,
+            List.of(ProtrusionLocation.BROAD_BASED),
+            "",
+            Laterality.NONE,
+            Laterality.NONE,
+            Severity.NONE,
+            Severity.NONE,
+            Severity.NONE);
+    LevelSelection thoracicLevel =
+        new LevelSelection(
+            "T7-8",
+            false,
+            List.of(ProtrusionLocation.BROAD_BASED),
+            "",
+            Laterality.NONE,
+            Laterality.NONE,
+            Severity.NONE,
+            Severity.NONE,
+            Severity.NONE);
+
+    GeneratedFinding cervicalFinding =
+        SpineFindingBuilder.generate(
+                new Selection(
+                    SpineRegion.CERVICAL, AlignmentFinding.NONE, Map.of(), List.of(cervicalLevel)))
+            .getFirst();
+    GeneratedFinding thoracicFinding =
+        SpineFindingBuilder.generate(
+                new Selection(
+                    SpineRegion.THORACIC, AlignmentFinding.NONE, Map.of(), List.of(thoracicLevel)))
+            .getFirst();
+
+    assertAll(
+        () ->
+            assertEquals(
+                new GeneratedFinding(
+                    "C5-6: Broad-based disc protrusion.", "Broad-based disc protrusion at C5-6."),
+                cervicalFinding),
+        () ->
+            assertEquals(
+                new GeneratedFinding(
+                    "T7-8: Broad-based disc protrusion.", "Broad-based disc protrusion at T7-8."),
+                thoracicFinding));
+  }
+
+  @Test
+  void combinesBroadBasedMorphologyWithProtrusionLocation() {
+    LevelSelection level =
+        new LevelSelection(
+            "L4-5",
+            false,
+            List.of(ProtrusionLocation.BROAD_BASED, ProtrusionLocation.LEFT_SUBARTICULAR),
+            "",
+            Laterality.NONE,
+            Laterality.NONE,
+            Severity.NONE,
+            Laterality.NONE,
+            Severity.NONE);
+
+    GeneratedFinding finding =
+        SpineFindingBuilder.generate(
+                new Selection(SpineRegion.LUMBAR, AlignmentFinding.NONE, Map.of(), List.of(level)))
+            .getFirst();
+
+    assertEquals(
+        new GeneratedFinding(
+            "L4-5: Broad-based left subarticular disc protrusion.",
+            "Broad-based left subarticular disc protrusion at L4-5."),
+        finding);
+  }
+
+  @Test
   void emitsLevelsInAnatomicOrderAndUsesOxfordComma() {
     Selection selection =
         new Selection(

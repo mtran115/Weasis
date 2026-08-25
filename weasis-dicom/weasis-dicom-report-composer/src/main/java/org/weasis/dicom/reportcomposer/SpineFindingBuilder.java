@@ -93,6 +93,7 @@ final class SpineFindingBuilder {
 
   private static GeneratedFinding generateLevel(SpineRegion region, LevelSelection selection) {
     List<String> details = new ArrayList<>();
+    String foraminalStenosis = foraminalStenosisDescription(selection);
     if (selection.bulge() && selection.protrusion()) {
       details.add("Disc bulge with superimposed " + protrusionDescription(selection, false));
     } else if (selection.bulge()) {
@@ -106,12 +107,8 @@ final class SpineFindingBuilder {
     if (selection.spinalCanalSeverity() != Severity.NONE) {
       details.add(capitalize(selection.spinalCanalSeverity().phrase()) + " spinal canal stenosis");
     }
-    if (selection.foraminalSeverity() != Severity.NONE) {
-      details.add(
-          capitalize(selection.foraminalSeverity().phrase())
-              + " "
-              + selection.foraminalLaterality().phrase()
-              + " neural foraminal stenosis");
+    if (!foraminalStenosis.isBlank()) {
+      details.add(capitalize(foraminalStenosis));
     }
     if (ComposerText.hasText(selection.freeText())) {
       details.add(selection.freeText());
@@ -129,12 +126,8 @@ final class SpineFindingBuilder {
     if (selection.spinalCanalSeverity() != Severity.NONE) {
       impressionParts.add(selection.spinalCanalSeverity().phrase() + " spinal canal stenosis");
     }
-    if (selection.foraminalSeverity() != Severity.NONE) {
-      impressionParts.add(
-          selection.foraminalSeverity().phrase()
-              + " "
-              + selection.foraminalLaterality().phrase()
-              + " neural foraminal stenosis");
+    if (!foraminalStenosis.isBlank()) {
+      impressionParts.add(foraminalStenosis);
     }
     String impressionText =
         impressionParts.isEmpty()
@@ -145,9 +138,14 @@ final class SpineFindingBuilder {
   }
 
   private static String protrusionDescription(LevelSelection selection, boolean includeDisc) {
+    boolean broadBased = selection.protrusionLocations().contains(ProtrusionLocation.BROAD_BASED);
     List<String> locations =
-        selection.protrusionLocations().stream().map(ProtrusionLocation::phrase).toList();
-    String prefix = locations.isEmpty() ? "" : joinList(locations) + " ";
+        selection.protrusionLocations().stream()
+            .filter(location -> location != ProtrusionLocation.BROAD_BASED)
+            .map(ProtrusionLocation::phrase)
+            .toList();
+    String prefix =
+        (broadBased ? "broad-based " : "") + (locations.isEmpty() ? "" : joinList(locations) + " ");
     String noun = locations.size() > 1 ? "protrusions" : "protrusion";
     return prefix + (includeDisc ? "disc " : "") + noun;
   }
@@ -156,6 +154,23 @@ final class SpineFindingBuilder {
     if (laterality != Laterality.NONE) {
       details.add(capitalize(laterality.phrase()) + " " + finding);
     }
+  }
+
+  private static String foraminalStenosisDescription(LevelSelection selection) {
+    Severity left = selection.leftForaminalSeverity();
+    Severity right = selection.rightForaminalSeverity();
+    if (left != Severity.NONE && left == right) {
+      return left.phrase() + " bilateral neural foraminal stenosis";
+    }
+
+    List<String> sides = new ArrayList<>(2);
+    if (left != Severity.NONE) {
+      sides.add(left.phrase() + " left");
+    }
+    if (right != Severity.NONE) {
+      sides.add(right.phrase() + " right");
+    }
+    return sides.isEmpty() ? "" : joinList(sides) + " neural foraminal stenosis";
   }
 
   private static String joinList(List<String> values) {
@@ -419,6 +434,7 @@ final class SpineFindingBuilder {
 
   enum ProtrusionLocation {
     CENTRAL("Central", "central"),
+    BROAD_BASED("Broad-based", "broad-based"),
     LEFT_CENTRAL("Left central", "left central"),
     RIGHT_CENTRAL("Right central", "right central"),
     LEFT_SUBARTICULAR("Left subarticular", "left subarticular"),
@@ -452,8 +468,8 @@ final class SpineFindingBuilder {
       Laterality facetArthrosis,
       Laterality posteriorElementHypertrophy,
       Severity spinalCanalSeverity,
-      Laterality foraminalLaterality,
-      Severity foraminalSeverity) {
+      Severity leftForaminalSeverity,
+      Severity rightForaminalSeverity) {
 
     LevelSelection {
       level = ComposerText.clean(level);
@@ -471,12 +487,30 @@ final class SpineFindingBuilder {
       posteriorElementHypertrophy =
           Objects.requireNonNullElse(posteriorElementHypertrophy, Laterality.NONE);
       spinalCanalSeverity = Objects.requireNonNullElse(spinalCanalSeverity, Severity.NONE);
-      foraminalLaterality = Objects.requireNonNullElse(foraminalLaterality, Laterality.NONE);
-      foraminalSeverity = Objects.requireNonNullElse(foraminalSeverity, Severity.NONE);
-      if ((foraminalLaterality == Laterality.NONE) != (foraminalSeverity == Severity.NONE)) {
-        throw new IllegalArgumentException(
-            "Foraminal stenosis requires both laterality and severity.");
-      }
+      leftForaminalSeverity = Objects.requireNonNullElse(leftForaminalSeverity, Severity.NONE);
+      rightForaminalSeverity = Objects.requireNonNullElse(rightForaminalSeverity, Severity.NONE);
+    }
+
+    LevelSelection(
+        String level,
+        boolean bulge,
+        List<ProtrusionLocation> protrusionLocations,
+        String freeText,
+        Laterality facetArthrosis,
+        Laterality posteriorElementHypertrophy,
+        Severity spinalCanalSeverity,
+        Laterality foraminalLaterality,
+        Severity foraminalSeverity) {
+      this(
+          level,
+          bulge,
+          protrusionLocations,
+          freeText,
+          facetArthrosis,
+          posteriorElementHypertrophy,
+          spinalCanalSeverity,
+          severityForSide(foraminalLaterality, foraminalSeverity, Laterality.LEFT),
+          severityForSide(foraminalLaterality, foraminalSeverity, Laterality.RIGHT));
     }
 
     LevelSelection(
@@ -496,8 +530,8 @@ final class SpineFindingBuilder {
           facetArthrosis,
           posteriorElementHypertrophy,
           Severity.NONE,
-          foraminalLaterality,
-          foraminalSeverity);
+          severityForSide(foraminalLaterality, foraminalSeverity, Laterality.LEFT),
+          severityForSide(foraminalLaterality, foraminalSeverity, Laterality.RIGHT));
     }
 
     LevelSelection(
@@ -517,8 +551,8 @@ final class SpineFindingBuilder {
           facetArthrosis,
           posteriorElementHypertrophy,
           Severity.NONE,
-          foraminalLaterality,
-          foraminalSeverity);
+          severityForSide(foraminalLaterality, foraminalSeverity, Laterality.LEFT),
+          severityForSide(foraminalLaterality, foraminalSeverity, Laterality.RIGHT));
     }
 
     boolean protrusion() {
@@ -532,7 +566,21 @@ final class SpineFindingBuilder {
           || facetArthrosis != Laterality.NONE
           || posteriorElementHypertrophy != Laterality.NONE
           || spinalCanalSeverity != Severity.NONE
-          || foraminalSeverity != Severity.NONE;
+          || leftForaminalSeverity != Severity.NONE
+          || rightForaminalSeverity != Severity.NONE;
+    }
+
+    private static Severity severityForSide(
+        Laterality laterality, Severity severity, Laterality side) {
+      Laterality selectedLaterality = Objects.requireNonNullElse(laterality, Laterality.NONE);
+      Severity selectedSeverity = Objects.requireNonNullElse(severity, Severity.NONE);
+      if ((selectedLaterality == Laterality.NONE) != (selectedSeverity == Severity.NONE)) {
+        throw new IllegalArgumentException(
+            "Foraminal stenosis requires both laterality and severity.");
+      }
+      return selectedLaterality == Laterality.BILATERAL || selectedLaterality == side
+          ? selectedSeverity
+          : Severity.NONE;
     }
   }
 

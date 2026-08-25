@@ -98,7 +98,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private final Map<String, ReportDraft> drafts = new LinkedHashMap<>();
   private final Map<String, ExamTemplate> draftExamTemplates = new LinkedHashMap<>();
-  private final SpineFindingDraftTracker spineFindingTracker = new SpineFindingDraftTracker();
+  private final StructuredFindingDraftTracker<SpineRegion, SpineFindingBuilder.Selection>
+      spineFindingTracker =
+          new StructuredFindingDraftTracker<>(
+              SpineFindingBuilder.Selection::region, SpineFindingBuilder::generate);
+  private final StructuredFindingDraftTracker<ExamTemplate, ShoulderFindingBuilder.Selection>
+      shoulderFindingTracker =
+          new StructuredFindingDraftTracker<>(
+              selection -> ExamTemplate.SHOULDER, ShoulderFindingBuilder::generate);
   private final ViewerEventState viewerEventState = new ViewerEventState();
   private final AtomicBoolean studySynchronizationQueued = new AtomicBoolean();
   private final AtomicBoolean studySynchronizationRequested = new AtomicBoolean();
@@ -114,13 +121,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JComboBox<String> structureCombo = new JComboBox<>();
   private final JComboBox<FindingChoice> findingCombo = new JComboBox<>();
   private final Map<SpineRegion, SpineFormPanel> spineForms = new EnumMap<>(SpineRegion.class);
+  private final ShoulderFormPanel shoulderForm = new ShoulderFormPanel();
   private final JTextArea reportInstructions = textArea(4);
   private final JTextArea findingText = textArea(3);
   private final JTextArea impressionText = textArea(2);
   private final JCheckBox includeInImpression = new JCheckBox("Include in impression", true);
   private final JButton saveFindingButton = new JButton("Add");
   private final JButton cancelEditButton = new JButton("Cancel Edit");
-  private final JButton backToSpineButton = new JButton("Spine Form");
+  private final JButton backToStructuredFormButton = new JButton("Structured Form");
   private final DefaultListModel<FindingEntry> findingModel = new DefaultListModel<>();
   private final JList<FindingEntry> findingList = new JList<>(findingModel);
   private final DefaultListModel<KeyImageCapture> keyImageModel = new DefaultListModel<>();
@@ -142,7 +150,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private Path lastExportDirectory;
   private boolean updatingCatalogControls;
   private boolean updatingReportInstructions;
-  private boolean structuredSpineMode;
+  private boolean structuredFormMode;
   private JPanel genericFindingBuilder;
   private DefaultView2d<DicomImageElement> lastActiveCanvas;
   private DefaultView2d<DicomImageElement> lastInteractedCanvas;
@@ -339,7 +347,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     tabs.addTab("Preview", buildPreviewTab());
     tabs.addChangeListener(
         event -> {
-          savePendingSpineFindings();
+          savePendingStructuredFindings();
           if (tabs.getSelectedIndex() == 1) {
             refreshCaptureViewports();
           }
@@ -443,10 +451,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       SpineFormPanel form = new SpineFormPanel(region);
       form.setVisible(false);
       form.addSubmitListener(event -> saveSpineFindings(form));
-      form.addOtherFindingListener(event -> showOtherSpineFinding());
+      form.addOtherFindingListener(event -> showOtherStructuredFinding());
       spineForms.put(region, form);
       content.add(fillWidth(form));
     }
+    shoulderForm.setVisible(false);
+    shoulderForm.addSubmitListener(event -> saveShoulderFindings());
+    shoulderForm.addOtherFindingListener(event -> showOtherStructuredFinding());
+    content.add(fillWidth(shoulderForm));
     genericFindingBuilder = buildFindingBuilder();
     content.add(fillWidth(genericFindingBuilder));
     content.add(fillWidth(buildFindingList()));
@@ -537,14 +549,19 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     saveFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.PLUS));
     saveFindingButton.setToolTipText("Add finding to the current study");
     saveFindingButton.addActionListener(event -> saveFinding());
-    backToSpineButton.setIcon(ResourceUtil.getIcon(ActionIcon.PREVIOUS));
-    backToSpineButton.setVisible(false);
-    backToSpineButton.addActionListener(event -> showStructuredSpineForm());
+    backToStructuredFormButton.setIcon(ResourceUtil.getIcon(ActionIcon.PREVIOUS));
+    backToStructuredFormButton.setVisible(false);
+    backToStructuredFormButton.addActionListener(event -> showStructuredForm());
     cancelEditButton.setVisible(false);
     cancelEditButton.addActionListener(event -> cancelFindingEdit());
     JPanel buttons =
         GuiUtils.getFlowLayoutPanel(
-            FlowLayout.TRAILING, 6, 4, backToSpineButton, cancelEditButton, saveFindingButton);
+            FlowLayout.TRAILING,
+            6,
+            4,
+            backToStructuredFormButton,
+            cancelEditButton,
+            saveFindingButton);
     constraints.gridy++;
     builder.add(buttons, constraints);
     return builder;
@@ -661,7 +678,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (currentDraft != null && examCombo.getSelectedItem() instanceof ExamTemplate exam) {
       draftExamTemplates.put(currentDraft.context().draftKey(), exam);
     }
-    structuredSpineMode = selectedSpineRegion().isPresent();
+    structuredFormMode = selectedExamHasStructuredForm();
     updateCatalogControls();
   }
 
@@ -712,7 +729,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     updatingCatalogControls = true;
     examCombo.setSelectedItem(exam);
     updatingCatalogControls = false;
-    structuredSpineMode = SpineRegion.fromExam(exam).isPresent();
+    structuredFormMode = hasStructuredForm(exam);
     updateCatalogControls();
   }
 
@@ -721,14 +738,27 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       return;
     }
     Optional<SpineRegion> selectedRegion = selectedSpineRegion();
-    boolean showStructured =
-        selectedRegion.isPresent() && structuredSpineMode && editingFindingId == null;
+    boolean showStructuredSpine =
+        selectedRegion.isPresent() && structuredFormMode && editingFindingId == null;
+    boolean showStructuredShoulder =
+        selectedExamTemplate() == ExamTemplate.SHOULDER
+            && structuredFormMode
+            && editingFindingId == null;
     spineForms.forEach(
-        (region, form) -> form.setVisible(showStructured && region == selectedRegion.orElse(null)));
-    genericFindingBuilder.setVisible(!showStructured);
-    backToSpineButton.setVisible(
-        selectedRegion.isPresent() && !showStructured && editingFindingId == null);
-    selectedRegion.ifPresent(region -> backToSpineButton.setText(region.formLabel() + " Form"));
+        (region, form) ->
+            form.setVisible(showStructuredSpine && region == selectedRegion.orElse(null)));
+    shoulderForm.setVisible(showStructuredShoulder);
+    genericFindingBuilder.setVisible(!showStructuredSpine && !showStructuredShoulder);
+    backToStructuredFormButton.setVisible(
+        selectedExamHasStructuredForm()
+            && !showStructuredSpine
+            && !showStructuredShoulder
+            && editingFindingId == null);
+    if (selectedRegion.isPresent()) {
+      backToStructuredFormButton.setText(selectedRegion.get().formLabel() + " Form");
+    } else if (selectedExamTemplate() == ExamTemplate.SHOULDER) {
+      backToStructuredFormButton.setText("Shoulder Form");
+    }
     revalidate();
     repaint();
   }
@@ -737,14 +767,22 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     return SpineRegion.fromExam(selectedExamTemplate());
   }
 
-  private void showOtherSpineFinding() {
-    structuredSpineMode = false;
+  private boolean selectedExamHasStructuredForm() {
+    return hasStructuredForm(selectedExamTemplate());
+  }
+
+  private static boolean hasStructuredForm(ExamTemplate exam) {
+    return exam == ExamTemplate.SHOULDER || SpineRegion.fromExam(exam).isPresent();
+  }
+
+  private void showOtherStructuredFinding() {
+    structuredFormMode = false;
     updateFindingBuilderVisibility();
     applyCatalogPhrase();
   }
 
-  private void showStructuredSpineForm() {
-    structuredSpineMode = true;
+  private void showStructuredForm() {
+    structuredFormMode = true;
     updateFindingBuilderVisibility();
   }
 
@@ -791,6 +829,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       boolean draftChanged = currentDraft != null;
       if (currentDraft != null) {
         spineFindingTracker.finalizeDraft(currentDraft);
+        shoulderFindingTracker.finalizeDraft(currentDraft);
       }
       currentDraft = null;
       patientLabel.setText("No active DICOM study");
@@ -808,6 +847,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     boolean draftChanged = currentDraft != selectedDraft;
     if (draftChanged && currentDraft != null) {
       spineFindingTracker.finalizeDraft(currentDraft);
+      shoulderFindingTracker.finalizeDraft(currentDraft);
     }
     boolean contextChanged = !selectedDraft.context().equals(context);
     currentDraft = selectedDraft;
@@ -822,6 +862,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             : "Accession: " + context.accessionNumber());
     if (draftChanged) {
       spineForms.values().forEach(SpineFormPanel::clearSelections);
+      shoulderForm.clearSelections();
       ExamTemplate template =
           draftExamTemplates.computeIfAbsent(
               context.draftKey(),
@@ -879,15 +920,23 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     synchronizeSpineFindings(form, true, true);
   }
 
-  private void savePendingSpineFindings() {
-    Optional<SpineRegion> region = selectedSpineRegion();
-    if (tabs.getSelectedIndex() == 0
-        || currentDraft == null
-        || region.isEmpty()
-        || editingFindingId != null) {
+  private void saveShoulderFindings() {
+    if (!requireActiveDraft()) {
       return;
     }
-    synchronizeSpineFindings(spineForms.get(region.get()), false, false);
+    synchronizeShoulderFindings(true, true);
+  }
+
+  private void savePendingStructuredFindings() {
+    Optional<SpineRegion> region = selectedSpineRegion();
+    if (tabs.getSelectedIndex() == 0 || currentDraft == null || editingFindingId != null) {
+      return;
+    }
+    if (region.isPresent()) {
+      synchronizeSpineFindings(spineForms.get(region.get()), false, false);
+    } else if (selectedExamTemplate() == ExamTemplate.SHOULDER) {
+      synchronizeShoulderFindings(false, false);
+    }
   }
 
   private boolean synchronizeSpineFindings(
@@ -916,8 +965,33 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     return true;
   }
 
+  private boolean synchronizeShoulderFindings(boolean warnWhenEmpty, boolean clearAfterSave) {
+    var result = shoulderFindingTracker.synchronize(currentDraft, shoulderForm.selection());
+    if (!result.hasFindings()) {
+      if (warnWhenEmpty) {
+        showWarning("Select at least one shoulder finding.");
+      }
+      if (result.changed()) {
+        refreshAll();
+      }
+      return false;
+    }
+
+    if (clearAfterSave) {
+      shoulderFindingTracker.finalizeSelection(currentDraft, ExamTemplate.SHOULDER);
+      shoulderForm.clearSelections();
+    }
+    if (result.changed()) {
+      refreshAll();
+    }
+    if (result.lastFinding() != null) {
+      findingList.setSelectedValue(result.lastFinding(), true);
+    }
+    return true;
+  }
+
   static FindingEntry structuredSpineFinding(GeneratedFinding finding) {
-    return SpineFindingDraftTracker.createEntry(finding);
+    return StructuredFindingDraftTracker.createEntry(finding);
   }
 
   private void editSelectedFinding() {
@@ -934,7 +1008,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     saveFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.DRAW_TEXT));
     saveFindingButton.setToolTipText("Update the selected finding");
     cancelEditButton.setVisible(true);
-    structuredSpineMode = false;
+    structuredFormMode = false;
     updateFindingBuilderVisibility();
   }
 
@@ -944,7 +1018,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     saveFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.PLUS));
     saveFindingButton.setToolTipText("Add finding to the current study");
     cancelEditButton.setVisible(false);
-    structuredSpineMode = selectedSpineRegion().isPresent();
+    structuredFormMode = selectedExamHasStructuredForm();
     applyCatalogPhrase();
     updateFindingBuilderVisibility();
     refreshAll();

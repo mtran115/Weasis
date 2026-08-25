@@ -27,7 +27,7 @@ class SpineFindingDraftTrackerTest {
   @Test
   void keepsAnUnchangedSelectionAndReplacesItAfterTheFormChanges() {
     ReportDraft draft = new ReportDraft(context());
-    SpineFindingDraftTracker tracker = new SpineFindingDraftTracker();
+    StructuredFindingDraftTracker<SpineRegion, Selection> tracker = tracker();
     Selection spondylosis = selection(OverviewFinding.SPONDYLOSIS);
 
     var first = tracker.synchronize(draft, spondylosis);
@@ -48,7 +48,7 @@ class SpineFindingDraftTrackerTest {
   @Test
   void removesUncheckedPendingFindingsButPreservesFinalizedFindings() {
     ReportDraft draft = new ReportDraft(context());
-    SpineFindingDraftTracker tracker = new SpineFindingDraftTracker();
+    StructuredFindingDraftTracker<SpineRegion, Selection> tracker = tracker();
     Selection selected = selection(OverviewFinding.SPONDYLOSIS);
     Selection empty = new Selection(SpineRegion.LUMBAR, AlignmentFinding.NONE, Map.of(), List.of());
 
@@ -69,6 +69,10 @@ class SpineFindingDraftTrackerTest {
   private static Selection selection(OverviewFinding finding) {
     return new Selection(
         SpineRegion.LUMBAR, AlignmentFinding.NONE, Map.of(finding, List.of()), List.of());
+  }
+
+  private static StructuredFindingDraftTracker<SpineRegion, Selection> tracker() {
+    return new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generate);
   }
 
   private static CaseContext context() {

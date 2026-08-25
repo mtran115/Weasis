@@ -46,9 +46,6 @@ import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Severity;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.SpineRegion;
 
 final class SpineFormPanel extends JPanel {
-  private static final Laterality[] LATERALITIES = {
-    Laterality.LEFT, Laterality.RIGHT, Laterality.BILATERAL
-  };
   private static final Severity[] SEVERITIES = {Severity.MILD, Severity.MODERATE, Severity.SEVERE};
 
   private final SpineRegion region;
@@ -295,14 +292,16 @@ final class SpineFormPanel extends JPanel {
     private final JCheckBox protrusion = new JCheckBox("Protrusion");
     private final Map<ProtrusionLocation, JCheckBox> protrusionLocations =
         new EnumMap<>(ProtrusionLocation.class);
-    private final LateralizedControl facetArthrosis = new LateralizedControl("Facet arthrosis");
-    private final LateralizedControl posteriorElementHypertrophy =
-        new LateralizedControl(region.posteriorElementLabel());
-    private final JCheckBox spinalCanalStenosis = new JCheckBox("Spinal canal stenosis");
-    private final JComboBox<Severity> spinalCanalSeverity = new JComboBox<>(SEVERITIES);
-    private final JCheckBox foraminalStenosis = new JCheckBox("Foraminal stenosis");
-    private final JComboBox<Laterality> foraminalLaterality = new JComboBox<>(LATERALITIES);
-    private final JComboBox<Severity> foraminalSeverity = new JComboBox<>(SEVERITIES);
+    private final DirectChoiceControl<Laterality> facetArthrosis =
+        new DirectChoiceControl<>(List.of(Laterality.BILATERAL, Laterality.LEFT, Laterality.RIGHT));
+    private final DirectChoiceControl<Laterality> posteriorElementHypertrophy =
+        new DirectChoiceControl<>(List.of(Laterality.BILATERAL, Laterality.LEFT, Laterality.RIGHT));
+    private final DirectChoiceControl<Severity> spinalCanalSeverity =
+        new DirectChoiceControl<>(List.of(SEVERITIES));
+    private final DirectChoiceControl<Severity> leftForaminalSeverity =
+        new DirectChoiceControl<>(List.of(SEVERITIES));
+    private final DirectChoiceControl<Severity> rightForaminalSeverity =
+        new DirectChoiceControl<>(List.of(SEVERITIES));
     private final JTextField freeText = new JTextField();
 
     LevelControls(String level) {
@@ -337,29 +336,16 @@ final class SpineFormPanel extends JPanel {
       panel.add(protrusionLocationPanel, constraints);
       bindEnabled(protrusion, protrusionLocations.values().toArray(JComponent[]::new));
 
-      addLateralizedRow(3, facetArthrosis);
-      addLateralizedRow(4, posteriorElementHypertrophy);
+      addChoiceRow(3, "Facet arthrosis", facetArthrosis);
+      addChoiceRow(4, region.posteriorElementLabel(), posteriorElementHypertrophy);
 
       int row = 5;
-      if (region == SpineRegion.LUMBAR) {
-        constraints = constraints(row++);
-        constraints.gridwidth = 2;
-        panel.add(spinalCanalStenosis, constraints);
-        constraints.gridx = 2;
-        constraints.gridwidth = 1;
-        panel.add(spinalCanalSeverity, constraints);
-        spinalCanalSeverity.setSelectedItem(Severity.MILD);
-        bindEnabled(spinalCanalStenosis, spinalCanalSeverity);
+      if (region == SpineRegion.CERVICAL || region == SpineRegion.LUMBAR) {
+        addChoiceRow(row++, "Spinal canal stenosis", spinalCanalSeverity);
       }
 
-      constraints = constraints(row++);
-      panel.add(foraminalStenosis, constraints);
-      constraints.gridx = 1;
-      panel.add(foraminalLaterality, constraints);
-      constraints.gridx = 2;
-      panel.add(foraminalSeverity, constraints);
-      foraminalLaterality.setSelectedItem(Laterality.BILATERAL);
-      bindEnabled(foraminalStenosis, foraminalLaterality, foraminalSeverity);
+      addChoiceRow(row++, "Foraminal stenosis - left", leftForaminalSeverity);
+      addChoiceRow(row++, "Foraminal stenosis - right", rightForaminalSeverity);
 
       constraints = constraints(row);
       panel.add(new JLabel("Free text"), constraints);
@@ -375,28 +361,20 @@ final class SpineFormPanel extends JPanel {
     }
 
     LevelSelection selection() {
-      Laterality foraminalSide =
-          foraminalStenosis.isSelected()
-              ? (Laterality) foraminalLaterality.getSelectedItem()
-              : Laterality.NONE;
-      Severity stenosisSeverity =
-          foraminalStenosis.isSelected()
-              ? (Severity) foraminalSeverity.getSelectedItem()
-              : Severity.NONE;
       Severity canalSeverity =
-          region == SpineRegion.LUMBAR && spinalCanalStenosis.isSelected()
-              ? (Severity) spinalCanalSeverity.getSelectedItem()
+          region == SpineRegion.CERVICAL || region == SpineRegion.LUMBAR
+              ? spinalCanalSeverity.selectionOr(Severity.NONE)
               : Severity.NONE;
       return new LevelSelection(
           level,
           bulge.isSelected(),
           selectedProtrusionLocations(),
           freeText.getText(),
-          facetArthrosis.laterality(),
-          posteriorElementHypertrophy.laterality(),
+          facetArthrosis.selectionOr(Laterality.NONE),
+          posteriorElementHypertrophy.selectionOr(Laterality.NONE),
           canalSeverity,
-          foraminalSide,
-          stenosisSeverity);
+          leftForaminalSeverity.selectionOr(Severity.NONE),
+          rightForaminalSeverity.selectionOr(Severity.NONE));
     }
 
     private List<ProtrusionLocation> selectedProtrusionLocations() {
@@ -421,24 +399,19 @@ final class SpineFormPanel extends JPanel {
           });
       facetArthrosis.clear();
       posteriorElementHypertrophy.clear();
-      spinalCanalStenosis.setSelected(false);
-      spinalCanalSeverity.setSelectedItem(Severity.MILD);
-      spinalCanalSeverity.setEnabled(false);
-      foraminalStenosis.setSelected(false);
-      foraminalLaterality.setSelectedItem(Laterality.BILATERAL);
-      foraminalSeverity.setSelectedItem(Severity.MILD);
-      foraminalLaterality.setEnabled(false);
-      foraminalSeverity.setEnabled(false);
+      spinalCanalSeverity.clear();
+      leftForaminalSeverity.clear();
+      rightForaminalSeverity.clear();
       freeText.setText("");
     }
 
-    private void addLateralizedRow(int row, LateralizedControl control) {
+    private void addChoiceRow(int row, String label, DirectChoiceControl<?> choice) {
       GridBagConstraints constraints = constraints(row);
+      panel.add(new JLabel(label), constraints);
+      constraints.gridx = 1;
       constraints.gridwidth = 2;
-      panel.add(control.checkBox(), constraints);
-      constraints.gridx = 2;
-      constraints.gridwidth = 1;
-      panel.add(control.comboBox(), constraints);
+      constraints.fill = GridBagConstraints.HORIZONTAL;
+      panel.add(choice.panel(), constraints);
     }
 
     private GridBagConstraints constraints(int row) {
@@ -448,35 +421,6 @@ final class SpineFormPanel extends JPanel {
       constraints.anchor = GridBagConstraints.LINE_START;
       constraints.insets = new Insets(2, 3, 2, 3);
       return constraints;
-    }
-  }
-
-  private static final class LateralizedControl {
-    private final JCheckBox checkBox;
-    private final JComboBox<Laterality> comboBox = new JComboBox<>(LATERALITIES);
-
-    LateralizedControl(String label) {
-      checkBox = new JCheckBox(label);
-      comboBox.setSelectedItem(Laterality.BILATERAL);
-      bindEnabled(checkBox, comboBox);
-    }
-
-    JCheckBox checkBox() {
-      return checkBox;
-    }
-
-    JComboBox<Laterality> comboBox() {
-      return comboBox;
-    }
-
-    Laterality laterality() {
-      return checkBox.isSelected() ? (Laterality) comboBox.getSelectedItem() : Laterality.NONE;
-    }
-
-    void clear() {
-      checkBox.setSelected(false);
-      comboBox.setSelectedItem(Laterality.BILATERAL);
-      comboBox.setEnabled(false);
     }
   }
 }

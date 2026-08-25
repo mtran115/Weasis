@@ -9,26 +9,32 @@
  */
 package org.weasis.dicom.reportcomposer;
 
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
-import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Selection;
-import org.weasis.dicom.reportcomposer.SpineFindingBuilder.SpineRegion;
 
-final class SpineFindingDraftTracker {
-  private final Map<String, EnumMap<SpineRegion, TrackedSelection>> trackedSelections =
-      new LinkedHashMap<>();
+final class StructuredFindingDraftTracker<K, S> {
+  private final Map<String, Map<K, TrackedSelection<S>>> trackedSelections = new LinkedHashMap<>();
+  private final Function<S, K> keyExtractor;
+  private final Function<S, List<GeneratedFinding>> findingGenerator;
 
-  SyncResult synchronize(ReportDraft draft, Selection selection) {
+  StructuredFindingDraftTracker(
+      Function<S, K> keyExtractor, Function<S, List<GeneratedFinding>> findingGenerator) {
+    this.keyExtractor = Objects.requireNonNull(keyExtractor);
+    this.findingGenerator = Objects.requireNonNull(findingGenerator);
+  }
+
+  SyncResult synchronize(ReportDraft draft, S selection) {
     Objects.requireNonNull(draft);
     Objects.requireNonNull(selection);
+    K selectionKey = Objects.requireNonNull(keyExtractor.apply(selection));
     String draftKey = draft.context().draftKey();
-    EnumMap<SpineRegion, TrackedSelection> draftSelections =
-        trackedSelections.computeIfAbsent(draftKey, ignored -> new EnumMap<>(SpineRegion.class));
-    TrackedSelection previous = draftSelections.get(selection.region());
+    Map<K, TrackedSelection<S>> draftSelections =
+        trackedSelections.computeIfAbsent(draftKey, ignored -> new LinkedHashMap<>());
+    TrackedSelection<S> previous = draftSelections.get(selectionKey);
 
     if (previous != null
         && previous.selection().equals(selection)
@@ -38,29 +44,29 @@ final class SpineFindingDraftTracker {
 
     if (previous != null) {
       previous.findingIds().forEach(draft::removeFinding);
-      draftSelections.remove(selection.region());
+      draftSelections.remove(selectionKey);
     }
 
-    List<GeneratedFinding> generated = SpineFindingBuilder.generate(selection);
+    List<GeneratedFinding> generated = findingGenerator.apply(selection);
     if (generated.isEmpty()) {
       removeEmptyDraft(draftKey, draftSelections);
       return new SyncResult(false, previous != null, null);
     }
 
     List<FindingEntry> entries =
-        generated.stream().map(SpineFindingDraftTracker::createEntry).toList();
+        generated.stream().map(StructuredFindingDraftTracker::createEntry).toList();
     entries.forEach(draft::addFinding);
     draftSelections.put(
-        selection.region(),
-        new TrackedSelection(selection, entries.stream().map(FindingEntry::id).toList()));
+        selectionKey,
+        new TrackedSelection<>(selection, entries.stream().map(FindingEntry::id).toList()));
     return new SyncResult(true, true, entries.getLast());
   }
 
-  void finalizeSelection(ReportDraft draft, SpineRegion region) {
+  void finalizeSelection(ReportDraft draft, K selectionKey) {
     String draftKey = draft.context().draftKey();
-    EnumMap<SpineRegion, TrackedSelection> draftSelections = trackedSelections.get(draftKey);
+    Map<K, TrackedSelection<S>> draftSelections = trackedSelections.get(draftKey);
     if (draftSelections != null) {
-      draftSelections.remove(region);
+      draftSelections.remove(selectionKey);
       removeEmptyDraft(draftKey, draftSelections);
     }
   }
@@ -86,8 +92,7 @@ final class SpineFindingDraftTracker {
         .orElse(null);
   }
 
-  private void removeEmptyDraft(
-      String draftKey, EnumMap<SpineRegion, TrackedSelection> draftSelections) {
+  private void removeEmptyDraft(String draftKey, Map<K, TrackedSelection<S>> draftSelections) {
     if (draftSelections.isEmpty()) {
       trackedSelections.remove(draftKey);
     }
@@ -95,8 +100,9 @@ final class SpineFindingDraftTracker {
 
   record SyncResult(boolean hasFindings, boolean changed, FindingEntry lastFinding) {}
 
-  private record TrackedSelection(Selection selection, List<String> findingIds) {
+  private record TrackedSelection<S>(S selection, List<String> findingIds) {
     TrackedSelection {
+      selection = Objects.requireNonNull(selection);
       findingIds = List.copyOf(findingIds);
     }
   }
