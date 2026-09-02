@@ -23,7 +23,9 @@ import org.weasis.core.api.gui.util.SliderCineListener;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.MediaSeries.MEDIA_POSITION;
 import org.weasis.core.api.media.data.TagW;
+import org.weasis.core.ui.editor.image.DefaultView2d;
 import org.weasis.core.ui.editor.image.ImageViewerPlugin;
+import org.weasis.core.ui.editor.image.SynchCineEvent;
 import org.weasis.core.ui.editor.image.SynchData;
 import org.weasis.core.ui.editor.image.SynchData.Mode;
 import org.weasis.core.ui.editor.image.SynchData.SyncState;
@@ -239,12 +241,29 @@ public class DicomSynchManager extends SynchManager<DicomImageElement> {
       viewPane.setActionsInView(ActionW.SYNCH_LINK.cmd(), null);
     }
 
-    // Force drawing crosslines without changing the slice position
+    // Refresh only perpendicular crossline panes. Broadcasting through the cine action here can
+    // make linked same-plane stacks resolve to an adjacent nearest slice when focus changes.
     boolean isMprOrOblique = eventManager.getSelectedView2dContainer() instanceof MprContainer;
     if (!isMprOrOblique) {
-      eventManager
-          .getAction(ActionW.SCROLL_SERIES)
-          .ifPresent(a -> a.stateChanged(a.getSliderModel()));
+      refreshCrosslines(viewPane, views);
+    }
+  }
+
+  static void refreshCrosslines(
+      ViewCanvas<DicomImageElement> source, List<ViewCanvas<DicomImageElement>> views) {
+    DicomImageElement image = source.getImage();
+    Number location = image == null ? null : (Number) image.getTagValue(TagW.SlicePosition);
+    if (location == null) {
+      return;
+    }
+
+    SynchCineEvent event = new SynchCineEvent(source, image, source.getFrameIndex(), location);
+    for (ViewCanvas<DicomImageElement> view : views) {
+      if (view != source
+          && Boolean.TRUE.equals(view.getActionValue(ActionW.SYNCH_CROSSLINE.cmd()))
+          && view instanceof DefaultView2d<?> crosslineView) {
+        crosslineView.propertyChange(event);
+      }
     }
   }
 
