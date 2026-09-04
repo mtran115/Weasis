@@ -20,6 +20,9 @@ import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.AlignmentFinding;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Laterality;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.LevelSelection;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.ListhesisDirection;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.ListhesisSelection;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.MigrationDirection;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.OverviewFinding;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.ProtrusionLocation;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Selection;
@@ -220,6 +223,45 @@ class SpineFindingBuilderTest {
   }
 
   @Test
+  void generatesLevelSpecificAnterolisthesisAndMeasuredRetrolisthesis() {
+    Selection selection =
+        new Selection(
+            SpineRegion.LUMBAR,
+            List.of(),
+            Severity.NONE,
+            "",
+            List.of(
+                new ListhesisSelection("L4-5", ListhesisDirection.ANTEROLISTHESIS, ""),
+                new ListhesisSelection("T12-L1", ListhesisDirection.RETROLISTHESIS, "2")),
+            Map.of(),
+            "",
+            List.of());
+
+    assertEquals(
+        List.of(
+            new GeneratedFinding(
+                "2 mm retrolisthesis of T12 on L1.", "2 mm retrolisthesis of T12 on L1."),
+            new GeneratedFinding("Anterolisthesis of L4 on L5.", "Anterolisthesis of L4 on L5.")),
+        SpineFindingBuilder.generate(selection));
+  }
+
+  @Test
+  void rejectsListhesisAtALevelOutsideTheSelectedSpineRegion() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new Selection(
+                SpineRegion.CERVICAL,
+                List.of(),
+                Severity.NONE,
+                "",
+                List.of(new ListhesisSelection("L4-5", ListhesisDirection.ANTEROLISTHESIS, "3 mm")),
+                Map.of(),
+                "",
+                List.of()));
+  }
+
+  @Test
   void generatesLumbarSpinalCanalStenosisWithoutAnotherLevelFinding() {
     LevelSelection level =
         new LevelSelection(
@@ -371,6 +413,88 @@ class SpineFindingBuilderTest {
             "L4-5: Broad-based left subarticular disc protrusion.",
             "Broad-based left subarticular disc protrusion at L4-5."),
         finding);
+  }
+
+  @Test
+  void generatesFrequentDiscExtrusionAndLevelAdditions() {
+    LevelSelection level =
+        new LevelSelection(
+            "L4-5",
+            false,
+            List.of(),
+            List.of(ProtrusionLocation.CENTRAL),
+            true,
+            true,
+            MigrationDirection.INFERIOR,
+            "5",
+            "",
+            Laterality.NONE,
+            Laterality.NONE,
+            Severity.MILD,
+            Severity.MILD,
+            Severity.NONE);
+
+    GeneratedFinding finding =
+        SpineFindingBuilder.generate(
+                new Selection(SpineRegion.LUMBAR, AlignmentFinding.NONE, Map.of(), List.of(level)))
+            .getFirst();
+
+    assertEquals(
+        new GeneratedFinding(
+            "L4-5: Central disc extrusion with 5 mm inferior migration. Annular fissure. Ventral "
+                + "epidural lipomatosis. Mild spinal canal stenosis. Mild left "
+                + "neural foraminal stenosis.",
+            "Central disc extrusion with 5 mm inferior migration, mild spinal canal stenosis, and "
+                + "mild left neural foraminal stenosis at L4-5."),
+        finding);
+  }
+
+  @Test
+  void generatesAnnularFissureWithoutRequiringAnotherLevelFinding() {
+    LevelSelection level =
+        new LevelSelection(
+            "L5-S1",
+            false,
+            List.of(),
+            List.of(),
+            true,
+            false,
+            MigrationDirection.NONE,
+            "",
+            "",
+            Laterality.NONE,
+            Laterality.NONE,
+            Severity.NONE,
+            Severity.NONE,
+            Severity.NONE);
+
+    assertEquals(
+        new GeneratedFinding("L5-S1: Annular fissure.", ""),
+        SpineFindingBuilder.generate(
+                new Selection(SpineRegion.LUMBAR, AlignmentFinding.NONE, Map.of(), List.of(level)))
+            .getFirst());
+  }
+
+  @Test
+  void rejectsSimultaneousProtrusionAndExtrusion() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new LevelSelection(
+                "C5-6",
+                false,
+                List.of(ProtrusionLocation.CENTRAL),
+                List.of(ProtrusionLocation.CENTRAL),
+                false,
+                false,
+                MigrationDirection.NONE,
+                "",
+                "",
+                Laterality.NONE,
+                Laterality.NONE,
+                Severity.NONE,
+                Severity.NONE,
+                Severity.NONE));
   }
 
   @Test

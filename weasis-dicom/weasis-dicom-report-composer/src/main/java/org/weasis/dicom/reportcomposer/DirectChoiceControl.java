@@ -10,7 +10,9 @@
 package org.weasis.dicom.reportcomposer;
 
 import java.awt.FlowLayout;
+import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.event.ActionListener;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,10 +20,18 @@ import javax.swing.JPanel;
 import javax.swing.JToggleButton;
 
 final class DirectChoiceControl<T> {
-  private final JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 0));
+  private final JPanel panel;
   private final Map<T, JToggleButton> buttons = new LinkedHashMap<>();
 
   DirectChoiceControl(List<T> choices) {
+    this(choices, 0);
+  }
+
+  DirectChoiceControl(List<T> choices, int columns) {
+    panel =
+        columns > 0
+            ? new JPanel(new GridLayout(0, columns, 4, 2))
+            : new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 0));
     for (T choice : choices) {
       JToggleButton button = new JToggleButton(choice.toString());
       button.setMargin(new Insets(2, 7, 2, 7));
@@ -50,7 +60,19 @@ final class DirectChoiceControl<T> {
         .orElse(fallback);
   }
 
+  void select(T choice) {
+    buttons.forEach((value, button) -> button.setSelected(value.equals(choice)));
+  }
+
   void clear() {
     buttons.values().forEach(button -> button.setSelected(false));
+  }
+
+  void addActionListener(ActionListener listener) {
+    buttons.values().forEach(button -> button.addActionListener(listener));
+  }
+
+  void setEnabled(boolean enabled) {
+    buttons.values().forEach(button -> button.setEnabled(enabled));
   }
 }

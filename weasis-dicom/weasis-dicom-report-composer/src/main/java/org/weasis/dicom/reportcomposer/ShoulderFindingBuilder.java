@@ -30,12 +30,22 @@ final class ShoulderFindingBuilder {
         findings, selection.acJointOsteoarthrosis(), "acromioclavicular joint osteoarthrosis");
     for (RotatorCuffTendon tendon : RotatorCuffTendon.values()) {
       Degree degree = selection.rotatorCuffTendinosis().getOrDefault(tendon, Degree.NONE);
-      addGradedFinding(findings, degree, tendon.phrase() + " tendinosis");
+      CuffTearSelection tear =
+          selection.rotatorCuffTears().getOrDefault(tendon, CuffTearSelection.empty());
+      if (degree != Degree.NONE && !tear.backgroundTendinosis()) {
+        addGradedFinding(findings, degree, tendon.phrase() + " tendinosis");
+      }
+      if (tear.hasFinding()) {
+        addFinding(findings, cuffTearDescription(tendon, tear, degree));
+      }
     }
     if (!selection.labralTearLocations().isEmpty()) {
       String locations =
           joinList(selection.labralTearLocations().stream().map(LabralLocation::phrase).toList());
-      addFinding(findings, capitalize(locations) + " labral tear");
+      String cyst = selection.paralabralCyst() ? " with an adjacent paralabral cyst" : "";
+      addFinding(findings, capitalize(locations) + " labral tear" + cyst);
+    } else if (selection.paralabralCyst()) {
+      addFinding(findings, "Paralabral cyst");
     }
     addGradedFinding(
         findings,
@@ -45,6 +55,32 @@ final class ShoulderFindingBuilder {
       findings.add(new GeneratedFinding(ComposerText.sentence(selection.freeText()), ""));
     }
     return List.copyOf(findings);
+  }
+
+  private static String cuffTearDescription(
+      RotatorCuffTendon tendon, CuffTearSelection tear, Degree tendinosisDegree) {
+    StringBuilder description =
+        new StringBuilder(
+                capitalize(
+                    joinList(
+                        tear.types().stream().map(type -> type.phrase(tear.highGrade())).toList())))
+            .append(" of the ")
+            .append(tendon.phrase())
+            .append(" tendon");
+    if (tear.atFootprint()) {
+      description.append(" at the footprint");
+    }
+    if (tear.backgroundTendinosis()) {
+      description.append(" with ");
+      if (tendinosisDegree != Degree.NONE) {
+        description.append(tendinosisDegree.phrase()).append(' ');
+      }
+      description.append("background tendinosis");
+    }
+    if (ComposerText.hasText(tear.details())) {
+      description.append(". ").append(ComposerText.sentence(tear.details()));
+    }
+    return description.toString();
   }
 
   private static void addGradedFinding(
@@ -122,6 +158,30 @@ final class ShoulderFindingBuilder {
     }
   }
 
+  enum CuffTearType {
+    INTERSTITIAL("Interstitial", "interstitial tear"),
+    ARTICULAR_SURFACE("Articular surface", "partial-thickness articular-surface tear"),
+    BURSAL_SURFACE("Bursal surface", "partial-thickness bursal-surface tear"),
+    FULL_THICKNESS("Full-thickness", "full-thickness tear");
+
+    private final String label;
+    private final String phrase;
+
+    CuffTearType(String label, String phrase) {
+      this.label = label;
+      this.phrase = phrase;
+    }
+
+    String phrase(boolean highGrade) {
+      return highGrade && this != FULL_THICKNESS ? "high-grade " + phrase : phrase;
+    }
+
+    @Override
+    public String toString() {
+      return label;
+    }
+  }
+
   enum LabralLocation {
     ANTERIOR("Anterior", "anterior"),
     SUPERIOR("Superior", "superior"),
@@ -146,14 +206,58 @@ final class ShoulderFindingBuilder {
     }
   }
 
+  record CuffTearSelection(
+      List<CuffTearType> types,
+      boolean highGrade,
+      boolean atFootprint,
+      boolean backgroundTendinosis,
+      String details) {
+
+    CuffTearSelection {
+      List<CuffTearType> requestedTypes = types == null ? List.of() : types;
+      types = List.of(CuffTearType.values()).stream().filter(requestedTypes::contains).toList();
+      details = ComposerText.clean(details);
+    }
+
+    static CuffTearSelection empty() {
+      return new CuffTearSelection(List.of(), false, false, false, "");
+    }
+
+    boolean hasFinding() {
+      return !types.isEmpty();
+    }
+  }
+
   record Selection(
       Degree subcoracoidBursitis,
       Degree subacromialSubdeltoidBursitis,
       Degree acJointOsteoarthrosis,
       Map<RotatorCuffTendon, Degree> rotatorCuffTendinosis,
+      Map<RotatorCuffTendon, CuffTearSelection> rotatorCuffTears,
       List<LabralLocation> labralTearLocations,
+      boolean paralabralCyst,
       Degree longHeadBicepsTenosynovitis,
       String freeText) {
+
+    Selection(
+        Degree subcoracoidBursitis,
+        Degree subacromialSubdeltoidBursitis,
+        Degree acJointOsteoarthrosis,
+        Map<RotatorCuffTendon, Degree> rotatorCuffTendinosis,
+        List<LabralLocation> labralTearLocations,
+        Degree longHeadBicepsTenosynovitis,
+        String freeText) {
+      this(
+          subcoracoidBursitis,
+          subacromialSubdeltoidBursitis,
+          acJointOsteoarthrosis,
+          rotatorCuffTendinosis,
+          Map.of(),
+          labralTearLocations,
+          false,
+          longHeadBicepsTenosynovitis,
+          freeText);
+    }
 
     Selection {
       subcoracoidBursitis = Objects.requireNonNullElse(subcoracoidBursitis, Degree.NONE);
@@ -170,6 +274,16 @@ final class ShoulderFindingBuilder {
         }
       }
       rotatorCuffTendinosis = Collections.unmodifiableMap(tendinosis);
+      EnumMap<RotatorCuffTendon, CuffTearSelection> tears = new EnumMap<>(RotatorCuffTendon.class);
+      if (rotatorCuffTears != null) {
+        for (RotatorCuffTendon tendon : RotatorCuffTendon.values()) {
+          CuffTearSelection tear = rotatorCuffTears.get(tendon);
+          if (tear != null && tear.hasFinding()) {
+            tears.put(tendon, tear);
+          }
+        }
+      }
+      rotatorCuffTears = Collections.unmodifiableMap(tears);
       List<LabralLocation> requestedLocations =
           labralTearLocations == null ? List.of() : labralTearLocations;
       labralTearLocations =
@@ -184,7 +298,9 @@ final class ShoulderFindingBuilder {
           || subacromialSubdeltoidBursitis != Degree.NONE
           || acJointOsteoarthrosis != Degree.NONE
           || !rotatorCuffTendinosis.isEmpty()
+          || !rotatorCuffTears.isEmpty()
           || !labralTearLocations.isEmpty()
+          || paralabralCyst
           || longHeadBicepsTenosynovitis != Degree.NONE
           || ComposerText.hasText(freeText);
     }

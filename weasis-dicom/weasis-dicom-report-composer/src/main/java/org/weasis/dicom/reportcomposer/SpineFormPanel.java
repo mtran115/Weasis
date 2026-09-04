@@ -39,6 +39,9 @@ import org.weasis.core.api.util.ResourceUtil.ActionIcon;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.AlignmentFinding;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Laterality;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.LevelSelection;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.ListhesisDirection;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.ListhesisSelection;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.MigrationDirection;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.OverviewFinding;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.ProtrusionLocation;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Selection;
@@ -104,6 +107,13 @@ final class SpineFormPanel extends JPanel {
         });
     List<LevelSelection> levels =
         levelControls.values().stream().map(LevelControls::selection).toList();
+    List<ListhesisSelection> listheses = new ArrayList<>();
+    for (LevelControls controls : levelControls.values()) {
+      ListhesisSelection listhesis = controls.listhesisSelection();
+      if (listhesis != null) {
+        listheses.add(listhesis);
+      }
+    }
     Severity selectedScoliosisSeverity =
         alignments.stream().anyMatch(AlignmentFinding::isLumbarScoliosis)
             ? (Severity) scoliosisSeverity.getSelectedItem()
@@ -113,6 +123,7 @@ final class SpineFormPanel extends JPanel {
         alignments,
         selectedScoliosisSeverity,
         scoliosisDegrees.getText(),
+        listheses,
         overviewSelections,
         degenerativeDetails.getText(),
         levels);
@@ -288,10 +299,22 @@ final class SpineFormPanel extends JPanel {
   private final class LevelControls {
     private final String level;
     private final JPanel panel = new JPanel(new GridBagLayout());
+    private final DirectChoiceControl<ListhesisDirection> listhesisDirection =
+        new DirectChoiceControl<>(
+            List.of(ListhesisDirection.ANTEROLISTHESIS, ListhesisDirection.RETROLISTHESIS));
+    private final JTextField listhesisDistance = new JTextField(4);
     private final JCheckBox bulge = new JCheckBox("Bulge");
     private final JCheckBox protrusion = new JCheckBox("Protrusion");
-    private final Map<ProtrusionLocation, JCheckBox> protrusionLocations =
+    private final JCheckBox extrusion = new JCheckBox("Extrusion");
+    private final Map<ProtrusionLocation, JCheckBox> discLocations =
         new EnumMap<>(ProtrusionLocation.class);
+    private final JCheckBox annularFissure = new JCheckBox("Annular fissure");
+    private final JCheckBox ventralEpiduralLipomatosis =
+        new JCheckBox("Ventral epidural lipomatosis");
+    private final DirectChoiceControl<MigrationDirection> migrationDirection =
+        new DirectChoiceControl<>(
+            List.of(MigrationDirection.SUPERIOR, MigrationDirection.INFERIOR));
+    private final JTextField migrationDistance = new JTextField(4);
     private final DirectChoiceControl<Laterality> facetArthrosis =
         new DirectChoiceControl<>(List.of(Laterality.BILATERAL, Laterality.LEFT, Laterality.RIGHT));
     private final DirectChoiceControl<Laterality> posteriorElementHypertrophy =
@@ -318,28 +341,88 @@ final class SpineFormPanel extends JPanel {
       panel.add(title, constraints);
 
       constraints = constraints(1);
+      panel.add(new JLabel("Listhesis"), constraints);
+      constraints.gridx = 1;
+      constraints.gridwidth = 2;
+      constraints.fill = GridBagConstraints.HORIZONTAL;
+      panel.add(
+          GuiUtils.getFlowLayoutPanel(
+              FlowLayout.LEADING,
+              4,
+              0,
+              listhesisDirection.panel(),
+              new JLabel("Displacement"),
+              listhesisDistance,
+              new JLabel("mm")),
+          constraints);
+      listhesisDirection.addActionListener(event -> updateListhesisControls());
+      updateListhesisControls();
+
+      constraints = constraints(2);
       constraints.gridwidth = 3;
       panel.add(
-          GuiUtils.getFlowLayoutPanel(FlowLayout.LEADING, 4, 0, bulge, protrusion), constraints);
+          GuiUtils.getFlowLayoutPanel(FlowLayout.LEADING, 4, 0, bulge, protrusion, extrusion),
+          constraints);
 
-      JPanel protrusionLocationPanel = new JPanel(new GridLayout(0, 2, 4, 0));
-      protrusionLocationPanel.setBorder(GuiUtils.getEmptyBorder(0, 18, 2, 0));
+      protrusion.addActionListener(
+          event -> {
+            if (protrusion.isSelected()) {
+              extrusion.setSelected(false);
+            }
+            updateDiscLocationControls();
+          });
+      extrusion.addActionListener(
+          event -> {
+            if (extrusion.isSelected()) {
+              protrusion.setSelected(false);
+            }
+            updateDiscLocationControls();
+          });
+
+      JPanel discLocationPanel = new JPanel(new GridLayout(0, 2, 4, 0));
+      discLocationPanel.setBorder(GuiUtils.getEmptyBorder(0, 18, 2, 0));
       for (ProtrusionLocation location : ProtrusionLocation.values()) {
         JCheckBox locationCheckBox = new JCheckBox(location.toString());
         locationCheckBox.setSelected(location == ProtrusionLocation.CENTRAL);
-        protrusionLocations.put(location, locationCheckBox);
-        protrusionLocationPanel.add(locationCheckBox);
+        discLocations.put(location, locationCheckBox);
+        discLocationPanel.add(locationCheckBox);
       }
-      constraints = constraints(2);
+      constraints = constraints(3);
       constraints.gridwidth = 3;
       constraints.fill = GridBagConstraints.HORIZONTAL;
-      panel.add(protrusionLocationPanel, constraints);
-      bindEnabled(protrusion, protrusionLocations.values().toArray(JComponent[]::new));
+      panel.add(discLocationPanel, constraints);
+      updateDiscLocationControls();
 
-      addChoiceRow(3, "Facet arthrosis", facetArthrosis);
-      addChoiceRow(4, region.posteriorElementLabel(), posteriorElementHypertrophy);
+      constraints = constraints(4);
+      constraints.gridwidth = 3;
+      panel.add(
+          GuiUtils.getFlowLayoutPanel(
+              FlowLayout.LEADING, 4, 0, annularFissure, ventralEpiduralLipomatosis),
+          constraints);
 
-      int row = 5;
+      constraints = constraints(5);
+      panel.add(new JLabel("Disc migration"), constraints);
+      constraints.gridx = 1;
+      constraints.gridwidth = 2;
+      constraints.fill = GridBagConstraints.HORIZONTAL;
+      JPanel migrationPanel = new JPanel();
+      migrationPanel.setLayout(new BoxLayout(migrationPanel, BoxLayout.Y_AXIS));
+      migrationPanel.add(stretch(migrationDirection.panel()));
+      migrationPanel.add(
+          stretch(
+              GuiUtils.getFlowLayoutPanel(
+                  FlowLayout.LEADING,
+                  4,
+                  0,
+                  new JLabel("Distance"),
+                  migrationDistance,
+                  new JLabel("mm"))));
+      panel.add(migrationPanel, constraints);
+
+      addChoiceRow(6, "Facet arthrosis", facetArthrosis);
+      addChoiceRow(7, region.posteriorElementLabel(), posteriorElementHypertrophy);
+
+      int row = 8;
       if (region == SpineRegion.CERVICAL || region == SpineRegion.LUMBAR) {
         addChoiceRow(row++, "Spinal canal stenosis", spinalCanalSeverity);
       }
@@ -365,10 +448,16 @@ final class SpineFormPanel extends JPanel {
           region == SpineRegion.CERVICAL || region == SpineRegion.LUMBAR
               ? spinalCanalSeverity.selectionOr(Severity.NONE)
               : Severity.NONE;
+      List<ProtrusionLocation> selectedDiscLocations = selectedDiscLocations();
       return new LevelSelection(
           level,
           bulge.isSelected(),
-          selectedProtrusionLocations(),
+          protrusion.isSelected() ? selectedDiscLocations : List.of(),
+          extrusion.isSelected() ? selectedDiscLocations : List.of(),
+          annularFissure.isSelected(),
+          ventralEpiduralLipomatosis.isSelected(),
+          migrationDirection.selectionOr(MigrationDirection.NONE),
+          migrationDistance.getText(),
           freeText.getText(),
           facetArthrosis.selectionOr(Laterality.NONE),
           posteriorElementHypertrophy.selectionOr(Laterality.NONE),
@@ -377,12 +466,19 @@ final class SpineFormPanel extends JPanel {
           rightForaminalSeverity.selectionOr(Severity.NONE));
     }
 
-    private List<ProtrusionLocation> selectedProtrusionLocations() {
-      if (!protrusion.isSelected()) {
+    ListhesisSelection listhesisSelection() {
+      ListhesisDirection direction = listhesisDirection.selectionOr(ListhesisDirection.NONE);
+      return direction == ListhesisDirection.NONE
+          ? null
+          : new ListhesisSelection(level, direction, listhesisDistance.getText());
+    }
+
+    private List<ProtrusionLocation> selectedDiscLocations() {
+      if (!protrusion.isSelected() && !extrusion.isSelected()) {
         return List.of();
       }
       List<ProtrusionLocation> selected =
-          protrusionLocations.entrySet().stream()
+          discLocations.entrySet().stream()
               .filter(entry -> entry.getValue().isSelected())
               .map(Map.Entry::getKey)
               .toList();
@@ -390,19 +486,37 @@ final class SpineFormPanel extends JPanel {
     }
 
     void clear() {
+      listhesisDirection.clear();
+      listhesisDistance.setText("");
+      updateListhesisControls();
       bulge.setSelected(false);
       protrusion.setSelected(false);
-      protrusionLocations.forEach(
+      extrusion.setSelected(false);
+      discLocations.forEach(
           (location, checkBox) -> {
             checkBox.setSelected(location == ProtrusionLocation.CENTRAL);
             checkBox.setEnabled(false);
           });
+      annularFissure.setSelected(false);
+      ventralEpiduralLipomatosis.setSelected(false);
+      migrationDirection.clear();
+      migrationDistance.setText("");
       facetArthrosis.clear();
       posteriorElementHypertrophy.clear();
       spinalCanalSeverity.clear();
       leftForaminalSeverity.clear();
       rightForaminalSeverity.clear();
       freeText.setText("");
+    }
+
+    private void updateDiscLocationControls() {
+      boolean enabled = protrusion.isSelected() || extrusion.isSelected();
+      discLocations.values().forEach(checkBox -> checkBox.setEnabled(enabled));
+    }
+
+    private void updateListhesisControls() {
+      listhesisDistance.setEnabled(
+          listhesisDirection.selectionOr(ListhesisDirection.NONE) != ListhesisDirection.NONE);
     }
 
     private void addChoiceRow(int row, String label, DirectChoiceControl<?> choice) {

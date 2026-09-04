@@ -14,6 +14,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.event.ActionListener;
 import java.util.EnumMap;
@@ -27,10 +28,13 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
+import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.CuffTearSelection;
+import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.CuffTearType;
 import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.Degree;
 import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.LabralLocation;
 import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.RotatorCuffTendon;
@@ -48,8 +52,11 @@ final class ShoulderFormPanel extends JPanel {
       new DirectChoiceControl<>(DEGREES);
   private final Map<RotatorCuffTendon, DirectChoiceControl<Degree>> rotatorCuffTendinosis =
       new EnumMap<>(RotatorCuffTendon.class);
+  private final Map<RotatorCuffTendon, CuffTearControls> rotatorCuffTears =
+      new EnumMap<>(RotatorCuffTendon.class);
   private final Map<LabralLocation, JToggleButton> labralTearLocations =
       new EnumMap<>(LabralLocation.class);
+  private final JToggleButton paralabralCyst = new JToggleButton("Adjacent paralabral cyst");
   private final DirectChoiceControl<Degree> longHeadBicepsTenosynovitis =
       new DirectChoiceControl<>(DEGREES);
   private final JTextArea freeText = new JTextArea(3, 24);
@@ -94,12 +101,22 @@ final class ShoulderFormPanel extends JPanel {
             .filter(entry -> entry.getValue().isSelected())
             .map(Map.Entry::getKey)
             .toList();
+    EnumMap<RotatorCuffTendon, CuffTearSelection> tears = new EnumMap<>(RotatorCuffTendon.class);
+    rotatorCuffTears.forEach(
+        (tendon, controls) -> {
+          CuffTearSelection tear = controls.selection();
+          if (tear.hasFinding()) {
+            tears.put(tendon, tear);
+          }
+        });
     return new Selection(
         subcoracoidBursitis.selectionOr(Degree.NONE),
         subacromialSubdeltoidBursitis.selectionOr(Degree.NONE),
         acJointOsteoarthrosis.selectionOr(Degree.NONE),
         tendinosis,
+        tears,
         labralLocations,
+        paralabralCyst.isSelected(),
         longHeadBicepsTenosynovitis.selectionOr(Degree.NONE),
         freeText.getText());
   }
@@ -109,7 +126,9 @@ final class ShoulderFormPanel extends JPanel {
     subacromialSubdeltoidBursitis.clear();
     acJointOsteoarthrosis.clear();
     rotatorCuffTendinosis.values().forEach(DirectChoiceControl::clear);
+    rotatorCuffTears.values().forEach(CuffTearControls::clear);
     labralTearLocations.values().forEach(button -> button.setSelected(false));
+    paralabralCyst.setSelected(false);
     longHeadBicepsTenosynovitis.clear();
     freeText.setText("");
   }
@@ -123,12 +142,25 @@ final class ShoulderFormPanel extends JPanel {
   }
 
   private JPanel buildRotatorCuffPanel() {
-    JPanel panel = choicePanel("Rotator cuff tendinosis");
-    int row = 0;
+    JPanel panel = new JPanel();
+    panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+    panel.setBorder(BorderFactory.createTitledBorder("Rotator cuff"));
     for (RotatorCuffTendon tendon : RotatorCuffTendon.values()) {
       DirectChoiceControl<Degree> control = new DirectChoiceControl<>(DEGREES);
       rotatorCuffTendinosis.put(tendon, control);
-      addChoiceRow(panel, row++, tendon.toString(), control);
+      CuffTearControls tearControls = new CuffTearControls();
+      rotatorCuffTears.put(tendon, tearControls);
+
+      JPanel tendonPanel = choicePanel(tendon.toString());
+      addChoiceRow(tendonPanel, 0, "Tendinosis", control);
+      GridBagConstraints constraints = constraints(2);
+      tendonPanel.add(new JLabel("Tear"), constraints);
+      constraints.gridx = 1;
+      constraints.gridwidth = 2;
+      constraints.weightx = 1.0;
+      constraints.fill = GridBagConstraints.HORIZONTAL;
+      tendonPanel.add(tearControls.panel(), constraints);
+      panel.add(stretch(tendonPanel));
     }
     return panel;
   }
@@ -143,6 +175,8 @@ final class ShoulderFormPanel extends JPanel {
       labralTearLocations.put(location, button);
       choices.add(button);
     }
+    paralabralCyst.setMargin(new Insets(2, 7, 2, 7));
+    choices.add(paralabralCyst);
     panel.add(choices, BorderLayout.CENTER);
     return panel;
   }
@@ -209,5 +243,78 @@ final class ShoulderFormPanel extends JPanel {
     Dimension preferred = component.getPreferredSize();
     component.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
     return component;
+  }
+
+  private static final class CuffTearControls {
+    private final JPanel panel = new JPanel();
+    private final Map<CuffTearType, JToggleButton> types = new EnumMap<>(CuffTearType.class);
+    private final JToggleButton highGrade = new JToggleButton("High-grade");
+    private final JToggleButton atFootprint = new JToggleButton("At footprint");
+    private final JToggleButton backgroundTendinosis = new JToggleButton("Background tendinosis");
+    private final JTextField details = new JTextField(10);
+
+    CuffTearControls() {
+      panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+      JPanel typeRow = new JPanel(new GridLayout(0, 2, 4, 2));
+      for (CuffTearType type : CuffTearType.values()) {
+        JToggleButton button = new JToggleButton(type.toString());
+        button.setMargin(new Insets(2, 7, 2, 7));
+        button.addActionListener(event -> updateModifierState());
+        types.put(type, button);
+        typeRow.add(button);
+      }
+      panel.add(typeRow);
+
+      for (JToggleButton modifier : List.of(highGrade, atFootprint, backgroundTendinosis)) {
+        modifier.setMargin(new Insets(2, 7, 2, 7));
+      }
+      JPanel modifierRow = new JPanel(new GridLayout(0, 2, 4, 2));
+      modifierRow.add(highGrade);
+      modifierRow.add(atFootprint);
+      modifierRow.add(backgroundTendinosis);
+      panel.add(modifierRow);
+
+      JPanel detailsRow = new JPanel(new BorderLayout(4, 0));
+      detailsRow.setBorder(GuiUtils.getEmptyBorder(2, 0, 0, 0));
+      detailsRow.add(new JLabel("Details"), BorderLayout.WEST);
+      detailsRow.add(details, BorderLayout.CENTER);
+      panel.add(detailsRow);
+      updateModifierState();
+    }
+
+    JPanel panel() {
+      return panel;
+    }
+
+    CuffTearSelection selection() {
+      List<CuffTearType> selectedTypes =
+          types.entrySet().stream()
+              .filter(entry -> entry.getValue().isSelected())
+              .map(Map.Entry::getKey)
+              .toList();
+      return new CuffTearSelection(
+          selectedTypes,
+          highGrade.isSelected(),
+          atFootprint.isSelected(),
+          backgroundTendinosis.isSelected(),
+          details.getText());
+    }
+
+    void clear() {
+      types.values().forEach(button -> button.setSelected(false));
+      highGrade.setSelected(false);
+      atFootprint.setSelected(false);
+      backgroundTendinosis.setSelected(false);
+      details.setText("");
+      updateModifierState();
+    }
+
+    private void updateModifierState() {
+      boolean enabled = types.values().stream().anyMatch(JToggleButton::isSelected);
+      highGrade.setEnabled(enabled);
+      atFootprint.setEnabled(enabled);
+      backgroundTendinosis.setEnabled(enabled);
+      details.setEnabled(enabled);
+    }
   }
 }

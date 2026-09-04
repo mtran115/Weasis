@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
+import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.CuffTearSelection;
+import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.CuffTearType;
 import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.Degree;
 import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.LabralLocation;
 import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.RotatorCuffTendon;
@@ -60,6 +62,54 @@ class ShoulderFindingBuilderTest {
 
     assertFalse(selection.hasFinding());
     assertEquals(List.of(), ShoulderFindingBuilder.generate(selection));
+  }
+
+  @Test
+  void generatesCuffTearModifiersAndParalabralCystWithoutDuplicatingTendinosis() {
+    Selection selection =
+        new Selection(
+            Degree.NONE,
+            Degree.NONE,
+            Degree.NONE,
+            Map.of(RotatorCuffTendon.SUPRASPINATUS, Degree.MILD),
+            Map.of(
+                RotatorCuffTendon.SUPRASPINATUS,
+                new CuffTearSelection(
+                    List.of(CuffTearType.ARTICULAR_SURFACE, CuffTearType.INTERSTITIAL),
+                    true,
+                    true,
+                    true,
+                    "Measures 8 mm")),
+            List.of(LabralLocation.ANTERIOR, LabralLocation.SUPERIOR),
+            true,
+            Degree.NONE,
+            "");
+
+    assertEquals(
+        List.of(
+            finding(
+                "High-grade interstitial tear and high-grade partial-thickness articular-surface "
+                    + "tear of the supraspinatus tendon at the footprint with mild background "
+                    + "tendinosis. Measures 8 mm."),
+            finding("Anterior and superior labral tear with an adjacent paralabral cyst.")),
+        ShoulderFindingBuilder.generate(selection));
+  }
+
+  @Test
+  void generatesStandaloneParalabralCyst() {
+    Selection selection =
+        new Selection(
+            Degree.NONE,
+            Degree.NONE,
+            Degree.NONE,
+            Map.of(),
+            Map.of(),
+            List.of(),
+            true,
+            Degree.NONE,
+            "");
+
+    assertEquals(List.of(finding("Paralabral cyst.")), ShoulderFindingBuilder.generate(selection));
   }
 
   private static GeneratedFinding finding(String text) {

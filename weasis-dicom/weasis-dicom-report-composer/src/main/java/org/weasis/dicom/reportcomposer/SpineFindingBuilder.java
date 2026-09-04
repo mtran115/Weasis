@@ -36,6 +36,11 @@ final class SpineFindingBuilder {
               ComposerText.sentence(alignmentText(selection, alignment, true))));
     }
 
+    selection.listheses().stream()
+        .sorted(Comparator.comparingInt(listhesis -> region.levels().indexOf(listhesis.level())))
+        .map(SpineFindingBuilder::generateListhesis)
+        .forEach(findings::add);
+
     for (OverviewFinding overview : OverviewFinding.values()) {
       if (selection.overviewLevels().containsKey(overview)) {
         List<String> levels = selection.overviewLevels().get(overview);
@@ -91,15 +96,52 @@ final class SpineFindingBuilder {
         : cleaned + " degrees";
   }
 
+  private static GeneratedFinding generateListhesis(ListhesisSelection selection) {
+    String displacement = distancePhrase(selection.displacement());
+    String description =
+        (displacement.isBlank() ? "" : displacement + " ")
+            + selection.direction().phrase()
+            + " of "
+            + vertebralRelationship(selection.level());
+    String text = ComposerText.sentence(capitalize(description));
+    return new GeneratedFinding(text, text);
+  }
+
+  private static String vertebralRelationship(String level) {
+    String[] vertebrae = level.split("-", 2);
+    if (vertebrae.length != 2) {
+      return level;
+    }
+    String superior = vertebrae[0];
+    String inferior = vertebrae[1];
+    if (!inferior.isEmpty() && Character.isDigit(inferior.charAt(0))) {
+      int prefixLength = 0;
+      while (prefixLength < superior.length()
+          && Character.isLetter(superior.charAt(prefixLength))) {
+        prefixLength++;
+      }
+      inferior = superior.substring(0, prefixLength) + inferior;
+    }
+    return superior + " on " + inferior;
+  }
+
   private static GeneratedFinding generateLevel(SpineRegion region, LevelSelection selection) {
     List<String> details = new ArrayList<>();
     String foraminalStenosis = foraminalStenosisDescription(selection);
-    if (selection.bulge() && selection.protrusion()) {
-      details.add("Disc bulge with superimposed " + protrusionDescription(selection, false));
+    if (selection.bulge() && selection.hasDiscHerniation()) {
+      details.add("Disc bulge with superimposed " + discHerniationDescription(selection, false));
     } else if (selection.bulge()) {
       details.add("Disc bulge");
-    } else if (selection.protrusion()) {
-      details.add(capitalize(protrusionDescription(selection, true)));
+    } else if (selection.hasDiscHerniation()) {
+      details.add(capitalize(discHerniationDescription(selection, true)));
+    } else if (selection.migrationDirection() != MigrationDirection.NONE) {
+      details.add(capitalize(migrationDescription(selection)) + " of disc material");
+    }
+    if (selection.annularFissure()) {
+      details.add("Annular fissure");
+    }
+    if (selection.ventralEpiduralLipomatosis()) {
+      details.add("Ventral epidural lipomatosis");
     }
     addLateralized(details, selection.facetArthrosis(), "facet arthrosis");
     addLateralized(
@@ -120,8 +162,8 @@ final class SpineFindingBuilder {
             + details.stream().map(ComposerText::sentence).reduce((a, b) -> a + " " + b).orElse("");
 
     List<String> impressionParts = new ArrayList<>();
-    if (selection.protrusion()) {
-      impressionParts.add(protrusionDescription(selection, true));
+    if (selection.hasDiscHerniation()) {
+      impressionParts.add(discHerniationDescription(selection, true));
     }
     if (selection.spinalCanalSeverity() != Severity.NONE) {
       impressionParts.add(selection.spinalCanalSeverity().phrase() + " spinal canal stenosis");
@@ -137,17 +179,44 @@ final class SpineFindingBuilder {
     return new GeneratedFinding(findingText, impressionText);
   }
 
-  private static String protrusionDescription(LevelSelection selection, boolean includeDisc) {
-    boolean broadBased = selection.protrusionLocations().contains(ProtrusionLocation.BROAD_BASED);
+  private static String discHerniationDescription(LevelSelection selection, boolean includeDisc) {
+    List<ProtrusionLocation> locations =
+        selection.extrusion() ? selection.extrusionLocations() : selection.protrusionLocations();
+    String type = selection.extrusion() ? "extrusion" : "protrusion";
+    String description = discMorphologyDescription(locations, type, includeDisc);
+    return selection.migrationDirection() == MigrationDirection.NONE
+        ? description
+        : description + " with " + migrationDescription(selection);
+  }
+
+  private static String discMorphologyDescription(
+      List<ProtrusionLocation> requestedLocations, String type, boolean includeDisc) {
+    boolean broadBased = requestedLocations.contains(ProtrusionLocation.BROAD_BASED);
     List<String> locations =
-        selection.protrusionLocations().stream()
+        requestedLocations.stream()
             .filter(location -> location != ProtrusionLocation.BROAD_BASED)
             .map(ProtrusionLocation::phrase)
             .toList();
     String prefix =
         (broadBased ? "broad-based " : "") + (locations.isEmpty() ? "" : joinList(locations) + " ");
-    String noun = locations.size() > 1 ? "protrusions" : "protrusion";
+    String noun = locations.size() > 1 ? type + "s" : type;
     return prefix + (includeDisc ? "disc " : "") + noun;
+  }
+
+  private static String migrationDescription(LevelSelection selection) {
+    String distance = distancePhrase(selection.migrationDistance());
+    return (distance.isBlank() ? "" : distance + " ")
+        + selection.migrationDirection().phrase()
+        + " migration";
+  }
+
+  private static String distancePhrase(String value) {
+    String cleaned = ComposerText.clean(value);
+    if (cleaned.isBlank()) {
+      return "";
+    }
+    String lowerCase = cleaned.toLowerCase(Locale.ROOT);
+    return lowerCase.endsWith("mm") || lowerCase.endsWith("cm") ? cleaned : cleaned + " mm";
   }
 
   private static void addLateralized(List<String> details, Laterality laterality, String finding) {
@@ -460,10 +529,75 @@ final class SpineFindingBuilder {
     }
   }
 
+  enum MigrationDirection {
+    NONE("None", ""),
+    SUPERIOR("Superior", "superior"),
+    INFERIOR("Inferior", "inferior");
+
+    private final String label;
+    private final String phrase;
+
+    MigrationDirection(String label, String phrase) {
+      this.label = label;
+      this.phrase = phrase;
+    }
+
+    String phrase() {
+      return phrase;
+    }
+
+    @Override
+    public String toString() {
+      return label;
+    }
+  }
+
+  enum ListhesisDirection {
+    NONE("None", ""),
+    ANTEROLISTHESIS("Anterolisthesis", "anterolisthesis"),
+    RETROLISTHESIS("Retrolisthesis", "retrolisthesis");
+
+    private final String label;
+    private final String phrase;
+
+    ListhesisDirection(String label, String phrase) {
+      this.label = label;
+      this.phrase = phrase;
+    }
+
+    String phrase() {
+      return phrase;
+    }
+
+    @Override
+    public String toString() {
+      return label;
+    }
+  }
+
+  record ListhesisSelection(String level, ListhesisDirection direction, String displacement) {
+    ListhesisSelection {
+      level = ComposerText.clean(level);
+      if (level.isBlank()) {
+        throw new IllegalArgumentException("A spine level is required for listhesis.");
+      }
+      direction = Objects.requireNonNullElse(direction, ListhesisDirection.NONE);
+      if (direction == ListhesisDirection.NONE) {
+        throw new IllegalArgumentException("Choose anterolisthesis or retrolisthesis.");
+      }
+      displacement = ComposerText.clean(displacement);
+    }
+  }
+
   record LevelSelection(
       String level,
       boolean bulge,
       List<ProtrusionLocation> protrusionLocations,
+      List<ProtrusionLocation> extrusionLocations,
+      boolean annularFissure,
+      boolean ventralEpiduralLipomatosis,
+      MigrationDirection migrationDirection,
+      String migrationDistance,
       String freeText,
       Laterality facetArthrosis,
       Laterality posteriorElementHypertrophy,
@@ -482,6 +616,20 @@ final class SpineFindingBuilder {
           List.of(ProtrusionLocation.values()).stream()
               .filter(requestedLocations::contains)
               .toList();
+      List<ProtrusionLocation> requestedExtrusionLocations =
+          extrusionLocations == null ? List.of() : extrusionLocations;
+      extrusionLocations =
+          List.of(ProtrusionLocation.values()).stream()
+              .filter(requestedExtrusionLocations::contains)
+              .toList();
+      if (!protrusionLocations.isEmpty() && !extrusionLocations.isEmpty()) {
+        throw new IllegalArgumentException("Choose either a disc protrusion or extrusion.");
+      }
+      migrationDirection = Objects.requireNonNullElse(migrationDirection, MigrationDirection.NONE);
+      migrationDistance =
+          migrationDirection == MigrationDirection.NONE
+              ? ""
+              : ComposerText.clean(migrationDistance);
       freeText = ComposerText.clean(freeText);
       facetArthrosis = Objects.requireNonNullElse(facetArthrosis, Laterality.NONE);
       posteriorElementHypertrophy =
@@ -499,12 +647,44 @@ final class SpineFindingBuilder {
         Laterality facetArthrosis,
         Laterality posteriorElementHypertrophy,
         Severity spinalCanalSeverity,
+        Severity leftForaminalSeverity,
+        Severity rightForaminalSeverity) {
+      this(
+          level,
+          bulge,
+          protrusionLocations,
+          List.of(),
+          false,
+          false,
+          MigrationDirection.NONE,
+          "",
+          freeText,
+          facetArthrosis,
+          posteriorElementHypertrophy,
+          spinalCanalSeverity,
+          leftForaminalSeverity,
+          rightForaminalSeverity);
+    }
+
+    LevelSelection(
+        String level,
+        boolean bulge,
+        List<ProtrusionLocation> protrusionLocations,
+        String freeText,
+        Laterality facetArthrosis,
+        Laterality posteriorElementHypertrophy,
+        Severity spinalCanalSeverity,
         Laterality foraminalLaterality,
         Severity foraminalSeverity) {
       this(
           level,
           bulge,
           protrusionLocations,
+          List.of(),
+          false,
+          false,
+          MigrationDirection.NONE,
+          "",
           freeText,
           facetArthrosis,
           posteriorElementHypertrophy,
@@ -559,9 +739,20 @@ final class SpineFindingBuilder {
       return !protrusionLocations.isEmpty();
     }
 
+    boolean extrusion() {
+      return !extrusionLocations.isEmpty();
+    }
+
+    boolean hasDiscHerniation() {
+      return protrusion() || extrusion();
+    }
+
     boolean hasFinding() {
       return bulge
-          || protrusion()
+          || hasDiscHerniation()
+          || annularFissure
+          || ventralEpiduralLipomatosis
+          || migrationDirection != MigrationDirection.NONE
           || ComposerText.hasText(freeText)
           || facetArthrosis != Laterality.NONE
           || posteriorElementHypertrophy != Laterality.NONE
@@ -589,9 +780,29 @@ final class SpineFindingBuilder {
       List<AlignmentFinding> alignments,
       Severity scoliosisSeverity,
       String scoliosisDegrees,
+      List<ListhesisSelection> listheses,
       Map<OverviewFinding, List<String>> overviewLevels,
       String degenerativeDetails,
       List<LevelSelection> levelSelections) {
+
+    Selection(
+        SpineRegion region,
+        List<AlignmentFinding> alignments,
+        Severity scoliosisSeverity,
+        String scoliosisDegrees,
+        Map<OverviewFinding, List<String>> overviewLevels,
+        String degenerativeDetails,
+        List<LevelSelection> levelSelections) {
+      this(
+          region,
+          alignments,
+          scoliosisSeverity,
+          scoliosisDegrees,
+          List.of(),
+          overviewLevels,
+          degenerativeDetails,
+          levelSelections);
+    }
 
     Selection(
         SpineRegion region,
@@ -603,6 +814,7 @@ final class SpineFindingBuilder {
           alignment == null || alignment == AlignmentFinding.NONE ? List.of() : List.of(alignment),
           Severity.NONE,
           "",
+          List.of(),
           overviewLevels,
           "",
           levelSelections);
@@ -640,6 +852,25 @@ final class SpineFindingBuilder {
         scoliosisSeverity = Severity.NONE;
         scoliosisDegrees = "";
       }
+      List<ListhesisSelection> requestedListheses =
+          listheses == null ? List.of() : List.copyOf(listheses);
+      for (ListhesisSelection listhesis : requestedListheses) {
+        if (!selectedRegion.levels().contains(listhesis.level())) {
+          throw new IllegalArgumentException(
+              "Unsupported " + selectedRegion.formLabel() + " level: " + listhesis.level());
+        }
+      }
+      if (requestedListheses.stream().map(ListhesisSelection::level).distinct().count()
+          != requestedListheses.size()) {
+        throw new IllegalArgumentException("Select one listhesis direction per spine level.");
+      }
+      listheses =
+          selectedRegion.levels().stream()
+              .flatMap(
+                  level ->
+                      requestedListheses.stream()
+                          .filter(listhesis -> listhesis.level().equals(level)))
+              .toList();
       EnumMap<OverviewFinding, List<String>> overviewCopy = new EnumMap<>(OverviewFinding.class);
       if (overviewLevels != null) {
         overviewLevels.forEach(
