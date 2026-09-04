@@ -114,6 +114,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       brainFindingTracker =
           new StructuredFindingDraftTracker<>(
               selection -> ExamTemplate.BRAIN, BrainFindingBuilder::generate);
+  private final StructuredFindingDraftTracker<ExamTemplate, WristFindingBuilder.Selection>
+      wristFindingTracker =
+          new StructuredFindingDraftTracker<>(
+              selection -> ExamTemplate.WRIST, WristFindingBuilder::generate);
   private final ViewerEventState viewerEventState = new ViewerEventState();
   private final AtomicBoolean studySynchronizationQueued = new AtomicBoolean();
   private final AtomicBoolean studySynchronizationRequested = new AtomicBoolean();
@@ -133,6 +137,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final ShoulderFormPanel shoulderForm = new ShoulderFormPanel();
   private final KneeFormPanel kneeForm = new KneeFormPanel();
   private final BrainFormPanel brainForm = new BrainFormPanel();
+  private final WristFormPanel wristForm = new WristFormPanel();
   private final JTextArea reportInstructions = textArea(4);
   private final JTextArea findingText = textArea(3);
   private final JTextArea impressionText = textArea(2);
@@ -478,6 +483,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     brainForm.addSubmitListener(event -> saveBrainFindings());
     brainForm.addOtherFindingListener(event -> showOtherStructuredFinding());
     content.add(fillWidth(brainForm));
+    wristForm.setVisible(false);
+    wristForm.addSubmitListener(event -> saveWristFindings());
+    wristForm.addOtherFindingListener(event -> showOtherStructuredFinding());
+    content.add(fillWidth(wristForm));
     genericFindingBuilder = buildFindingBuilder();
     content.add(fillWidth(genericFindingBuilder));
     content.add(fillWidth(buildFindingList()));
@@ -771,23 +780,30 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         selectedExamTemplate() == ExamTemplate.BRAIN
             && structuredFormMode
             && editingFindingId == null;
+    boolean showStructuredWrist =
+        selectedExamTemplate() == ExamTemplate.WRIST
+            && structuredFormMode
+            && editingFindingId == null;
     spineForms.forEach(
         (region, form) ->
             form.setVisible(showStructuredSpine && region == selectedRegion.orElse(null)));
     shoulderForm.setVisible(showStructuredShoulder);
     kneeForm.setVisible(showStructuredKnee);
     brainForm.setVisible(showStructuredBrain);
+    wristForm.setVisible(showStructuredWrist);
     genericFindingBuilder.setVisible(
         !showStructuredSpine
             && !showStructuredShoulder
             && !showStructuredKnee
-            && !showStructuredBrain);
+            && !showStructuredBrain
+            && !showStructuredWrist);
     backToStructuredFormButton.setVisible(
         selectedExamHasStructuredForm()
             && !showStructuredSpine
             && !showStructuredShoulder
             && !showStructuredKnee
             && !showStructuredBrain
+            && !showStructuredWrist
             && editingFindingId == null);
     if (selectedRegion.isPresent()) {
       backToStructuredFormButton.setText(selectedRegion.get().formLabel() + " Form");
@@ -797,6 +813,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       backToStructuredFormButton.setText("Knee Form");
     } else if (selectedExamTemplate() == ExamTemplate.BRAIN) {
       backToStructuredFormButton.setText("Brain Form");
+    } else if (selectedExamTemplate() == ExamTemplate.WRIST) {
+      backToStructuredFormButton.setText("Wrist Form");
     }
     revalidate();
     repaint();
@@ -814,6 +832,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     return exam == ExamTemplate.SHOULDER
         || exam == ExamTemplate.KNEE
         || exam == ExamTemplate.BRAIN
+        || exam == ExamTemplate.WRIST
         || SpineRegion.fromExam(exam).isPresent();
   }
 
@@ -874,6 +893,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         shoulderFindingTracker.finalizeDraft(currentDraft);
         kneeFindingTracker.finalizeDraft(currentDraft);
         brainFindingTracker.finalizeDraft(currentDraft);
+        wristFindingTracker.finalizeDraft(currentDraft);
       }
       currentDraft = null;
       patientLabel.setText("No active DICOM study");
@@ -894,6 +914,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       shoulderFindingTracker.finalizeDraft(currentDraft);
       kneeFindingTracker.finalizeDraft(currentDraft);
       brainFindingTracker.finalizeDraft(currentDraft);
+      wristFindingTracker.finalizeDraft(currentDraft);
     }
     boolean contextChanged = !selectedDraft.context().equals(context);
     currentDraft = selectedDraft;
@@ -911,6 +932,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       shoulderForm.clearSelections();
       kneeForm.clearSelections();
       brainForm.clearSelections();
+      wristForm.clearSelections();
       ExamTemplate template =
           draftExamTemplates.computeIfAbsent(
               context.draftKey(),
@@ -989,6 +1011,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     synchronizeBrainFindings(true, true);
   }
 
+  private void saveWristFindings() {
+    if (!requireActiveDraft()) {
+      return;
+    }
+    synchronizeWristFindings(true, true);
+  }
+
   private void savePendingStructuredFindings() {
     Optional<SpineRegion> region = selectedSpineRegion();
     if (tabs.getSelectedIndex() == 0 || currentDraft == null || editingFindingId != null) {
@@ -1002,6 +1031,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       synchronizeKneeFindings(false, false);
     } else if (selectedExamTemplate() == ExamTemplate.BRAIN) {
       synchronizeBrainFindings(false, false);
+    } else if (selectedExamTemplate() == ExamTemplate.WRIST) {
+      synchronizeWristFindings(false, false);
     }
   }
 
@@ -1096,6 +1127,31 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (clearAfterSave) {
       brainFindingTracker.finalizeSelection(currentDraft, ExamTemplate.BRAIN);
       brainForm.clearSelections();
+    }
+    if (result.changed()) {
+      refreshAll();
+    }
+    if (result.lastFinding() != null) {
+      findingList.setSelectedValue(result.lastFinding(), true);
+    }
+    return true;
+  }
+
+  private boolean synchronizeWristFindings(boolean warnWhenEmpty, boolean clearAfterSave) {
+    var result = wristFindingTracker.synchronize(currentDraft, wristForm.selection());
+    if (!result.hasFindings()) {
+      if (warnWhenEmpty) {
+        showWarning("Select at least one wrist finding.");
+      }
+      if (result.changed()) {
+        refreshAll();
+      }
+      return false;
+    }
+
+    if (clearAfterSave) {
+      wristFindingTracker.finalizeSelection(currentDraft, ExamTemplate.WRIST);
+      wristForm.clearSelections();
     }
     if (result.changed()) {
       refreshAll();

@@ -10,7 +10,7 @@ final formatted radiology report.
 2. In **Compose**, confirm the automatically selected MRI exam. Cervical, thoracic, and lumbar
    spine MRI each open a region-specific structured form for alignment, per-level listhesis with
    optional displacement, level-selectable degenerative changes, and per-level disc, facet,
-   posterior-element, foraminal, and free-text findings. Brain, knee, and shoulder MRI open
+   posterior-element, foraminal, and free-text findings. Brain, knee, shoulder, and wrist MRI open
    direct-click forms for their commonly repeated findings; other exams use the phrase catalog.
    The shared **Report text / instructions** box accepts any additional text for every exam and
    saves it automatically in the current study draft.
@@ -67,7 +67,7 @@ report template.
 - The starter phrase catalog covers brain, cervical spine, thoracic spine, lumbar spine, shoulder,
   elbow, wrist, hand, hip, knee, ankle, and foot MRI, with a General MRI fallback.
 - The cervical, thoracic, and lumbar spine forms can add several findings at once. Use **Other
-  Finding** for anything not represented by the brain, spine, knee, or shoulder structured
+  Finding** for anything not represented by the brain, spine, knee, shoulder, or wrist structured
   controls; both paths feed the same findings and key-image lists.
 - Catalog phrases are editable workflow aids rather than diagnostic decision support. The reading
   radiologist remains responsible for reviewing the generated findings and impression.
