@@ -29,7 +29,8 @@ final formatted radiology report.
 5. In **Preview**, choose the approved Google Drive transcription folder and export the packet.
 
 The selected destination is remembered locally. Each study has a separate in-memory draft while
-Weasis remains open.
+Weasis remains open. Compose starts at the top when a study is first viewed and remembers that
+study's scroll position when switching tabs or returning to the study during the same session.
 
 After a successful export, nonblank text from the shared **Report text / instructions** field is
 also appended to `.weasis/data/report-composer/instruction-history.jsonl`. This local learning

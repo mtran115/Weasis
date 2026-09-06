@@ -124,6 +124,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final CasePacketExporter packetExporter = new CasePacketExporter();
   private final ReportInstructionHistory instructionHistory = new ReportInstructionHistory();
   private final JTabbedPane tabs = new JTabbedPane();
+  private final JScrollPane composeScrollPane = new JScrollPane();
+  private final StudyScrollPosition composeScrollPosition =
+      new StudyScrollPosition(composeScrollPane);
   private final JLabel patientLabel = new JLabel("No active DICOM study");
   private final JLabel examLabel = new JLabel("Select an image to begin");
   private final JLabel accessionLabel = new JLabel(" ");
@@ -363,6 +366,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     tabs.addTab("Preview", buildPreviewTab());
     tabs.addChangeListener(
         event -> {
+          composeScrollPosition.setComposeSelected(tabs.getSelectedIndex() == 0);
           savePendingStructuredFindings();
           if (tabs.getSelectedIndex() == 1) {
             refreshCaptureViewports();
@@ -490,7 +494,11 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     genericFindingBuilder = buildFindingBuilder();
     content.add(fillWidth(genericFindingBuilder));
     content.add(fillWidth(buildFindingList()));
-    return scroll(content);
+    composeScrollPane.setViewportView(content);
+    composeScrollPane.setBorder(BorderFactory.createEmptyBorder());
+    composeScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+    composeScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+    return composeScrollPane;
   }
 
   private JPanel buildReportInstructions() {
@@ -888,6 +896,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private void synchronizeStudy(Optional<Selection> selection) {
     if (selection.isEmpty() || !selection.get().context().hasStudy()) {
       boolean draftChanged = currentDraft != null;
+      if (draftChanged) {
+        composeScrollPosition.selectStudy(null);
+      }
       if (currentDraft != null) {
         spineFindingTracker.finalizeDraft(currentDraft);
         shoulderFindingTracker.finalizeDraft(currentDraft);
@@ -901,6 +912,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       accessionLabel.setText(" ");
       if (draftChanged) {
         refreshAll();
+        composeScrollPosition.restorePosition();
       }
       return;
     }
@@ -909,6 +921,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     ReportDraft selectedDraft =
         drafts.computeIfAbsent(context.draftKey(), ignored -> new ReportDraft(context));
     boolean draftChanged = currentDraft != selectedDraft;
+    if (draftChanged) {
+      composeScrollPosition.selectStudy(context.draftKey());
+    }
     if (draftChanged && currentDraft != null) {
       spineFindingTracker.finalizeDraft(currentDraft);
       shoulderFindingTracker.finalizeDraft(currentDraft);
@@ -943,6 +958,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
     if (draftChanged || contextChanged) {
       refreshAll();
+    }
+    if (draftChanged) {
+      composeScrollPosition.restorePosition();
     }
   }
 
@@ -1603,14 +1621,6 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     Dimension maximum = panel.getMaximumSize();
     panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, maximum.height));
     return panel;
-  }
-
-  private static JScrollPane scroll(Component component) {
-    JScrollPane scrollPane = new JScrollPane(component);
-    scrollPane.setBorder(BorderFactory.createEmptyBorder());
-    scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-    scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-    return scrollPane;
   }
 
   private static JTextArea textArea(int rows) {
