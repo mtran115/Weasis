@@ -68,6 +68,39 @@ class BrainFindingBuilderTest {
   }
 
   @Test
+  void supportsExpandedWhiteMatterInterpretations() {
+    Selection selection =
+        selection(
+            false,
+            new WhiteMatterSelection(
+                WhiteMatterQuantity.MULTIPLE,
+                List.of(),
+                List.of(),
+                "",
+                false,
+                List.of(
+                    WhiteMatterEtiology.DEMYELINATING_DISEASE,
+                    WhiteMatterEtiology.MIGRAINE_RELATED,
+                    WhiteMatterEtiology.PRIOR_INSULT)),
+            AcuteFindingSelection.empty(),
+            Degree.NONE,
+            Degree.NONE,
+            SinusSelection.empty(),
+            false,
+            "",
+            List.of(),
+            "");
+
+    assertEquals(
+        List.of(
+            finding(
+                "Multiple T2/FLAIR hyperintense foci are present in the supratentorial white "
+                    + "matter and may be related to a demyelinating/inflammatory process, "
+                    + "migraine-related change, or a prior insult.")),
+        BrainFindingBuilder.generate(selection));
+  }
+
+  @Test
   void normalBrainCanCoexistWithTechnicalAndExtracranialSinusFindings() {
     Selection selection =
         selection(

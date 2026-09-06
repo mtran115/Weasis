@@ -285,7 +285,9 @@ final class BrainFindingBuilder {
   enum WhiteMatterEtiology {
     TRAUMATIC_INJURY("Traumatic injury", "traumatic injury"),
     CHRONIC_ISCHEMIC_CHANGE("Chronic ischemic change", "other chronic ischemic change"),
-    DEMYELINATING_DISEASE("Demyelinating disease", "demyelinating disease");
+    DEMYELINATING_DISEASE("Demyelinating/inflammatory", "a demyelinating/inflammatory process"),
+    MIGRAINE_RELATED("Migraine-related", "migraine-related change"),
+    PRIOR_INSULT("Prior insult", "a prior insult");
 
     private final String label;
     private final String phrase;
