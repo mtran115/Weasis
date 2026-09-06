@@ -78,11 +78,11 @@ final class KneeFormPanel extends JPanel {
   private static final List<FluidAmount> FLUID_AMOUNTS =
       List.of(FluidAmount.TRACE, FluidAmount.SMALL, FluidAmount.MODERATE, FluidAmount.LARGE);
 
-  private final JToggleButton normal = new JToggleButton("Normal knee MRI");
+  private final JToggleButton normal = new FindingToggleButton("Normal knee MRI");
   private final Map<Meniscus, MeniscusControls> menisci = new EnumMap<>(Meniscus.class);
   private final Map<Ligament, DirectChoiceControl<LigamentStatus>> ligaments =
       new EnumMap<>(Ligament.class);
-  private final JToggleButton aclReconstruction = new JToggleButton("ACL reconstruction");
+  private final JToggleButton aclReconstruction = new FindingToggleButton("ACL reconstruction");
   private final Map<ExtensorTendon, DirectChoiceControl<TendonStatus>> extensorMechanism =
       new EnumMap<>(ExtensorTendon.class);
   private final Map<Compartment, DirectChoiceControl<Degree>> osteoarthrosis =
@@ -92,10 +92,10 @@ final class KneeFormPanel extends JPanel {
   private final DirectChoiceControl<Degree> marrowDegree = new DirectChoiceControl<>(DEGREES, 2);
   private final Map<MarrowLocation, JToggleButton> marrowLocations =
       new EnumMap<>(MarrowLocation.class);
-  private final JToggleButton subchondral = new JToggleButton("Subchondral");
+  private final JToggleButton subchondral = new FindingToggleButton("Subchondral");
   private final DirectChoiceControl<FluidAmount> effusion =
       new DirectChoiceControl<>(FLUID_AMOUNTS, 2);
-  private final JToggleButton synovitis = new JToggleButton("Synovitis");
+  private final JToggleButton synovitis = new FindingToggleButton("Synovitis");
   private final DirectChoiceControl<FluidAmount> poplitealCyst =
       new DirectChoiceControl<>(FLUID_AMOUNTS, 2);
   private final DirectChoiceControl<Degree> prepatellarBursitis =
@@ -407,7 +407,7 @@ final class KneeFormPanel extends JPanel {
       T[] values, Map<T, JToggleButton> buttons, int columns) {
     JPanel panel = new JPanel(new GridLayout(0, columns, 4, 2));
     for (T value : values) {
-      JToggleButton button = new JToggleButton(value.toString());
+      JToggleButton button = new FindingToggleButton(value.toString());
       button.setMargin(new Insets(2, 7, 2, 7));
       buttons.put(value, button);
       panel.add(button);
@@ -439,13 +439,13 @@ final class KneeFormPanel extends JPanel {
   private static final class MeniscusControls {
     private final JPanel panel = new JPanel();
     private final JToggleButton intrasubstanceDegeneration =
-        new JToggleButton("Intrasubstance degeneration");
+        new FindingToggleButton("Intrasubstance degeneration");
     private final Map<MeniscusRegion, JToggleButton> regions = new EnumMap<>(MeniscusRegion.class);
     private final DirectChoiceControl<MeniscusTearType> tearType =
         new DirectChoiceControl<>(MENISCUS_TEAR_TYPES, 2);
-    private final JToggleButton maceration = new JToggleButton("Maceration");
-    private final JToggleButton extrusion = new JToggleButton("Extrusion");
-    private final JToggleButton parameniscalCyst = new JToggleButton("Parameniscal cyst");
+    private final JToggleButton maceration = new FindingToggleButton("Maceration");
+    private final JToggleButton extrusion = new FindingToggleButton("Extrusion");
+    private final JToggleButton parameniscalCyst = new FindingToggleButton("Parameniscal cyst");
 
     MeniscusControls(Meniscus meniscus) {
       panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));

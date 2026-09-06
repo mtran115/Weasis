@@ -56,7 +56,7 @@ final class ShoulderFormPanel extends JPanel {
       new EnumMap<>(RotatorCuffTendon.class);
   private final Map<LabralLocation, JToggleButton> labralTearLocations =
       new EnumMap<>(LabralLocation.class);
-  private final JToggleButton paralabralCyst = new JToggleButton("Adjacent paralabral cyst");
+  private final JToggleButton paralabralCyst = new FindingToggleButton("Adjacent paralabral cyst");
   private final DirectChoiceControl<Degree> longHeadBicepsTenosynovitis =
       new DirectChoiceControl<>(DEGREES);
   private final JTextArea freeText = new JTextArea(3, 24);
@@ -170,7 +170,7 @@ final class ShoulderFormPanel extends JPanel {
     panel.setBorder(BorderFactory.createTitledBorder("Labral tear"));
     JPanel choices = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 2));
     for (LabralLocation location : LabralLocation.values()) {
-      JToggleButton button = new JToggleButton(location.toString());
+      JToggleButton button = new FindingToggleButton(location.toString());
       button.setMargin(new Insets(2, 7, 2, 7));
       labralTearLocations.put(location, button);
       choices.add(button);
@@ -248,16 +248,17 @@ final class ShoulderFormPanel extends JPanel {
   private static final class CuffTearControls {
     private final JPanel panel = new JPanel();
     private final Map<CuffTearType, JToggleButton> types = new EnumMap<>(CuffTearType.class);
-    private final JToggleButton highGrade = new JToggleButton("High-grade");
-    private final JToggleButton atFootprint = new JToggleButton("At footprint");
-    private final JToggleButton backgroundTendinosis = new JToggleButton("Background tendinosis");
+    private final JToggleButton highGrade = new FindingToggleButton("High-grade");
+    private final JToggleButton atFootprint = new FindingToggleButton("At footprint");
+    private final JToggleButton backgroundTendinosis =
+        new FindingToggleButton("Background tendinosis");
     private final JTextField details = new JTextField(10);
 
     CuffTearControls() {
       panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
       JPanel typeRow = new JPanel(new GridLayout(0, 2, 4, 2));
       for (CuffTearType type : CuffTearType.values()) {
-        JToggleButton button = new JToggleButton(type.toString());
+        JToggleButton button = new FindingToggleButton(type.toString());
         button.setMargin(new Insets(2, 7, 2, 7));
         button.addActionListener(event -> updateModifierState());
         types.put(type, button);

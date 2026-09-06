@@ -90,7 +90,7 @@ final class WristFormPanel extends JPanel {
   private static final List<FluidAmount> FLUID_AMOUNTS =
       List.of(FluidAmount.TRACE, FluidAmount.SMALL, FluidAmount.MODERATE, FluidAmount.LARGE);
 
-  private final JToggleButton normal = new JToggleButton("Normal wrist MRI");
+  private final JToggleButton normal = new FindingToggleButton("Normal wrist MRI");
   private final Map<Ligament, LigamentControls> ligaments = new EnumMap<>(Ligament.class);
   private final DirectChoiceControl<TfccFinding> tfccFinding =
       new DirectChoiceControl<>(TFCC_FINDINGS, 2);
@@ -108,8 +108,8 @@ final class WristFormPanel extends JPanel {
       new DirectChoiceControl<>(FLUID_LOCATIONS, 2);
   private final DirectChoiceControl<FluidAmount> fluidAmount =
       new DirectChoiceControl<>(FLUID_AMOUNTS, 2);
-  private final JToggleButton likelyInflammatory = new JToggleButton("Likely inflammatory");
-  private final JToggleButton motionArtifact = new JToggleButton("Motion artifact");
+  private final JToggleButton likelyInflammatory = new FindingToggleButton("Likely inflammatory");
+  private final JToggleButton motionArtifact = new FindingToggleButton("Motion artifact");
   private final JTextArea freeText = new JTextArea(3, 24);
   private final JButton resetButton = iconButton(ActionIcon.RESET, "Clear wrist form");
   private final JButton otherFindingButton = new JButton("Other Finding");
@@ -405,7 +405,7 @@ final class WristFormPanel extends JPanel {
       T[] values, Map<T, JToggleButton> buttons, int columns) {
     JPanel panel = new JPanel(new GridLayout(0, columns, 4, 2));
     for (T value : values) {
-      JToggleButton button = new JToggleButton(value.toString());
+      JToggleButton button = new FindingToggleButton(value.toString());
       button.setMargin(new Insets(2, 7, 2, 7));
       buttons.put(value, button);
       panel.add(button);
@@ -440,7 +440,7 @@ final class WristFormPanel extends JPanel {
     private final DirectChoiceControl<LigamentStatus> status =
         new DirectChoiceControl<>(LIGAMENT_STATUSES, 2);
     private final JToggleButton intervalWidening =
-        new JToggleButton("Scapholunate interval widening");
+        new FindingToggleButton("Scapholunate interval widening");
     private final JTextField intervalMeasurement = new JTextField(6);
 
     LigamentControls(Ligament ligament) {

@@ -72,7 +72,7 @@ final class BrainFormPanel extends JPanel {
           SinusFindingType.RETENTION_CYST,
           SinusFindingType.FLUID_OPACIFICATION);
 
-  private final JToggleButton normal = new JToggleButton("Normal brain MRI");
+  private final JToggleButton normal = new FindingToggleButton("Normal brain MRI");
   private final DirectChoiceControl<WhiteMatterQuantity> whiteMatterQuantity =
       new DirectChoiceControl<>(WHITE_MATTER_QUANTITIES, 2);
   private final Map<WhiteMatterDistribution, JToggleButton> whiteMatterDistributions =
@@ -80,7 +80,7 @@ final class BrainFormPanel extends JPanel {
   private final Map<CerebralRegion, JToggleButton> whiteMatterRegions =
       new EnumMap<>(CerebralRegion.class);
   private final JTextField whiteMatterMaximumSize = new JTextField(7);
-  private final JToggleButton whiteMatterNonspecific = new JToggleButton("Nonspecific");
+  private final JToggleButton whiteMatterNonspecific = new FindingToggleButton("Nonspecific");
   private final Map<WhiteMatterEtiology, JToggleButton> whiteMatterEtiologies =
       new EnumMap<>(WhiteMatterEtiology.class);
   private final DirectChoiceControl<AcuteFindingType> acuteFindingType =
@@ -99,8 +99,9 @@ final class BrainFormPanel extends JPanel {
   private final Map<SinusSite, JToggleButton> sinusSites = new EnumMap<>(SinusSite.class);
   private final DirectChoiceControl<Degree> sinusDegree = new DirectChoiceControl<>(DEGREES, 3);
   private final JTextField sinusSize = new JTextField(7);
-  private final JToggleButton correlateForSinusitis = new JToggleButton("Correlate for sinusitis");
-  private final JToggleButton anteriorFalxLipoma = new JToggleButton("Anterior falx lipoma");
+  private final JToggleButton correlateForSinusitis =
+      new FindingToggleButton("Correlate for sinusitis");
+  private final JToggleButton anteriorFalxLipoma = new FindingToggleButton("Anterior falx lipoma");
   private final JTextField anteriorFalxLipomaSize = new JTextField(7);
   private final Map<TechnicalNote, JToggleButton> technicalNotes =
       new EnumMap<>(TechnicalNote.class);
@@ -388,7 +389,7 @@ final class BrainFormPanel extends JPanel {
   }
 
   private static JToggleButton toggle(String text) {
-    JToggleButton button = new JToggleButton(text);
+    JToggleButton button = new FindingToggleButton(text);
     button.setMargin(new Insets(2, 7, 2, 7));
     return button;
   }

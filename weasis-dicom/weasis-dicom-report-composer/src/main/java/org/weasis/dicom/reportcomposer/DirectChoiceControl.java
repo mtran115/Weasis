@@ -33,7 +33,7 @@ final class DirectChoiceControl<T> {
             ? new JPanel(new GridLayout(0, columns, 4, 2))
             : new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 0));
     for (T choice : choices) {
-      JToggleButton button = new JToggleButton(choice.toString());
+      JToggleButton button = new FindingToggleButton(choice.toString());
       button.setMargin(new Insets(2, 7, 2, 7));
       button.addActionListener(
           event -> {
