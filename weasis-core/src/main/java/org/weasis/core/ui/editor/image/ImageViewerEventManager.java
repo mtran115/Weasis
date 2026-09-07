@@ -9,6 +9,7 @@
  */
 package org.weasis.core.ui.editor.image;
 
+import java.awt.Point;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
@@ -806,16 +807,20 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
         .ifPresent(
             action -> {
               ViewCanvas<E> view = getSelectedViewPane();
-              Point2D cursor = view == null ? null : view.getJComponent().getMousePosition();
+              Point cursor = view == null ? null : view.getJComponent().getMousePosition();
               Point2D anchor =
-                  cursor == null ? null : view.viewToModel(cursor.getX(), cursor.getY());
+                  cursor == null ? null : view.getImageCoordinatesFromMouse(cursor.x, cursor.y);
 
               double factor = zoomSetting.getKeyboardZoomFactor();
               action.setRealValue(
                   zoomIn ? action.getRealValue() * factor : action.getRealValue() / factor);
 
               if (anchor != null) {
-                Point2D anchorAfterZoom = view.modelToView(anchor.getX(), anchor.getY());
+                // The render transform already includes the offset of clipped image edges.
+                Point2D anchorAfterZoom = view.getAffineTransform().transform(anchor, null);
+                Point2D offset = view.getClipViewCoordinatesOffset();
+                anchorAfterZoom.setLocation(
+                    anchorAfterZoom.getX() + offset.getX(), anchorAfterZoom.getY() + offset.getY());
                 Point2D adjustment =
                     calculateZoomAnchorPanAdjustment(
                         cursor, anchorAfterZoom, view.getViewModel().getViewScale());
