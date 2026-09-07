@@ -730,7 +730,7 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
   }
 
   protected boolean commonDisplayShortcuts(KeyEvent e) {
-    int keyEvent = e.getKeyCode();
+    int keyEvent = ShortcutManager.getNormalizedKeyCode(e);
     int modifiers = e.getModifiers();
     ShortcutManager sm = ShortcutManager.getInstance();
 

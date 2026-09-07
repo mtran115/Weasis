@@ -1121,7 +1121,54 @@ public final class ShortcutManager {
    * @return true if both key code and modifier match
    */
   public boolean matches(String id, KeyEvent e) {
-    return matches(id, e.getKeyCode(), e.getModifiers());
+    return matches(id, getNormalizedKeyCode(e), e.getModifiers());
+  }
+
+  /**
+   * Returns a stable key code for shortcuts produced by the numeric keypad. With Num Lock off,
+   * macOS reports the physical keypad digits as navigation keys (for example, keypad 1 as End).
+   * Normalize those events so a shortcut assigned to Numpad 1 continues to work in either state.
+   */
+  public static int getNormalizedKeyCode(KeyEvent e) {
+    Objects.requireNonNull(e);
+    if (e.getKeyLocation() != KeyEvent.KEY_LOCATION_NUMPAD) {
+      return e.getKeyCode();
+    }
+
+    int characterKeyCode = getNumpadKeyCode(e.getKeyChar());
+    if (characterKeyCode != 0) {
+      return characterKeyCode;
+    }
+
+    return switch (e.getKeyCode()) {
+      case KeyEvent.VK_0, KeyEvent.VK_INSERT -> KeyEvent.VK_NUMPAD0;
+      case KeyEvent.VK_1, KeyEvent.VK_END -> KeyEvent.VK_NUMPAD1;
+      case KeyEvent.VK_2, KeyEvent.VK_DOWN, KeyEvent.VK_KP_DOWN -> KeyEvent.VK_NUMPAD2;
+      case KeyEvent.VK_3, KeyEvent.VK_PAGE_DOWN -> KeyEvent.VK_NUMPAD3;
+      case KeyEvent.VK_4, KeyEvent.VK_LEFT, KeyEvent.VK_KP_LEFT -> KeyEvent.VK_NUMPAD4;
+      case KeyEvent.VK_5, KeyEvent.VK_CLEAR -> KeyEvent.VK_NUMPAD5;
+      case KeyEvent.VK_6, KeyEvent.VK_RIGHT, KeyEvent.VK_KP_RIGHT -> KeyEvent.VK_NUMPAD6;
+      case KeyEvent.VK_7, KeyEvent.VK_HOME -> KeyEvent.VK_NUMPAD7;
+      case KeyEvent.VK_8, KeyEvent.VK_UP, KeyEvent.VK_KP_UP -> KeyEvent.VK_NUMPAD8;
+      case KeyEvent.VK_9, KeyEvent.VK_PAGE_UP -> KeyEvent.VK_NUMPAD9;
+      default -> e.getKeyCode();
+    };
+  }
+
+  private static int getNumpadKeyCode(char keyChar) {
+    return switch (keyChar) {
+      case '0' -> KeyEvent.VK_NUMPAD0;
+      case '1' -> KeyEvent.VK_NUMPAD1;
+      case '2' -> KeyEvent.VK_NUMPAD2;
+      case '3' -> KeyEvent.VK_NUMPAD3;
+      case '4' -> KeyEvent.VK_NUMPAD4;
+      case '5' -> KeyEvent.VK_NUMPAD5;
+      case '6' -> KeyEvent.VK_NUMPAD6;
+      case '7' -> KeyEvent.VK_NUMPAD7;
+      case '8' -> KeyEvent.VK_NUMPAD8;
+      case '9' -> KeyEvent.VK_NUMPAD9;
+      default -> 0;
+    };
   }
 
   public ShortcutEntry getEntry(String id) {

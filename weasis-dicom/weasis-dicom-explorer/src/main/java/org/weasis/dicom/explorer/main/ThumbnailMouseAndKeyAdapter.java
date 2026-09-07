@@ -192,7 +192,7 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
     }
 
     ShortcutManager sm = ShortcutManager.getInstance();
-    int keyCode = getShortcutKeyCode(e);
+    int keyCode = ShortcutManager.getNormalizedKeyCode(e);
     int modifiers = e.getModifiers();
     String layoutId = null;
     if (sm.matches(ShortcutManager.ID_VIEWER_LAYOUT_1X1, keyCode, modifiers)) {
@@ -246,7 +246,7 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
   }
 
   private static int getViewSlotIndex(KeyEvent e) {
-    return getViewSlotIndex(getShortcutKeyCode(e), e.getModifiers());
+    return getViewSlotIndex(ShortcutManager.getNormalizedKeyCode(e), e.getModifiers());
   }
 
   static int getViewSlotIndex(int keyCode, int modifiers) {
@@ -261,25 +261,6 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
       return 3;
     }
     return -1;
-  }
-
-  private static int getShortcutKeyCode(KeyEvent e) {
-    if (e.getKeyLocation() != KeyEvent.KEY_LOCATION_NUMPAD) {
-      return e.getKeyCode();
-    }
-    return switch (e.getKeyChar()) {
-      case '0' -> KeyEvent.VK_NUMPAD0;
-      case '1' -> KeyEvent.VK_NUMPAD1;
-      case '2' -> KeyEvent.VK_NUMPAD2;
-      case '3' -> KeyEvent.VK_NUMPAD3;
-      case '4' -> KeyEvent.VK_NUMPAD4;
-      case '5' -> KeyEvent.VK_NUMPAD5;
-      case '6' -> KeyEvent.VK_NUMPAD6;
-      case '7' -> KeyEvent.VK_NUMPAD7;
-      case '8' -> KeyEvent.VK_NUMPAD8;
-      case '9' -> KeyEvent.VK_NUMPAD9;
-      default -> e.getKeyCode();
-    };
   }
 
   private void handleEnterKey(KeyEvent e, SeriesSelectionModel selList) {

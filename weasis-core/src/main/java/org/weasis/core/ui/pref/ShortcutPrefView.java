@@ -352,7 +352,7 @@ public class ShortcutPrefView extends AbstractItemDialogPage {
 
             @Override
             public void keyPressed(KeyEvent e) {
-              int kc = e.getKeyCode();
+              int kc = ShortcutManager.getNormalizedKeyCode(e);
               // Ignore pure modifier keys
               if (kc == KeyEvent.VK_SHIFT
                   || kc == KeyEvent.VK_CONTROL
