@@ -202,6 +202,81 @@ class WindowAndPresetsOpTest {
     assertFalse(WindowAndPresetsOp.isImplausiblePreset(preset, 450.0, 550.0));
   }
 
+  @Test
+  void seriesChangeCorrectsDarkPresetPreviouslyJustAboveTheThreshold() {
+    DicomImageElement image = mockImage(4000.0, 2000.0, 0.0, 1100.0);
+    PresetWindowLevel dicom =
+        new PresetWindowLevel(
+            "Default [DICOM]",
+            4000.0,
+            2000.0,
+            new LutShape(LutShape.Function.LINEAR, "Linear [DICOM]"));
+    PresetWindowLevel auto = preset("Auto Level [Image]", 1100.0, 550.0, true);
+    when(image.getDefaultPreset(any(WlPresentation.class))).thenReturn(dicom);
+    when(image.getPresetList(any(WlPresentation.class))).thenReturn(List.of(dicom, auto));
+    WindowAndPresetsOp op = new WindowAndPresetsOp();
+
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.SERIES_CHANGE, buildSeries("MR"), image, null));
+
+    assertSame(auto, op.getParam(ActionW.PRESET.cmd()));
+    assertEquals(1100.0, op.getParam(ActionW.WINDOW.cmd()));
+  }
+
+  @Test
+  void outlierDoesNotHideDarkAnatomyAndCorrectedAutoFollowsTheNextImage() {
+    DicomImageElement first = mockImage(4000.0, 2000.0, 0.0, 60000.0);
+    PresetWindowLevel dicom = preset("Default [DICOM]", 4000.0, 2000.0, false);
+    PresetWindowLevel auto = preset("Auto Level [Image]", 800.0, 400.0, true);
+    when(first.getMrWindowLevelRange(any(WlPresentation.class)))
+        .thenReturn(new MrWindowLevelRange(0.0, 800.0));
+    when(first.getDefaultPreset(any(WlPresentation.class))).thenReturn(dicom);
+    when(first.getPresetList(any(WlPresentation.class))).thenReturn(List.of(dicom, auto));
+    WindowAndPresetsOp op = new WindowAndPresetsOp();
+
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.SERIES_CHANGE, buildSeries("MR"), first, null));
+
+    assertSame(auto, op.getParam(ActionW.PRESET.cmd()));
+    assertEquals(800.0, op.getParam(ActionW.WINDOW.cmd()));
+    // Display statistics still include the original bright pixels.
+    assertEquals(60000.0, op.getParam(ActionW.LEVEL_MAX.cmd()));
+
+    DicomImageElement next = mockImage(5000.0, 2500.0, 0.0, 65000.0);
+    PresetWindowLevel nextAuto = preset("Auto Level [Image]", 900.0, 450.0, true);
+    when(next.getPresetList(any(WlPresentation.class))).thenReturn(List.of(nextAuto));
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("MR"), next, null));
+
+    assertSame(nextAuto, op.getParam(ActionW.PRESET.cmd()));
+    assertEquals(900.0, op.getParam(ActionW.WINDOW.cmd()));
+  }
+
+  @Test
+  void robustBoundsDoNotOverrideManualWindowLevel() {
+    DicomImageElement image = mockImage(4000.0, 2000.0, 0.0, 60000.0);
+    when(image.getMrWindowLevelRange(any(WlPresentation.class)))
+        .thenReturn(new MrWindowLevelRange(0.0, 800.0));
+    WindowAndPresetsOp op = new WindowAndPresetsOp();
+    op.setParam(ActionW.DEFAULT_PRESET.cmd(), false);
+    op.setParam(ActionW.WINDOW.cmd(), 4000.0);
+    op.setParam(ActionW.LEVEL.cmd(), 2000.0);
+
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("MR"), image, null));
+
+    assertEquals(4000.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(2000.0, op.getParam(ActionW.LEVEL.cmd()));
+  }
+
+  @Test
+  void nonlinearVoiPresetIsNotJudgedByLinearBrightness() {
+    DicomImageElement image = mockImage(4000.0, 2000.0, 0.0, 800.0);
+    PresetWindowLevel sigmoid = new PresetWindowLevel("Sigmoid", 4000.0, 2000.0, LutShape.SIGMOID);
+    when(image.getDefaultPreset(any(WlPresentation.class))).thenReturn(sigmoid);
+    WindowAndPresetsOp op = new WindowAndPresetsOp();
+
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.SERIES_CHANGE, buildSeries("MR"), image, null));
+
+    assertSame(sigmoid, op.getParam(ActionW.PRESET.cmd()));
+  }
+
   private static DicomImageElement mockImage(double window, double level, double min, double max) {
     DicomImageElement image = mock(DicomImageElement.class);
     when(image.isImageAvailable()).thenReturn(true);

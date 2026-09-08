@@ -11,6 +11,7 @@ package org.weasis.dicom.codec;
 
 import java.awt.image.RenderedImage;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -47,6 +48,7 @@ import org.weasis.core.api.media.data.ImageElement;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.util.MathUtil;
 import org.weasis.core.util.StringUtil;
+import org.weasis.dicom.codec.display.MrWindowLevelRange;
 import org.weasis.dicom.codec.display.OverlayOp;
 import org.weasis.dicom.codec.display.ShutterOp;
 import org.weasis.dicom.codec.display.WindowAndPresetsOp;
@@ -71,6 +73,7 @@ public class DicomImageElement extends ImageElement implements DicomElement {
       List.of(
           LutShape.LINEAR, LutShape.SIGMOID, LutShape.SIGMOID_NORM, LutShape.LOG, LutShape.LOG_INV);
   private DicomImageAdapter adapter = null;
+  private volatile MrWindowLevelRange mrWindowLevelRange;
   private Collection<LutShape> lutShapeCollection = null;
 
   public DicomImageElement(DcmMediaReader mediaIO, Object key) {
@@ -383,18 +386,16 @@ public class DicomImageElement extends ImageElement implements DicomElement {
    *     Note : null should never be returned since auto is at least one preset
    */
   public PresetWindowLevel getDefaultPreset(WlPresentation wlp) {
-    if (isImageInitialized()) {
-      return adapter.getDefaultPreset(wlp);
-    }
-    return null;
+    List<PresetWindowLevel> presets = getPresetList(wlp);
+    return presets.isEmpty() ? null : presets.getFirst();
   }
 
   public boolean containsPreset(PresetWindowLevel preset) {
     if (preset != null && isImageInitialized() && adapter.getPresetCollectionSize() > 0) {
-      List<PresetWindowLevel> collection = adapter.getPresetList(null);
-      if (collection != null) {
-        return collection.contains(preset);
-      }
+      List<PresetWindowLevel> original = adapter.getPresetList(null, false);
+      // Padding-disabled or PR views still use the original Auto preset.
+      return (original != null && original.contains(preset))
+          || getPresetList(null).contains(preset);
     }
     return false;
   }
@@ -424,9 +425,42 @@ public class DicomImageElement extends ImageElement implements DicomElement {
 
   public List<PresetWindowLevel> getPresetList(WlPresentation wl, boolean reload) {
     if (isImageInitialized()) {
-      return adapter.getPresetList(wl, reload);
+      List<PresetWindowLevel> presets = adapter.getPresetList(wl, reload);
+      if (presets == null) {
+        return Collections.emptyList();
+      }
+      MrWindowLevelRange range = getMrWindowLevelRange(wl);
+      if (range != null) {
+        for (int i = 0; i < presets.size(); i++) {
+          PresetWindowLevel preset = presets.get(i);
+          if (preset.isAutoLevel()
+              && preset.getLutShape() != null
+              && preset.getLutShape().getFunctionType() == LutShape.Function.LINEAR
+              && WindowAndPresetsOp.isImplausibleWindowLevel(
+                  preset.getWindow(), preset.getLevel(), range.min(), range.max())) {
+            PresetWindowLevel adjusted =
+                new PresetWindowLevel(
+                    preset.getName(),
+                    range.max() - range.min(),
+                    (range.max() + range.min()) / 2.0,
+                    LutShape.LINEAR);
+            adjusted.setKeyCode(preset.getKeyCode());
+            List<PresetWindowLevel> adjustedPresets = new ArrayList<>(presets);
+            adjustedPresets.set(i, adjusted);
+            return adjustedPresets;
+          }
+        }
+      }
+      return presets;
     }
     return Collections.emptyList();
+  }
+
+  /** Bounds for automatic MR presentation only; measured pixel values retain their full range. */
+  public MrWindowLevelRange getMrWindowLevelRange(WlPresentation wl) {
+    return wl == null || (wl.isPixelPadding() && wl.getPresentationState() == null)
+        ? mrWindowLevelRange
+        : null;
   }
 
   @Override
@@ -443,6 +477,13 @@ public class DicomImageElement extends ImageElement implements DicomElement {
           frameIndex = intVal;
         }
         adapter = new DicomImageAdapter(img, meta.getImageDescriptor(), frameIndex);
+        mrWindowLevelRange = null;
+        if ("MR".equalsIgnoreCase(meta.getImageDescriptor().getModality())
+            && PhotometricInterpretation.MONOCHROME2.equals(
+                meta.getImageDescriptor().getPhotometricInterpretation())
+            && meta.getImageDescriptor().getModalityLutForFrame(frameIndex).getLut().isEmpty()) {
+          mrWindowLevelRange = MrWindowLevelRange.estimate(img, adapter);
+        }
         MinMaxLocResult val = adapter.getMinMax();
         if (val != null) {
           this.minPixelValue = val.minVal;
@@ -483,8 +524,9 @@ public class DicomImageElement extends ImageElement implements DicomElement {
 
     DefaultWlPresentation wlp = new DefaultWlPresentation(null, true);
     PresetWindowLevel defaultPreset = getDefaultPreset(wlp);
-    if (!WindowAndPresetsOp.isImplausiblePreset(
-        defaultPreset, getMinValue(wlp), getMaxValue(wlp))) {
+    boolean adjustedAuto =
+        defaultPreset != null && defaultPreset.isAutoLevel() && getMrWindowLevelRange(wlp) != null;
+    if (!adjustedAuto && !WindowAndPresetsOp.isImplausiblePreset(defaultPreset, this, wlp)) {
       return getRenderedImage(imageSource);
     }
 

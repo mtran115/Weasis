@@ -411,8 +411,12 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
               && WindowAndPresetsOp.isImplausibleWindowLevel(
                   windowAction.get().getRealValue(),
                   levelAction.get().getRealValue(),
-                  imageMin,
-                  imageMax)) {
+                  view2d
+                      .getDisplayOpManager()
+                      .getParamValue(WindowOp.OP_NAME, ActionW.LUT_SHAPE.cmd(), LutShape.class)
+                      .orElse(null),
+                  image,
+                  wlp)) {
             newPreset =
                 newPresetList.stream()
                     .filter(PresetWindowLevel::isAutoLevel)
@@ -1048,9 +1052,10 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
         view.getDisplayOpManager()
             .getParamValue(WindowOp.OP_NAME, ActionW.IMAGE_PIX_PADDING.cmd(), Boolean.class)
             .orElse(Boolean.TRUE);
-    DefaultWlPresentation wlp = new DefaultWlPresentation(null, pixelPadding);
-    if (WindowAndPresetsOp.isImplausiblePreset(
-        defaultPreset.get(), image.getMinValue(wlp), image.getMaxValue(wlp))) {
+    DefaultWlPresentation wlp =
+        new DefaultWlPresentation(
+            PRManager.getPrDicomObject(view.getActionValue(ActionW.PR_STATE.cmd())), pixelPadding);
+    if (WindowAndPresetsOp.isImplausiblePreset(defaultPreset.get(), image, wlp)) {
       return getWindowLevelPreset(KeyEvent.VK_0).or(() -> defaultPreset);
     }
     return defaultPreset;

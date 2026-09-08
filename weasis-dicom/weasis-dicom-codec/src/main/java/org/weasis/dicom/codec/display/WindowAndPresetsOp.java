@@ -29,13 +29,15 @@ import org.weasis.dicom.codec.PRSpecialElement;
 import org.weasis.dicom.codec.TagD;
 import org.weasis.opencv.data.PlanarImage;
 import org.weasis.opencv.op.lut.DefaultWlPresentation;
+import org.weasis.opencv.op.lut.LutShape;
+import org.weasis.opencv.op.lut.WlPresentation;
 
 public class WindowAndPresetsOp extends WindowOp {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(WindowAndPresetsOp.class);
-  private static final double MIN_USABLE_DISPLAY_SPAN = 0.25;
-  private static final double DARK_DISPLAY_CEILING = 0.25;
-  private static final double BRIGHT_DISPLAY_FLOOR = 0.75;
+  private static final double MIN_USABLE_DISPLAY_SPAN = 0.35;
+  private static final double DARK_DISPLAY_CEILING = 0.35;
+  private static final double BRIGHT_DISPLAY_FLOOR = 0.65;
 
   public static final String P_PR_ELEMENT = "pr.element";
 
@@ -124,7 +126,7 @@ public class WindowAndPresetsOp extends WindowOp {
       preset = imageElement.getDefaultPreset(wlp);
       double imageMin = imageElement.getMinValue(wlp);
       double imageMax = imageElement.getMaxValue(wlp);
-      if (validateMrPreset && isImplausiblePreset(preset, imageMin, imageMax)) {
+      if (validateMrPreset && isImplausiblePreset(preset, imageElement, wlp)) {
         PresetWindowLevel autoPreset = findAutoPreset(imageElement, wlp);
         if (autoPreset != null) {
           LOGGER.warn(
@@ -180,7 +182,9 @@ public class WindowAndPresetsOp extends WindowOp {
         preset == null ? getNumberParam(ActionW.LEVEL.cmd(), Double.NaN) : preset.getLevel();
     double imageMin = imageElement.getMinValue(wlp);
     double imageMax = imageElement.getMaxValue(wlp);
-    if (!isImplausibleWindowLevel(window, level, imageMin, imageMax)) {
+    LutShape shape =
+        preset == null ? (LutShape) getParam(ActionW.LUT_SHAPE.cmd()) : preset.getLutShape();
+    if (!isImplausibleWindowLevel(window, level, shape, imageElement, wlp)) {
       return;
     }
 
@@ -203,10 +207,36 @@ public class WindowAndPresetsOp extends WindowOp {
 
   public static boolean isImplausiblePreset(
       PresetWindowLevel preset, double imageMin, double imageMax) {
-    if (preset == null || preset.isAutoLevel()) {
+    if (preset == null
+        || preset.isAutoLevel()
+        || preset.getLutShape() == null
+        || preset.getLutShape().getFunctionType() != LutShape.Function.LINEAR) {
       return false;
     }
     return isImplausibleWindowLevel(preset.getWindow(), preset.getLevel(), imageMin, imageMax);
+  }
+
+  public static boolean isImplausiblePreset(
+      PresetWindowLevel preset, DicomImageElement image, WlPresentation wlp) {
+    return preset != null
+        && !preset.isAutoLevel()
+        && isImplausibleWindowLevel(
+            preset.getWindow(), preset.getLevel(), preset.getLutShape(), image, wlp);
+  }
+
+  public static boolean isImplausibleWindowLevel(
+      double window, double level, LutShape shape, DicomImageElement image, WlPresentation wlp) {
+    // A linear grayscale estimate cannot assess a custom VOI LUT or presentation state.
+    if ((shape != null && shape.getFunctionType() != LutShape.Function.LINEAR)
+        || (wlp != null && wlp.getPresentationState() != null)) {
+      return false;
+    }
+    MrWindowLevelRange range = image.getMrWindowLevelRange(wlp);
+    return isImplausibleWindowLevel(
+        window,
+        level,
+        range == null ? image.getMinValue(wlp) : range.min(),
+        range == null ? image.getMaxValue(wlp) : range.max());
   }
 
   public static boolean isImplausibleWindowLevel(
@@ -227,7 +257,7 @@ public class WindowAndPresetsOp extends WindowOp {
     double displayedSpan = displayedMax - displayedMin;
 
     // Keep broad, centered clinical presets. Fall back only when the entire pixel range is
-    // compressed into an extreme dark or bright portion of the available grayscale.
+    // compressed into roughly the bottom or top third of the available grayscale.
     return displayedSpan < MIN_USABLE_DISPLAY_SPAN
         && (displayedMax <= DARK_DISPLAY_CEILING || displayedMin >= BRIGHT_DISPLAY_FLOOR);
   }
