@@ -105,3 +105,10 @@ The dedicated launcher uses `~/.weasis-report-composer-dev` for its singleton lo
 distinct `report-composer-v1` profile and source ID give it separate preferences and an OSGi cache
 from the daily-reading build, even though Weasis keeps those profile directories under
 `~/.weasis`.
+
+Development launch configurations load Weasis application bundles directly from this worktree's
+module `target` directories. Third-party dependencies still come from the local Maven repository.
+This prevents an install from another worktree from replacing Report Composer's core library and
+disabling its capture shortcuts. Build the modules after source changes, then restart the app to
+load the updated bundles. Export any current draft before restarting because drafts are held only
+in memory.

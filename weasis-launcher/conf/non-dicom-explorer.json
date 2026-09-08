@@ -11,7 +11,7 @@
     },
     {
       "code": "felix.auto.start.40",
-      "value": "file:${maven.localRepository}/org/weasis/base/weasis-base-explorer/${app.version}/weasis-base-explorer-${app.version}.jar",
+      "value": "${weasis.codebase.url}/../../weasis-base/weasis-base-explorer/target/weasis-base-explorer-${app.version}.jar",
       "description": "Replace DICOM explorer by a standard image explorer"
     },
     {

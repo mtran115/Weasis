@@ -6,7 +6,7 @@
     },
     {
       "code": "felix.auto.start.45",
-      "value": "file:${maven.localRepository}/org/weasis/base/weasis-base-explorer/${app.version}/weasis-base-explorer-${app.version}.jar file:${maven.localRepository}/org/weasis/acquire/weasis-acquire-explorer/${app.version}/weasis-acquire-explorer-${app.version}.jar",
+      "value": "${weasis.codebase.url}/../../weasis-base/weasis-base-explorer/target/weasis-base-explorer-${app.version}.jar ${weasis.codebase.url}/../../weasis-acquire/weasis-acquire-explorer/target/weasis-acquire-explorer-${app.version}.jar",
       "description": "Base and Thumbnail explorer",
       "type": "A",
       "category": "FELIX_INSTALL"
@@ -23,14 +23,14 @@
     },
     {
       "code": "felix.auto.start.85",
-      "value": "file:${maven.localRepository}/org/weasis/acquire/weasis-acquire-editor/${app.version}/weasis-acquire-editor-${app.version}.jar",
+      "value": "${weasis.codebase.url}/../../weasis-acquire/weasis-acquire-editor/target/weasis-acquire-editor-${app.version}.jar",
       "description": "Image editor",
       "type": "A",
       "category": "FELIX_INSTALL"
     },
     {
       "code": "felix.auto.start.110",
-      "value": "file:${maven.localRepository}/org/weasis/dicom/weasis-dicom-send/${app.version}/weasis-dicom-send-${app.version}.jar",
+      "value": "${weasis.codebase.url}/../../weasis-dicom/weasis-dicom-send/target/weasis-dicom-send-${app.version}.jar",
       "description": "DICOM send only, REMOVE - Q/R and ISO writer"
     },
     {
