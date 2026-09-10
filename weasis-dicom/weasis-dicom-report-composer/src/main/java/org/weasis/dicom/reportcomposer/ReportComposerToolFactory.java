@@ -26,6 +26,12 @@ public class ReportComposerToolFactory extends ExtToolFactory<DicomImageElement>
   }
 
   @Override
+  public void dispose(Insertable tool) {
+    if (tool instanceof ReportComposerTool composer) composer.disposeTrainingCapture();
+    super.dispose(tool);
+  }
+
+  @Override
   public boolean isComponentCreatedByThisFactory(Insertable component) {
     return component instanceof ReportComposerTool;
   }

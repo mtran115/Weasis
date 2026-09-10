@@ -12,9 +12,14 @@ package org.weasis.dicom.reportcomposer;
 import java.util.UUID;
 
 public record FindingEntry(
-    String id, String findingText, String impressionText, boolean includeInImpression) {
+    String id,
+    String findingText,
+    String impressionText,
+    boolean includeInImpression,
+    FindingMetadata metadata) {
 
   public FindingEntry {
+    metadata = metadata == null ? FindingMetadata.freeText(findingText) : metadata;
     id = ComposerText.clean(id);
     findingText = ComposerText.sentence(findingText);
     impressionText = ComposerText.sentence(impressionText);
@@ -29,6 +34,15 @@ public record FindingEntry(
     }
   }
 
+  public FindingEntry(
+      String id, String findingText, String impressionText, boolean includeInImpression) {
+    this(id, findingText, impressionText, includeInImpression, null);
+  }
+
+  public String rawInput() {
+    return metadata.rawInput();
+  }
+
   public static FindingEntry create(
       String findingText, String impressionText, boolean includeInImpression) {
     return new FindingEntry(
@@ -37,7 +51,15 @@ public record FindingEntry(
 
   public FindingEntry withText(
       String newFindingText, String newImpressionText, boolean newIncludeInImpression) {
-    return new FindingEntry(id, newFindingText, newImpressionText, newIncludeInImpression);
+    boolean changed =
+        !findingText.equals(ComposerText.sentence(newFindingText))
+            || !impressionText.equals(ComposerText.sentence(newImpressionText));
+    return new FindingEntry(
+        id,
+        newFindingText,
+        newImpressionText,
+        newIncludeInImpression,
+        metadata.edited(newFindingText, changed));
   }
 
   @Override

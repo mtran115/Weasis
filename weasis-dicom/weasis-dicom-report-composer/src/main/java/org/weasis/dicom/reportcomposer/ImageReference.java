@@ -16,7 +16,10 @@ public record ImageReference(
     String seriesDescription,
     String instanceNumber,
     int displayIndex,
-    int seriesSize) {
+    int seriesSize,
+    Integer sourceFrameIndex,
+    String sourceUri,
+    ImageGeometry geometry) {
 
   public ImageReference {
     seriesInstanceUid = ComposerText.clean(seriesInstanceUid);
@@ -26,6 +29,35 @@ public record ImageReference(
     instanceNumber = ComposerText.clean(instanceNumber);
     displayIndex = Math.max(1, displayIndex);
     seriesSize = Math.max(displayIndex, seriesSize);
+    sourceFrameIndex = sourceFrameIndex == null || sourceFrameIndex < 0 ? null : sourceFrameIndex;
+    sourceUri = ComposerText.clean(sourceUri);
+    geometry = geometry == null ? ImageGeometry.empty() : geometry;
+  }
+
+  public ImageReference(
+      String seriesInstanceUid,
+      String sopInstanceUid,
+      String seriesNumber,
+      String seriesDescription,
+      String instanceNumber,
+      int displayIndex,
+      int seriesSize) {
+    this(
+        seriesInstanceUid,
+        sopInstanceUid,
+        seriesNumber,
+        seriesDescription,
+        instanceNumber,
+        displayIndex,
+        seriesSize,
+        null,
+        "",
+        ImageGeometry.empty());
+  }
+
+  /** One-based DICOM frame number, independent of the sorted viewport's display index. */
+  public Integer sourceFrameNumber() {
+    return sourceFrameIndex == null ? null : sourceFrameIndex + 1;
   }
 
   public String humanReference() {

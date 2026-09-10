@@ -11,8 +11,10 @@ package org.weasis.dicom.reportcomposer;
 
 import java.awt.Component;
 import java.awt.Point;
+import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.awt.image.RenderedImage;
+import java.time.Instant;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.List;
@@ -180,16 +182,11 @@ final class DicomContextReader {
   }
 
   private static ImageReference imageReference(CurrentImage current) {
-    DicomImageElement image = current.image();
-    MediaSeries<DicomImageElement> series = current.series();
-    return new ImageReference(
-        value(Tag.SeriesInstanceUID, image, series),
-        value(Tag.SOPInstanceUID, image, series),
-        series.getSeriesNumber(),
-        value(Tag.SeriesDescription, image, series),
-        value(Tag.InstanceNumber, image, series),
+    return SourceDicomMetadata.reference(
+        current.image(),
+        current.series(),
         current.canvas().getFrameIndex() + 1,
-        series.size(null));
+        current.series().size(null));
   }
 
   private static Optional<DefaultView2d<DicomImageElement>> dicomCanvas(ViewCanvas<?> view) {
@@ -239,6 +236,30 @@ final class DicomContextReader {
 
   record Selection(
       CaseContext context, ImageReference reference, DefaultView2d<DicomImageElement> canvas) {
+    /** Freeze source identity and geometry before a modal annotation dialog can change the view. */
+    CapturedView capture() {
+      CurrentImage current =
+          currentImage(canvas)
+              .orElseThrow(
+                  () -> new IllegalStateException("The selected viewport has no DICOM image."));
+      ImageReference capturedReference = imageReference(current);
+      CaptureGeometry geometry =
+          CaptureGeometry.freeze(
+              canvas.getWidth(),
+              canvas.getHeight(),
+              canvas.getInverseTransform(),
+              canvas.getClipViewCoordinatesOffset(),
+              current.image().getRescaleX(),
+              current.image().getRescaleY());
+      String capturedAt = Instant.now().toString();
+      BufferedImage image = captureView();
+      if (canvas.getImage() != current.image()) {
+        throw new IllegalStateException(
+            "The viewport changed during capture. Capture the image again.");
+      }
+      return new CapturedView(capturedReference, image, geometry, capturedAt);
+    }
+
     BufferedImage captureView() {
       RenderedImage rendered =
           captureWithoutReferenceLines(
@@ -250,11 +271,14 @@ final class DicomContextReader {
       BufferedImage converted =
           new BufferedImage(rendered.getWidth(), rendered.getHeight(), BufferedImage.TYPE_INT_RGB);
       java.awt.Graphics2D graphics = converted.createGraphics();
-      graphics.drawRenderedImage(rendered, new java.awt.geom.AffineTransform());
+      graphics.drawRenderedImage(rendered, new AffineTransform());
       graphics.dispose();
       return converted;
     }
   }
+
+  record CapturedView(
+      ImageReference reference, BufferedImage image, CaptureGeometry geometry, String capturedAt) {}
 
   private record CurrentImage(
       DefaultView2d<DicomImageElement> canvas,

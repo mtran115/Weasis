@@ -19,7 +19,7 @@ public record ReportPacket(
     String reportInstructions) {
   public ReportPacket {
     findings = List.copyOf(findings);
-    keyImages = List.copyOf(keyImages);
+    keyImages = keyImages.stream().map(KeyImageCapture::snapshot).toList();
     reportInstructions = ComposerText.clean(reportInstructions);
   }
 

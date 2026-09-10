@@ -11,6 +11,9 @@ package org.weasis.dicom.reportcomposer;
 
 import bibliothek.gui.dock.common.CLocation;
 import bibliothek.gui.dock.common.mode.ExtendedMode;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.formdev.flatlaf.util.SystemFileChooser;
 import java.awt.AWTEvent;
 import java.awt.BorderLayout;
@@ -35,7 +38,6 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.event.AWTEventListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
-import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -64,6 +66,7 @@ import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.weasis.core.api.gui.Insertable;
@@ -98,6 +101,11 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private final Map<String, ReportDraft> drafts = new LinkedHashMap<>();
   private final Map<String, ExamTemplate> draftExamTemplates = new LinkedHashMap<>();
+  private final Map<String, JsonNode> draftEditorStates = new LinkedHashMap<>();
+  private final Map<Component, Boolean> suspendedInputs = new java.util.IdentityHashMap<>();
+  private final BackgroundCaseRecorder caseRecorder = new BackgroundCaseRecorder();
+  private final Timer draftSaveTimer = new Timer(500, event -> persistCurrentDraft());
+  private final JLabel localSaveLabel = new JLabel("Local training capture ready");
   private final StructuredFindingDraftTracker<SpineRegion, SpineFindingBuilder.Selection>
       spineFindingTracker =
           new StructuredFindingDraftTracker<>(
@@ -155,6 +163,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JComboBox<CaptureViewport> captureViewportCombo = new JComboBox<>();
   private final JButton captureButton = new JButton("Capture Selected View");
   private final JTextArea keyImageCaption = textArea(2);
+  private final JComboBox<FindingLinkChoice> keyImageFinding = new JComboBox<>();
   private final JTextArea previewArea = textArea(24);
   private final JLabel outputFolderLabel = new JLabel("No transcription folder selected");
   private final JLabel statusLabel = new JLabel(" ");
@@ -176,6 +185,20 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private boolean canvasInteractionListenerInstalled;
   private boolean captureShortcutPending;
   private boolean nativePopOutInstalled;
+  private boolean updatingTrainingState;
+  private boolean recordingDraft;
+  private boolean updatingGenericInput;
+  private boolean pendingGenericInput;
+  private boolean updatingFindingLink;
+  private boolean updatingKeyImageCaption;
+  private boolean exportInProgress;
+  private boolean recorderDisposed;
+  private String activeStudyKey;
+  private CaseContext activeStudyContext;
+  private long studyLoadGeneration;
+  private long saveGeneration;
+  private long draftChangeGeneration;
+  private PendingCapture pendingCapture;
 
   public ReportComposerTool() {
     super(BUTTON_NAME, POSITION.EAST, ExtendedMode.NORMALIZED, Insertable.Type.TOOL_EXT, 145);
@@ -187,6 +210,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     buildInterface();
     updateOutputFolderLabel();
     initializeCatalogControls();
+    installDraftRecording();
     GuiExecutor.execute(this::synchronizeStudy);
   }
 
@@ -212,6 +236,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   @Override
   public void removeNotify() {
+    persistCurrentDraft();
     if (canvasInteractionListenerInstalled) {
       Toolkit.getDefaultToolkit().removeAWTEventListener(canvasInteractionListener);
       canvasInteractionListenerInstalled = false;
@@ -373,6 +398,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
           }
         });
     add(tabs, BorderLayout.CENTER);
+    localSaveLabel.setBorder(GuiUtils.getEmptyBorder(3, 4, 3, 4));
+    localSaveLabel.setToolTipText(
+        "Drafts and training records stay on this computer. Export completes the annotation pass.");
+    add(localSaveLabel, BorderLayout.SOUTH);
   }
 
   private JPanel buildCaseHeader() {
@@ -650,13 +679,26 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     keyImageList.addListSelectionListener(
         event -> {
           KeyImageCapture selected = keyImageList.getSelectedValue();
-          keyImageCaption.setText(selected == null ? "" : selected.caption());
+          updatingKeyImageCaption = true;
+          try {
+            keyImageCaption.setText(selected == null ? "" : selected.caption());
+          } finally {
+            updatingKeyImageCaption = false;
+          }
+          refreshFindingLink();
         });
     content.add(new JScrollPane(keyImageList), BorderLayout.CENTER);
 
     JPanel captionPanel = new JPanel(new BorderLayout(4, 4));
     captionPanel.setBorder(BorderFactory.createTitledBorder("Arrow instruction"));
     captionPanel.add(new JScrollPane(keyImageCaption), BorderLayout.CENTER);
+    JPanel linkPanel = new JPanel(new BorderLayout(4, 4));
+    linkPanel.add(new JLabel("Finding"), BorderLayout.WEST);
+    keyImageFinding.setToolTipText(
+        "Associate this key image with a finding; suggested links can be corrected here.");
+    keyImageFinding.addActionListener(event -> updateFindingLink());
+    linkPanel.add(keyImageFinding, BorderLayout.CENTER);
+    captionPanel.add(linkPanel, BorderLayout.NORTH);
     JButton updateCaption = new JButton("Update Caption");
     updateCaption.addActionListener(event -> updateKeyImageCaption());
     JButton remove = iconButton(ActionIcon.SELECTION_DELETE, "Delete selected key image");
@@ -705,6 +747,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     examCombo.setSelectedItem(MriFindingCatalog.defaultExam());
     updatingCatalogControls = false;
     updateCatalogControls();
+    scheduleDraftSave();
   }
 
   private void examTemplateChanged() {
@@ -716,6 +759,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
     structuredFormMode = selectedExamHasStructuredForm();
     updateCatalogControls();
+    scheduleDraftSave();
   }
 
   private void updateCatalogControls() {
@@ -848,11 +892,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     structuredFormMode = false;
     updateFindingBuilderVisibility();
     applyCatalogPhrase();
+    scheduleDraftSave();
   }
 
   private void showStructuredForm() {
     structuredFormMode = true;
     updateFindingBuilderVisibility();
+    scheduleDraftSave();
   }
 
   private void applyCatalogPhrase() {
@@ -865,11 +911,166 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             (String) categoryCombo.getSelectedItem(),
             (String) structureCombo.getSelectedItem(),
             (FindingChoice) findingCombo.getSelectedItem());
-    findingText.setText(generated.findingText());
-    impressionText.setText(generated.impressionText());
-    boolean include = !generated.impressionText().isBlank();
-    includeInImpression.setSelected(include);
-    impressionText.setEnabled(include);
+    updatingGenericInput = true;
+    try {
+      findingText.setText(generated.findingText());
+      impressionText.setText(generated.impressionText());
+      boolean include = !generated.impressionText().isBlank();
+      includeInImpression.setSelected(include);
+      impressionText.setEnabled(include);
+      pendingGenericInput = false;
+    } finally {
+      updatingGenericInput = false;
+    }
+  }
+
+  private void installDraftRecording() {
+    draftSaveTimer.setRepeats(false);
+    spineForms.values().forEach(form -> ComposerFormState.watch(form, this::scheduleDraftSave));
+    ComposerFormState.watch(shoulderForm, this::scheduleDraftSave);
+    ComposerFormState.watch(kneeForm, this::scheduleDraftSave);
+    ComposerFormState.watch(brainForm, this::scheduleDraftSave);
+    ComposerFormState.watch(wristForm, this::scheduleDraftSave);
+    Runnable genericChanged =
+        () -> {
+          if (!updatingGenericInput && !updatingTrainingState && currentDraft != null) {
+            pendingGenericInput = true;
+            scheduleDraftSave();
+          }
+        };
+    ComposerFormState.watch(findingText, genericChanged);
+    ComposerFormState.watch(impressionText, genericChanged);
+    ComposerFormState.watch(includeInImpression, genericChanged);
+    ComposerFormState.watch(
+        keyImageCaption,
+        () -> {
+          KeyImageCapture image = keyImageList.getSelectedValue();
+          if (!updatingKeyImageCaption
+              && !updatingTrainingState
+              && image != null
+              && currentDraft != null) {
+            image.setCaption(keyImageCaption.getText());
+            scheduleDraftSave();
+          }
+        });
+  }
+
+  private void scheduleDraftSave() {
+    if (currentDraft == null || updatingTrainingState || recordingDraft || recorderDisposed) return;
+    draftChangeGeneration++;
+    localSaveLabel.setText("Saving locally…");
+    draftSaveTimer.restart();
+  }
+
+  private TrainingCaseSnapshot snapshotCurrentDraft() {
+    if (currentDraft == null) return null;
+    recordingDraft = true;
+    try {
+      savePendingStructuredFindings();
+      JsonNode state = captureEditorState();
+      draftEditorStates.put(currentDraft.context().draftKey(), state);
+      return TrainingCaseSnapshot.capture(currentDraft, selectedExamTemplate().name(), state);
+    } finally {
+      recordingDraft = false;
+    }
+  }
+
+  private void persistCurrentDraft() {
+    draftSaveTimer.stop();
+    if (currentDraft == null || updatingTrainingState || recordingDraft || recorderDisposed) return;
+    saveSnapshot(snapshotCurrentDraft());
+  }
+
+  private void saveSnapshot(TrainingCaseSnapshot snapshot) {
+    long generation = ++saveGeneration;
+    caseRecorder
+        .requestSave(snapshot)
+        .whenComplete(
+            (ignored, error) ->
+                GuiExecutor.execute(
+                    () -> {
+                      if (generation == saveGeneration
+                          && snapshot.studyKey().equals(activeStudyKey)) {
+                        localSaveLabel.setText(
+                            error == null
+                                ? "Saved locally"
+                                : "Local save failed — draft remains in memory");
+                      }
+                    }));
+  }
+
+  void disposeTrainingCapture() {
+    GuiExecutor.execute(
+        () -> {
+          if (!recorderDisposed) {
+            persistCurrentDraft();
+            recorderDisposed = true;
+            caseRecorder.close();
+          }
+        });
+  }
+
+  private JsonNode captureEditorState() {
+    ObjectNode state = JsonNodeFactory.instance.objectNode();
+    state.put("schemaVersion", 1);
+    ObjectNode forms = state.putObject("forms");
+    spineForms.forEach((region, form) -> forms.set(region.name(), ComposerFormState.capture(form)));
+    forms.set("SHOULDER", ComposerFormState.capture(shoulderForm));
+    forms.set("KNEE", ComposerFormState.capture(kneeForm));
+    forms.set("BRAIN", ComposerFormState.capture(brainForm));
+    forms.set("WRIST", ComposerFormState.capture(wristForm));
+    ObjectNode trackers = state.putObject("trackers");
+    trackers.set("spine", spineFindingTracker.captureState(currentDraft));
+    trackers.set("shoulder", shoulderFindingTracker.captureState(currentDraft));
+    trackers.set("knee", kneeFindingTracker.captureState(currentDraft));
+    trackers.set("brain", brainFindingTracker.captureState(currentDraft));
+    trackers.set("wrist", wristFindingTracker.captureState(currentDraft));
+    state.put("findingText", findingText.getText());
+    state.put("impressionText", impressionText.getText());
+    state.put("includeInImpression", includeInImpression.isSelected());
+    state.put("structuredFormMode", structuredFormMode);
+    state.put("editingFindingId", editingFindingId == null ? "" : editingFindingId);
+    state.put("pendingGenericInput", pendingGenericInput);
+    return state;
+  }
+
+  private void restoreEditorState(JsonNode state) {
+    if (state == null || state.path("schemaVersion").asInt() != 1) return;
+    JsonNode forms = state.path("forms");
+    spineForms.forEach(
+        (region, form) -> ComposerFormState.restore(form, forms.path(region.name())));
+    ComposerFormState.restore(shoulderForm, forms.path("SHOULDER"));
+    ComposerFormState.restore(kneeForm, forms.path("KNEE"));
+    ComposerFormState.restore(brainForm, forms.path("BRAIN"));
+    ComposerFormState.restore(wristForm, forms.path("WRIST"));
+    findingText.setText(state.path("findingText").asText());
+    impressionText.setText(state.path("impressionText").asText());
+    includeInImpression.setSelected(state.path("includeInImpression").asBoolean());
+    impressionText.setEnabled(includeInImpression.isSelected());
+    structuredFormMode =
+        state.path("structuredFormMode").asBoolean(selectedExamHasStructuredForm());
+    String editing = state.path("editingFindingId").asText();
+    editingFindingId = selectedFindingById(editing) == null ? null : editing;
+    pendingGenericInput = state.path("pendingGenericInput").asBoolean();
+    saveFindingButton.setText(editingFindingId == null ? "Add" : "Update");
+    saveFindingButton.setIcon(
+        ResourceUtil.getIcon(editingFindingId == null ? ActionIcon.PLUS : ActionIcon.DRAW_TEXT));
+    cancelEditButton.setVisible(editingFindingId != null);
+    updateFindingBuilderVisibility();
+    JsonNode trackers = state.path("trackers");
+    spineForms
+        .values()
+        .forEach(
+            form ->
+                spineFindingTracker.restoreSelection(
+                    currentDraft, form.selection(), trackers.path("spine")));
+    shoulderFindingTracker.restoreSelection(
+        currentDraft, shoulderForm.selection(), trackers.path("shoulder"));
+    kneeFindingTracker.restoreSelection(currentDraft, kneeForm.selection(), trackers.path("knee"));
+    brainFindingTracker.restoreSelection(
+        currentDraft, brainForm.selection(), trackers.path("brain"));
+    wristFindingTracker.restoreSelection(
+        currentDraft, wristForm.selection(), trackers.path("wrist"));
   }
 
   private void synchronizeStudy() {
@@ -894,55 +1095,90 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void synchronizeStudy(Optional<Selection> selection) {
-    if (selection.isEmpty() || !selection.get().context().hasStudy()) {
-      boolean draftChanged = currentDraft != null;
-      if (draftChanged) {
-        composeScrollPosition.selectStudy(null);
-      }
-      if (currentDraft != null) {
-        spineFindingTracker.finalizeDraft(currentDraft);
-        shoulderFindingTracker.finalizeDraft(currentDraft);
-        kneeFindingTracker.finalizeDraft(currentDraft);
-        brainFindingTracker.finalizeDraft(currentDraft);
-        wristFindingTracker.finalizeDraft(currentDraft);
-      }
-      currentDraft = null;
-      patientLabel.setText("No active DICOM study");
-      examLabel.setText("Select an image to begin");
-      accessionLabel.setText(" ");
-      if (draftChanged) {
+    CaseContext context =
+        selection.filter(value -> value.context().hasStudy()).map(Selection::context).orElse(null);
+    String key = context == null ? null : context.draftKey();
+    if (java.util.Objects.equals(key, activeStudyKey)) {
+      if (context == null) setComposerInputEnabled(false);
+      activeStudyContext = context;
+      if (currentDraft != null && !currentDraft.context().equals(context)) {
+        currentDraft.updateContext(context);
+        updateCaseHeader(context);
         refreshAll();
-        composeScrollPosition.restorePosition();
       }
       return;
     }
 
-    CaseContext context = selection.get().context();
-    ReportDraft selectedDraft =
-        drafts.computeIfAbsent(context.draftKey(), ignored -> new ReportDraft(context));
-    boolean draftChanged = currentDraft != selectedDraft;
-    if (draftChanged) {
-      composeScrollPosition.selectStudy(context.draftKey());
+    persistCurrentDraft();
+    if (pendingCapture != null && !pendingCapture.studyKey().equals(key)) pendingCapture = null;
+    activeStudyKey = key;
+    activeStudyContext = context;
+    long generation = ++studyLoadGeneration;
+    currentDraft = null;
+    composeScrollPosition.selectStudy(key);
+    updateCaseHeader(context);
+    refreshAll();
+    setComposerInputEnabled(false);
+    if (context == null) {
+      localSaveLabel.setText("Local training capture ready");
+      composeScrollPosition.restorePosition();
+      return;
     }
-    if (draftChanged && currentDraft != null) {
-      spineFindingTracker.finalizeDraft(currentDraft);
-      shoulderFindingTracker.finalizeDraft(currentDraft);
-      kneeFindingTracker.finalizeDraft(currentDraft);
-      brainFindingTracker.finalizeDraft(currentDraft);
-      wristFindingTracker.finalizeDraft(currentDraft);
+    if (drafts.containsKey(key)) {
+      activateDraft(drafts.get(key), context);
+      return;
     }
-    boolean contextChanged = !selectedDraft.context().equals(context);
-    currentDraft = selectedDraft;
-    if (contextChanged) {
-      currentDraft.updateContext(context);
-    }
-    patientLabel.setText(context.patientDisplayName());
-    examLabel.setText(context.examTitle());
+    localSaveLabel.setText("Loading local draft…");
+    caseRecorder
+        .load(key)
+        .whenComplete(
+            (saved, error) ->
+                GuiExecutor.execute(
+                    () -> {
+                      if (recorderDisposed || generation != studyLoadGeneration) return;
+                      ReportDraft draft =
+                          saved != null && saved.isPresent()
+                              ? saved.get().draft()
+                              : new ReportDraft(activeStudyContext);
+                      if (saved != null && saved.isPresent()) {
+                        TrainingCaseStore.RestoredCase restored = saved.get();
+                        try {
+                          draftExamTemplates.put(key, ExamTemplate.valueOf(restored.exam()));
+                        } catch (IllegalArgumentException ignored) {
+                          // Unknown templates are restored using the current study description.
+                        }
+                        draftEditorStates.put(key, restored.editorState());
+                      }
+                      drafts.put(key, draft);
+                      activateDraft(draft, activeStudyContext);
+                      localSaveLabel.setText(
+                          error != null
+                              ? "Local draft could not be restored — previous file preserved"
+                              : saved.isPresent()
+                                  ? "Local draft restored"
+                                  : "Local training capture ready");
+                    }));
+  }
+
+  private void updateCaseHeader(CaseContext context) {
+    patientLabel.setText(context == null ? "No active DICOM study" : context.patientDisplayName());
+    examLabel.setText(context == null ? "Select an image to begin" : context.examTitle());
     accessionLabel.setText(
-        context.accessionNumber().isBlank()
-            ? "Accession not available"
-            : "Accession: " + context.accessionNumber());
-    if (draftChanged) {
+        context == null
+            ? " "
+            : context.accessionNumber().isBlank()
+                ? "Accession not available"
+                : "Accession: " + context.accessionNumber());
+  }
+
+  private void activateDraft(ReportDraft draft, CaseContext context) {
+    updatingTrainingState = true;
+    try {
+      setComposerInputEnabled(true);
+      currentDraft = draft;
+      draft.updateContext(context);
+      editingFindingId = null;
+      pendingGenericInput = false;
       spineForms.values().forEach(SpineFormPanel::clearSelections);
       shoulderForm.clearSelections();
       kneeForm.clearSelections();
@@ -955,12 +1191,43 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                   MriFindingCatalog.inferExam(context.examTitle())
                       .orElse(MriFindingCatalog.defaultExam()));
       selectExamTemplate(template);
-    }
-    if (draftChanged || contextChanged) {
+      saveFindingButton.setText("Add");
+      saveFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.PLUS));
+      cancelEditButton.setVisible(false);
+      restoreEditorState(draftEditorStates.get(context.draftKey()));
       refreshAll();
+      refreshCaptureViewports();
+      localSaveLabel.setText("Saved locally");
+    } finally {
+      updatingTrainingState = false;
     }
-    if (draftChanged) {
-      composeScrollPosition.restorePosition();
+    composeScrollPosition.restorePosition();
+    if (pendingCapture != null && pendingCapture.studyKey().equals(context.draftKey())) {
+      PendingCapture queued = pendingCapture;
+      pendingCapture = null;
+      SwingUtilities.invokeLater(
+          () -> {
+            if (currentDraft == draft) captureKeyImage(queued.capture());
+          });
+    }
+  }
+
+  private record PendingCapture(String studyKey, DicomContextReader.CapturedView capture) {}
+
+  private void setComposerInputEnabled(boolean enabled) {
+    if (enabled) {
+      suspendedInputs.forEach(Component::setEnabled);
+      suspendedInputs.clear();
+    } else if (suspendedInputs.isEmpty()) {
+      suspendComposerInput(tabs);
+    }
+  }
+
+  private void suspendComposerInput(Component component) {
+    suspendedInputs.put(component, component.isEnabled());
+    component.setEnabled(false);
+    if (component instanceof java.awt.Container container) {
+      for (Component child : container.getComponents()) suspendComposerInput(child);
     }
   }
 
@@ -974,6 +1241,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             FindingEntry.create(
                 findingText.getText(), impressionText.getText(), includeInImpression.isSelected());
         currentDraft.addFinding(finding);
+        pendingGenericInput = false;
         refreshAll();
         findingList.setSelectedValue(finding, true);
       } else {
@@ -999,6 +1267,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
     currentDraft.setReportInstructions(reportInstructions.getText());
     refreshPreview();
+    scheduleDraftSave();
   }
 
   private void saveSpineFindings(SpineFormPanel form) {
@@ -1038,7 +1307,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private void savePendingStructuredFindings() {
     Optional<SpineRegion> region = selectedSpineRegion();
-    if (tabs.getSelectedIndex() == 0 || currentDraft == null || editingFindingId != null) {
+    if (updatingTrainingState || currentDraft == null || editingFindingId != null) {
       return;
     }
     if (region.isPresent()) {
@@ -1074,7 +1343,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (result.changed()) {
       refreshAll();
     }
-    if (result.lastFinding() != null) {
+    if ((warnWhenEmpty || clearAfterSave) && result.lastFinding() != null) {
       findingList.setSelectedValue(result.lastFinding(), true);
     }
     return true;
@@ -1099,7 +1368,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (result.changed()) {
       refreshAll();
     }
-    if (result.lastFinding() != null) {
+    if ((warnWhenEmpty || clearAfterSave) && result.lastFinding() != null) {
       findingList.setSelectedValue(result.lastFinding(), true);
     }
     return true;
@@ -1124,7 +1393,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (result.changed()) {
       refreshAll();
     }
-    if (result.lastFinding() != null) {
+    if ((warnWhenEmpty || clearAfterSave) && result.lastFinding() != null) {
       findingList.setSelectedValue(result.lastFinding(), true);
     }
     return true;
@@ -1149,7 +1418,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (result.changed()) {
       refreshAll();
     }
-    if (result.lastFinding() != null) {
+    if ((warnWhenEmpty || clearAfterSave) && result.lastFinding() != null) {
       findingList.setSelectedValue(result.lastFinding(), true);
     }
     return true;
@@ -1174,7 +1443,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (result.changed()) {
       refreshAll();
     }
-    if (result.lastFinding() != null) {
+    if ((warnWhenEmpty || clearAfterSave) && result.lastFinding() != null) {
       findingList.setSelectedValue(result.lastFinding(), true);
     }
     return true;
@@ -1199,7 +1468,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     saveFindingButton.setToolTipText("Update the selected finding");
     cancelEditButton.setVisible(true);
     structuredFormMode = false;
+    pendingGenericInput = false;
     updateFindingBuilderVisibility();
+    scheduleDraftSave();
   }
 
   private void cancelFindingEdit() {
@@ -1252,27 +1523,44 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       return;
     }
     synchronizeStudy(selection);
+    DicomContextReader.CapturedView capture = selection.get().capture();
     if (currentDraft == null) {
+      pendingCapture = new PendingCapture(selection.get().context().draftKey(), capture);
+      localSaveLabel.setText("Loading local draft for captured image…");
       return;
     }
+    captureKeyImage(capture);
+  }
 
-    BufferedImage viewImage = selection.get().captureView();
-    AnnotationResult annotation = ArrowAnnotationDialog.showDialog(this, viewImage);
-    if (!annotation.accepted()) {
-      return;
-    }
+  private void captureKeyImage(DicomContextReader.CapturedView capture) {
+    persistCurrentDraft();
+    ReportDraft capturedDraft = currentDraft;
     FindingEntry selectedFinding = findingList.getSelectedValue();
-    if (selectedFinding == null && !currentDraft.findings().isEmpty()) {
-      selectedFinding = currentDraft.findings().getLast();
+    String linkSource = "selected_finding";
+    if (selectedFinding == null && !capturedDraft.findings().isEmpty()) {
+      selectedFinding = capturedDraft.findings().getLast();
+      linkSource = "last_finding_suggestion";
     }
+    if (selectedFinding == null) linkSource = "unlinked";
+    String findingId = selectedFinding == null ? "" : selectedFinding.id();
     String caption = selectedFinding == null ? "" : selectedFinding.findingText();
+    AnnotationResult annotation = ArrowAnnotationDialog.showDialog(this, capture.image());
+    if (!annotation.accepted()) return;
     KeyImageCapture keyImage =
         KeyImageCapture.createWithArrows(
-            selection.get().reference(), viewImage, annotation.placements(), caption);
-    currentDraft.addKeyImage(keyImage);
-    refreshAll();
-    keyImageList.setSelectedValue(keyImage, true);
-    tabs.setSelectedIndex(1);
+            capture, annotation.placements(), caption, findingId, linkSource);
+    capturedDraft.addKeyImage(keyImage);
+    if (capturedDraft == currentDraft) {
+      refreshAll();
+      keyImageList.setSelectedValue(keyImage, true);
+      tabs.setSelectedIndex(1);
+      persistCurrentDraft();
+    } else {
+      String key = capturedDraft.context().draftKey();
+      saveSnapshot(
+          TrainingCaseSnapshot.capture(
+              capturedDraft, draftExamTemplates.get(key).name(), draftEditorStates.get(key)));
+    }
   }
 
   private Optional<Selection> captureSelectionForViewport(int viewportNumber) {
@@ -1325,7 +1613,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       existingViewports.add(captureViewportCombo.getItemAt(index));
     }
     if (sameViewportConfiguration(existingViewports, viewports)) {
-      captureButton.setEnabled(!existingViewports.isEmpty());
+      captureButton.setEnabled(currentDraft != null && !existingViewports.isEmpty());
       captureViewportCombo.repaint();
       updateCaptureViewportTooltip();
       return;
@@ -1343,7 +1631,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (preferred != null) {
       captureViewportCombo.setSelectedItem(preferred);
     }
-    captureButton.setEnabled(captureViewportCombo.getItemCount() > 0);
+    captureButton.setEnabled(currentDraft != null && captureViewportCombo.getItemCount() > 0);
     updateCaptureViewportTooltip();
   }
 
@@ -1404,6 +1692,45 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
   }
 
+  private void refreshFindingLink() {
+    updatingFindingLink = true;
+    try {
+      keyImageFinding.removeAllItems();
+      keyImageFinding.addItem(new FindingLinkChoice("", "Unlinked"));
+      KeyImageCapture image = keyImageList.getSelectedValue();
+      if (currentDraft != null) {
+        for (FindingEntry finding : currentDraft.findings()) {
+          FindingLinkChoice choice = new FindingLinkChoice(finding.id(), finding.findingText());
+          keyImageFinding.addItem(choice);
+          if (image != null && finding.id().equals(image.findingId()))
+            keyImageFinding.setSelectedItem(choice);
+        }
+      }
+      keyImageFinding.setEnabled(image != null);
+    } finally {
+      updatingFindingLink = false;
+    }
+  }
+
+  private void updateFindingLink() {
+    if (updatingFindingLink || currentDraft == null) return;
+    KeyImageCapture image = keyImageList.getSelectedValue();
+    if (image != null && keyImageFinding.getSelectedItem() instanceof FindingLinkChoice choice) {
+      KeyImageCapture replacement =
+          image.withFindingLink(choice.id(), choice.id().isBlank() ? "unlinked" : "user_selected");
+      currentDraft.replaceKeyImage(image.id(), replacement);
+      refreshAll();
+      keyImageList.setSelectedValue(replacement, true);
+    }
+  }
+
+  private record FindingLinkChoice(String id, String text) {
+    @Override
+    public String toString() {
+      return text;
+    }
+  }
+
   private void removeSelectedKeyImage() {
     KeyImageCapture selected = keyImageList.getSelectedValue();
     if (currentDraft != null && selected != null) {
@@ -1439,57 +1766,110 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void exportPacket() {
-    if (!requireActiveDraft()) {
+    if (!requireActiveDraft() || exportInProgress) return;
+    if (pendingGenericInput) {
+      showWarning(
+          "Add or update the unfinished finding before completing this case. Your text is saved in the local draft.");
       return;
     }
-    if (outputDirectory == null) {
+    draftSaveTimer.stop();
+    TrainingCaseSnapshot snapshot = snapshotCurrentDraft();
+    long completedEditGeneration = draftChangeGeneration;
+    boolean normalLumbar =
+        snapshot.packet().isEmpty() && selectedExamTemplate() == ExamTemplate.LUMBAR_SPINE;
+    Optional<Selection> source =
+        activeSelection().filter(value -> value.context().draftKey().equals(snapshot.studyKey()));
+    TrainingCaseSnapshot completion =
+        source.isPresent()
+            ? snapshot.withSources(
+                StudySourceInventory.collect(source.get().canvas().getSeries()),
+                StudySourceInventory.hasStudyModel(source.get().canvas().getSeries())
+                    ? "available_loaded_study"
+                    : "anchor_series_only")
+            : snapshot;
+    ReportPacket packet = snapshot.packet();
+    ExamTemplate historyExam = selectedExamTemplate();
+    if (!normalLumbar && outputDirectory == null) {
       chooseOutputDirectory();
       if (outputDirectory == null) {
+        saveSnapshot(snapshot);
         return;
       }
     }
-    ReportPacket packet = currentDraft.snapshot();
-    ExamTemplate historyExam = selectedExamTemplate();
     Path destination = outputDirectory;
+    exportInProgress = true;
     exportButton.setEnabled(false);
-    statusLabel.setText("Building transcription packet...");
-    new SwingWorker<ExportResult, Void>() {
+    if (completion.studyKey().equals(activeStudyKey)) {
+      localSaveLabel.setText("Saving annotation pass locally…");
+      statusLabel.setText(
+          normalLumbar ? "Completing normal case…" : "Building transcription packet...");
+    }
+    new SwingWorker<ExportCompletion, Void>() {
       @Override
-      protected ExportResult doInBackground() throws Exception {
-        ExportResult result = packetExporter.export(packet, destination);
+      protected ExportCompletion doInBackground() throws Exception {
+        ExportResult exported = normalLumbar ? null : packetExporter.export(packet, destination);
         instructionHistory.record(historyExam, packet.reportInstructions());
-        return result;
+        boolean recorded;
+        try {
+          caseRecorder.complete(completion).get();
+          recorded = true;
+        } catch (Exception error) {
+          recorded = false;
+        }
+        return new ExportCompletion(exported, recorded);
       }
 
       @Override
       protected void done() {
-        exportButton.setEnabled(true);
+        exportInProgress = false;
+        exportButton.setEnabled(currentDraft != null);
         try {
-          ExportResult result = get();
-          lastExportDirectory = result.caseDirectory();
-          openExportButton.setEnabled(true);
-          statusLabel.setText(
-              "Exported "
-                  + result.keyImageCount()
-                  + " key image"
-                  + (result.keyImageCount() == 1 ? "" : "s")
-                  + ".");
-          ComposerDialogSupport.showMessage(
-              ReportComposerTool.this,
-              "Transcription packet saved to:\n" + result.caseDirectory(),
-              BUTTON_NAME,
-              JOptionPane.INFORMATION_MESSAGE);
+          ExportCompletion result = get();
+          boolean stillCurrent =
+              completion.studyKey().equals(activeStudyKey)
+                  && completedEditGeneration == draftChangeGeneration
+                  && !draftSaveTimer.isRunning();
+          if (stillCurrent) {
+            localSaveLabel.setText(
+                result.recorded()
+                    ? "Annotation pass saved locally"
+                    : "Local annotation save failed — draft retained");
+          }
+          if (result.exported() == null) {
+            if (stillCurrent)
+              statusLabel.setText(
+                  result.recorded()
+                      ? "Normal case completed locally."
+                      : "Normal case could not be completed locally.");
+          } else {
+            lastExportDirectory = result.exported().caseDirectory();
+            openExportButton.setEnabled(true);
+            if (stillCurrent)
+              statusLabel.setText(
+                  result.recorded()
+                      ? "Packet exported; annotation pass saved locally."
+                      : "Packet exported; local annotation save failed.");
+            ComposerDialogSupport.showMessage(
+                ReportComposerTool.this,
+                "Transcription packet saved to:\n"
+                    + result.exported().caseDirectory()
+                    + (result.recorded()
+                        ? ""
+                        : "\nThe local training record could not be completed. Retry export to save it."),
+                BUTTON_NAME,
+                result.recorded() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+          }
         } catch (Exception error) {
-          Throwable cause = error.getCause() == null ? error : error.getCause();
           showWarning(
-              cause.getMessage() == null
-                  ? "The transcription packet could not be exported."
-                  : cause.getMessage());
-          statusLabel.setText("Export failed.");
+              "The transcription packet could not be exported. The annotation pass remains a draft.");
+          if (completion.studyKey().equals(activeStudyKey)) statusLabel.setText("Export failed.");
+          saveSnapshot(snapshot);
         }
       }
     }.execute();
   }
+
+  private record ExportCompletion(ExportResult exported, boolean recorded) {}
 
   private void openLastExport() {
     if (lastExportDirectory == null || !Desktop.isDesktopSupported()) {
@@ -1517,7 +1897,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     selectFinding(selectedFindingId);
     selectKeyImage(selectedKeyImageId);
     refreshPreview();
-    exportButton.setEnabled(currentDraft != null);
+    exportButton.setEnabled(currentDraft != null && !exportInProgress);
+    exportButton.setText(
+        currentDraft != null
+                && currentDraft.snapshot().isEmpty()
+                && selectedExamTemplate() == ExamTemplate.LUMBAR_SPINE
+            ? "Finish Normal Case"
+            : "Export Instruction Packet");
+    scheduleDraftSave();
   }
 
   private void refreshReportInstructions() {

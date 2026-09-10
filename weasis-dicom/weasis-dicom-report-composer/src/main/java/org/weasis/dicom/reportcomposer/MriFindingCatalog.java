@@ -19,6 +19,9 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 public final class MriFindingCatalog {
+  /** Bump when structured finding categories, selections, or their meaning change. */
+  public static final String CATALOG_VERSION = "mri_findings_v1";
+
   private static final Pattern NON_ALPHANUMERIC = Pattern.compile("[^A-Z0-9]+");
 
   private static final List<String> CERVICAL_LEVELS =

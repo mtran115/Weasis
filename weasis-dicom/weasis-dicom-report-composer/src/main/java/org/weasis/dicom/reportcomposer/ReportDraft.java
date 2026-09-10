@@ -64,6 +64,9 @@ public final class ReportDraft {
 
   public void removeFinding(String id) {
     findings.removeIf(finding -> finding.id().equals(id));
+    keyImages.replaceAll(
+        image ->
+            id.equals(image.findingId()) ? image.withFindingLink("", "removed_finding") : image);
   }
 
   public void moveFinding(String id, int direction) {
@@ -80,6 +83,15 @@ public final class ReportDraft {
 
   public void removeKeyImage(String id) {
     keyImages.removeIf(keyImage -> keyImage.id().equals(id));
+  }
+
+  public void replaceKeyImage(String id, KeyImageCapture replacement) {
+    for (int index = 0; index < keyImages.size(); index++) {
+      if (keyImages.get(index).id().equals(id)) {
+        keyImages.set(index, Objects.requireNonNull(replacement));
+        return;
+      }
+    }
   }
 
   public ReportPacket snapshot() {
