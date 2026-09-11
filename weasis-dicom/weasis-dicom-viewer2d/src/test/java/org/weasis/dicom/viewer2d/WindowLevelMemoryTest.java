@@ -11,6 +11,7 @@ package org.weasis.dicom.viewer2d;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,21 +33,25 @@ class WindowLevelMemoryTest {
     memory.remember(series, false, null, 850.5, 425.25, LutShape.SIGMOID);
 
     WindowLevelMemory.State state = memory.recall(series).orElseThrow();
-    assertSame(WindowLevelMemory.Mode.MANUAL, state.mode());
+    assertNull(state.preset());
+    assertFalse(state.defaultPreset());
     assertEquals(850.5, state.window());
     assertEquals(425.25, state.level());
     assertSame(LutShape.SIGMOID, state.lutShape());
   }
 
   @Test
-  void selectingDefaultPresetForgetsManualValues() {
+  void selectingDefaultPresetReplacesTheRememberedManualBaseline() {
     WindowLevelMemory memory = new WindowLevelMemory();
     DicomSeries series = buildSeries("mr-2", "MR");
     memory.remember(series, false, null, 900.0, 450.0, LutShape.LINEAR);
 
     memory.remember(series, true, null, 600.0, 300.0, LutShape.LINEAR);
 
-    assertTrue(memory.recall(series).isEmpty());
+    WindowLevelMemory.State state = memory.recall(series).orElseThrow();
+    assertTrue(state.defaultPreset());
+    assertEquals(600.0, state.window());
+    assertEquals(300.0, state.level());
   }
 
   @Test
@@ -71,7 +76,7 @@ class WindowLevelMemoryTest {
   }
 
   @Test
-  void remembersAutoLevelAsAMode() {
+  void remembersTheExactAutoLevelBaseline() {
     DicomSeries series = buildSeries("mr-4", "MR");
     PresetWindowLevel autoPreset = preset(true);
 
@@ -79,7 +84,9 @@ class WindowLevelMemoryTest {
     memory.remember(series, false, autoPreset, 210.0, 105.0, LutShape.LINEAR);
 
     WindowLevelMemory.State state = memory.recall(series).orElseThrow();
-    assertSame(WindowLevelMemory.Mode.AUTO, state.mode());
+    assertSame(autoPreset, state.preset());
+    assertEquals(210.0, state.window());
+    assertEquals(105.0, state.level());
   }
 
   @Test
@@ -90,10 +97,10 @@ class WindowLevelMemoryTest {
   }
 
   @Test
-  void refreshesAutoLevelForEachMrImage() {
+  void keepsAutoLevelStableAcrossMrImages() {
     DicomSeries series = buildSeries("mr-6", "MR");
 
-    assertTrue(WindowLevelMemory.shouldRefreshPreset(series, preset(true), false));
+    assertFalse(WindowLevelMemory.shouldRefreshPreset(series, preset(true), false));
   }
 
   @Test

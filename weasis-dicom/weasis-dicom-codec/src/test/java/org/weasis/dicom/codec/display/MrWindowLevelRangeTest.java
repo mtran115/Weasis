@@ -43,6 +43,118 @@ import org.weasis.opencv.op.lut.WlPresentation;
 class MrWindowLevelRangeTest {
 
   @Test
+  void explicitAutoLeavesHeadroomInsteadOfMakingMostTissueNearlyWhite() {
+    PlanarImage image =
+        image(
+            CvType.CV_16U, 64, 128, (row, column) -> column < 32 || column > 96 ? 0 : 900 + column);
+    MrWindowLevelRange range =
+        MrWindowLevelRange.estimateRanges(image, adapter(v -> v)).autoRange();
+
+    assertNotNull(range);
+    assertEquals(0, range.min());
+    double medianBrightness = (964 - range.min()) / (range.max() - range.min());
+    assertEquals(0.5, medianBrightness, 0.01);
+    assertTrue(range.max() > 1800);
+  }
+
+  @Test
+  void noisyAirDoesNotDominateSmallAnatomyAutoLevel() {
+    PlanarImage image =
+        image(
+            CvType.CV_16U,
+            64,
+            128,
+            (row, column) ->
+                row >= 28 && row < 36 && column >= 56 && column < 72
+                    ? 900 + column
+                    : 1 + (row + column) % 10);
+    MrWindowLevelRange range =
+        MrWindowLevelRange.estimateRanges(image, adapter(v -> v)).autoRange();
+
+    assertNotNull(range);
+    assertTrue(range.max() > 1800, "Air noise must not pull the tissue median toward black");
+    assertTrue(range.max() < 2000);
+    assertTrue((10 - range.min()) / (range.max() - range.min()) < 0.01);
+  }
+
+  @Test
+  void explicitAutoExcludesAnIsolatedExtremeButKeepsSmallBrightStructures() {
+    PlanarImage image =
+        image(
+            CvType.CV_16U,
+            64,
+            128,
+            (row, column) -> {
+              if (row == 32 && column == 64) return 60000;
+              if (row == 33 && column >= 60 && column < 64) return 1500;
+              return column < 16 || column > 112 ? 0 : 100 + column;
+            });
+    MrWindowLevelRange range =
+        MrWindowLevelRange.estimateRanges(image, adapter(v -> v)).autoRange();
+    assertNotNull(range);
+    assertTrue(range.max() < 2000, "Isolated huge extrema must not make the image dark");
+    assertTrue(range.max() > 1500, "A small cluster of bright pixels must be preserved");
+
+    PlanarImage focal =
+        image(
+            CvType.CV_16U,
+            64,
+            128,
+            (row, column) ->
+                row == 32 && column == 64 ? 600 : column < 16 || column > 112 ? 0 : 100 + column);
+    MrWindowLevelRange focalRange =
+        MrWindowLevelRange.estimateRanges(focal, adapter(v -> v)).autoRange();
+    assertNotNull(focalRange);
+    assertTrue(focalRange.max() > 600, "A small plausible bright structure must retain headroom");
+  }
+
+  @Test
+  void anatomyAtImageEdgesIsNotAssumedToBeBackground() {
+    PlanarImage image = image(CvType.CV_16U, 64, 128, (row, column) -> row < 16 ? 0 : 500 + column);
+    MrWindowLevelRange range =
+        MrWindowLevelRange.estimateRanges(image, adapter(v -> v)).autoRange();
+    assertNotNull(range);
+    assertTrue(range.max() > 1000);
+  }
+
+  @Test
+  void explicitAutoExcludesPaddingBeforeRescaleAndRejectsFlatImages() {
+    DicomImageAdapter adapter = adapter(v -> v * 2 - 1000);
+    when(adapter.getImageDescriptor().getPixelPaddingValue()).thenReturn(Optional.of(-100));
+    MrWindowLevelRange range =
+        MrWindowLevelRange.estimateRanges(
+                image(
+                    CvType.CV_16S,
+                    64,
+                    128,
+                    (row, column) -> column < 16 ? -100 : column < 32 ? 0 : 500 + column),
+                adapter)
+            .autoRange();
+    assertNotNull(range);
+    assertEquals(-1000, range.min());
+    assertTrue(range.max() > 1000);
+    assertNull(
+        MrWindowLevelRange.estimateRanges(
+                image(CvType.CV_16U, 64, 128, (row, column) -> 500), adapter(v -> v))
+            .autoRange());
+  }
+
+  @Test
+  void explicitAutoRejectsAnExtremeEvenWithOnly64TissueSamples() {
+    PlanarImage image =
+        image(
+            CvType.CV_16U,
+            64,
+            128,
+            (row, column) ->
+                row == 32 && column >= 32 && column < 96 ? column == 95 ? 60000 : 500 + column : 0);
+    MrWindowLevelRange range =
+        MrWindowLevelRange.estimateRanges(image, adapter(v -> v)).autoRange();
+    assertNotNull(range);
+    assertTrue(range.max() < 1500);
+  }
+
+  @Test
   void trimsRareBrightOutlierAndPreservesBackground() {
     PlanarImage image =
         image(

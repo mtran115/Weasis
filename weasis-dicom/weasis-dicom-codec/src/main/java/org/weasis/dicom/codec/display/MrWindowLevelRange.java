@@ -27,15 +27,23 @@ public record MrWindowLevelRange(double min, double max) {
    * image's modality and presentation permit automatic windowing.
    */
   public static MrWindowLevelRange estimate(PlanarImage image, DicomImageAdapter adapter) {
+    return estimateRanges(image, adapter).displayRange();
+  }
+
+  /** Computes both the initial-display guard and explicit Auto Level from one bounded sample. */
+  public static Estimates estimateRanges(PlanarImage image, DicomImageAdapter adapter) {
     try {
-      return sample(image, adapter);
+      Estimates estimates = sample(image, adapter);
+      return estimates == null ? new Estimates(null, null) : estimates;
     } catch (RuntimeException e) {
       // Automatic presentation is optional; an unreadable sample must not prevent image decoding.
-      return null;
+      return new Estimates(null, null);
     }
   }
 
-  private static MrWindowLevelRange sample(PlanarImage image, DicomImageAdapter adapter) {
+  public record Estimates(MrWindowLevelRange displayRange, MrWindowLevelRange autoRange) {}
+
+  private static Estimates sample(PlanarImage image, DicomImageAdapter adapter) {
     if (image == null || adapter == null || image.channels() != 1) {
       return null;
     }
@@ -70,7 +78,9 @@ public record MrWindowLevelRange(double min, double max) {
     int rows = Math.min(height, MAX_ROWS);
     int columns = Math.min(width, MAX_COLUMNS);
     double[] samples = new double[rows * columns];
+    double[] borderSamples = new double[samples.length];
     int count = 0;
+    int borderCount = 0;
     for (int r = 0; r < rows; r++) {
       int readBytes = readRow(image, sampleIndex(r, height, rows), rowBuffer);
       int available = Math.min(width, readBytes / bytesPerValue);
@@ -87,6 +97,12 @@ public record MrWindowLevelRange(double min, double max) {
         Number transformed = adapter.pixelToRealValue(raw, presentation);
         if (transformed != null && Double.isFinite(transformed.doubleValue())) {
           samples[count++] = transformed.doubleValue();
+          if (r < rows / 10
+              || r >= rows - rows / 10
+              || c < columns / 10
+              || c >= columns - columns / 10) {
+            borderSamples[borderCount++] = transformed.doubleValue();
+          }
         }
       }
     }
@@ -95,6 +111,12 @@ public record MrWindowLevelRange(double min, double max) {
     }
 
     Arrays.sort(samples, 0, count);
+    Arrays.sort(borderSamples, 0, borderCount);
+    return new Estimates(
+        displayRange(samples, count), tissueRange(samples, count, borderSamples, borderCount));
+  }
+
+  private static MrWindowLevelRange displayRange(double[] samples, int count) {
     double minimum = samples[0];
     int foregroundStart = 1;
     while (foregroundStart < count && samples[foregroundStart] <= minimum) {
@@ -110,6 +132,50 @@ public record MrWindowLevelRange(double min, double max) {
     }
     // Keep the true sampled minimum so trimming the foreground does not lift the background.
     return new MrWindowLevelRange(minimum, foregroundMax);
+  }
+
+  private static MrWindowLevelRange tissueRange(
+      double[] samples, int count, double[] border, int borderCount) {
+    // Trim isolated low extremes as well as bright ones. Retain the air floor when present.
+    double minimum = percentile(samples, 0, count, 0.001);
+    double upper = percentile(samples, 0, count, 0.999);
+    double span = upper - minimum;
+    if (!Double.isFinite(span) || span <= 0) {
+      return null;
+    }
+    double noiseCeiling = minimum + 0.01 * span;
+    if (borderCount >= MIN_FOREGROUND_SAMPLES) {
+      double borderMedian = percentile(border, 0, borderCount, 0.5);
+      double borderHigh = percentile(border, 0, borderCount, 0.9);
+      // Only treat the border as air if it is clearly dark. Anatomy may reach any image edge.
+      if (borderHigh < minimum + 0.15 * span) {
+        noiseCeiling =
+            Math.max(
+                noiseCeiling,
+                Math.min(minimum + 0.1 * span, borderHigh + 3 * (borderHigh - borderMedian)));
+      }
+    }
+    int start = 0;
+    while (start < count && samples[start] <= noiseCeiling) {
+      start++;
+    }
+    if (count - start < MIN_FOREGROUND_SAMPLES) {
+      return null;
+    }
+    double upperFraction = Math.min(0.9995, (double) (count - start - 2) / (count - start - 1));
+    double tissueHigh = percentile(samples, start, count, upperFraction);
+    double peak = samples[count - 1];
+    // Preserve small bright structures unless their intensity is an extreme outlier.
+    if (peak - minimum <= 3 * (tissueHigh - minimum)) {
+      tissueHigh = peak;
+    }
+    double median = percentile(samples, start, count, 0.5);
+    // Keep typical tissue at or below mid-gray and leave headroom above bright tissue. This
+    // deliberately does not stretch a bright, narrow tissue distribution all the way to white.
+    double maximum = minimum + Math.max((tissueHigh - minimum) / 0.95, (median - minimum) / 0.5);
+    return Double.isFinite(maximum) && maximum > minimum
+        ? new MrWindowLevelRange(minimum, maximum)
+        : null;
   }
 
   private static int sampleIndex(int sample, int length, int samples) {

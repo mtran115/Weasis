@@ -74,6 +74,7 @@ public class DicomImageElement extends ImageElement implements DicomElement {
           LutShape.LINEAR, LutShape.SIGMOID, LutShape.SIGMOID_NORM, LutShape.LOG, LutShape.LOG_INV);
   private DicomImageAdapter adapter = null;
   private volatile MrWindowLevelRange mrWindowLevelRange;
+  private volatile MrWindowLevelRange mrAutoWindowLevelRange;
   private Collection<LutShape> lutShapeCollection = null;
 
   public DicomImageElement(DcmMediaReader mediaIO, Object key) {
@@ -463,6 +464,16 @@ public class DicomImageElement extends ImageElement implements DicomElement {
         : null;
   }
 
+  /**
+   * Tissue statistics for explicit MR Auto. Call off the EDT: an unread slice may need decoding.
+   */
+  public MrWindowLevelRange getMrAutoWindowLevelRange() {
+    if (!isImageAvailable()) {
+      getImage();
+    }
+    return mrAutoWindowLevelRange;
+  }
+
   @Override
   protected void findMinMaxValues(PlanarImage img, boolean exclude8bitImage) {
     /*
@@ -478,11 +489,20 @@ public class DicomImageElement extends ImageElement implements DicomElement {
         }
         adapter = new DicomImageAdapter(img, meta.getImageDescriptor(), frameIndex);
         mrWindowLevelRange = null;
+        mrAutoWindowLevelRange = null;
         if ("MR".equalsIgnoreCase(meta.getImageDescriptor().getModality())
             && PhotometricInterpretation.MONOCHROME2.equals(
                 meta.getImageDescriptor().getPhotometricInterpretation())
             && meta.getImageDescriptor().getModalityLutForFrame(frameIndex).getLut().isEmpty()) {
-          mrWindowLevelRange = MrWindowLevelRange.estimate(img, adapter);
+          var estimates = MrWindowLevelRange.estimateRanges(img, adapter);
+          mrWindowLevelRange = estimates.displayRange();
+          if (meta.getImageDescriptor()
+                  .getModalityLutForFrame(frameIndex)
+                  .getRescaleSlope()
+                  .orElse(1.0)
+              > 0) {
+            mrAutoWindowLevelRange = estimates.autoRange();
+          }
         }
         MinMaxLocResult val = adapter.getMinMax();
         if (val != null) {

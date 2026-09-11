@@ -31,12 +31,12 @@ final class WindowLevelMemory {
       return;
     }
 
-    if (defaultPreset || window == null || level == null) {
+    if (window == null || level == null) {
       series.setTag(MEMORY_TAG, null);
     } else {
-      Mode mode = preset != null && preset.isAutoLevel() ? Mode.AUTO : Mode.MANUAL;
       series.setTag(
-          MEMORY_TAG, new State(mode, window.doubleValue(), level.doubleValue(), lutShape));
+          MEMORY_TAG,
+          new State(defaultPreset, preset, window.doubleValue(), level.doubleValue(), lutShape));
     }
   }
 
@@ -57,7 +57,7 @@ final class WindowLevelMemory {
     if (preset == null) {
       return false;
     }
-    return !isMrSeries(series) || preset.isAutoLevel();
+    return !isMrSeries(series);
   }
 
   static boolean isMrSeries(MediaSeries<?> series) {
@@ -65,10 +65,10 @@ final class WindowLevelMemory {
     return "MR".equalsIgnoreCase(modality);
   }
 
-  enum Mode {
-    AUTO,
-    MANUAL
-  }
-
-  record State(Mode mode, double window, double level, LutShape lutShape) {}
+  record State(
+      boolean defaultPreset,
+      PresetWindowLevel preset,
+      double window,
+      double level,
+      LutShape lutShape) {}
 }

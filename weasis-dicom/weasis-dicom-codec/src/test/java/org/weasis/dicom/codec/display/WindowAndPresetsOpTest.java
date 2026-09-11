@@ -54,7 +54,7 @@ class WindowAndPresetsOpTest {
   }
 
   @Test
-  void imageChangeSwitchesImplausibleMrDefaultWindowLevelToAuto() {
+  void imageChangeKeepsMrBaselineEvenWhenTheNextSliceHasLittleSignal() {
     WindowAndPresetsOp op = new WindowAndPresetsOp();
     DicomImageElement image = mockImage(210.0, 105.0, 0.0, 210.0);
     PresetWindowLevel dicomPreset = preset("Default 1 [DICOM]", 1860.0, 1070.0, false);
@@ -68,10 +68,10 @@ class WindowAndPresetsOpTest {
 
     op.handleImageOpEvent(new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("MR"), image, null));
 
-    assertSame(autoPreset, op.getParam(ActionW.PRESET.cmd()));
-    assertFalse((Boolean) op.getParam(ActionW.DEFAULT_PRESET.cmd()));
-    assertEquals(210.0, op.getParam(ActionW.WINDOW.cmd()));
-    assertEquals(105.0, op.getParam(ActionW.LEVEL.cmd()));
+    assertSame(dicomPreset, op.getParam(ActionW.PRESET.cmd()));
+    assertTrue((Boolean) op.getParam(ActionW.DEFAULT_PRESET.cmd()));
+    assertEquals(1860.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(1070.0, op.getParam(ActionW.LEVEL.cmd()));
   }
 
   @Test
@@ -92,7 +92,7 @@ class WindowAndPresetsOpTest {
   }
 
   @Test
-  void imageChangeRefreshesAutoLevelForMrSeries() {
+  void imageChangePreservesAutoLevelForMrSeries() {
     WindowAndPresetsOp op = new WindowAndPresetsOp();
     DicomImageElement image = mockImage(210.0, 105.0, 0.0, 210.0);
     PresetWindowLevel previousAuto = preset("Auto Level [Image]", 189.0, 95.5, true);
@@ -105,10 +105,10 @@ class WindowAndPresetsOpTest {
 
     op.handleImageOpEvent(new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("MR"), image, null));
 
-    assertSame(currentAuto, op.getParam(ActionW.PRESET.cmd()));
+    assertSame(previousAuto, op.getParam(ActionW.PRESET.cmd()));
     assertFalse((Boolean) op.getParam(ActionW.DEFAULT_PRESET.cmd()));
-    assertEquals(210.0, op.getParam(ActionW.WINDOW.cmd()));
-    assertEquals(105.0, op.getParam(ActionW.LEVEL.cmd()));
+    assertEquals(189.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(95.5, op.getParam(ActionW.LEVEL.cmd()));
   }
 
   @Test
@@ -223,7 +223,7 @@ class WindowAndPresetsOpTest {
   }
 
   @Test
-  void outlierDoesNotHideDarkAnatomyAndCorrectedAutoFollowsTheNextImage() {
+  void outlierDoesNotHideDarkAnatomyAndCorrectedAutoStaysStableAcrossImages() {
     DicomImageElement first = mockImage(4000.0, 2000.0, 0.0, 60000.0);
     PresetWindowLevel dicom = preset("Default [DICOM]", 4000.0, 2000.0, false);
     PresetWindowLevel auto = preset("Auto Level [Image]", 800.0, 400.0, true);
@@ -245,8 +245,8 @@ class WindowAndPresetsOpTest {
     when(next.getPresetList(any(WlPresentation.class))).thenReturn(List.of(nextAuto));
     op.handleImageOpEvent(new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("MR"), next, null));
 
-    assertSame(nextAuto, op.getParam(ActionW.PRESET.cmd()));
-    assertEquals(900.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertSame(auto, op.getParam(ActionW.PRESET.cmd()));
+    assertEquals(800.0, op.getParam(ActionW.WINDOW.cmd()));
   }
 
   @Test
@@ -263,6 +263,46 @@ class WindowAndPresetsOpTest {
 
     assertEquals(4000.0, op.getParam(ActionW.WINDOW.cmd()));
     assertEquals(2000.0, op.getParam(ActionW.LEVEL.cmd()));
+  }
+
+  @Test
+  void resetRecalculatesMrAutoAfterScrollingKeptTheBaseline() {
+    WindowAndPresetsOp op = new WindowAndPresetsOp();
+    DicomSeries series = buildSeries("MR");
+    DicomImageElement first = mockImage(800.0, 400.0, 0.0, 800.0);
+    PresetWindowLevel baseline = preset("Auto Level [Image]", 800.0, 400.0, true);
+    when(first.getDefaultPreset(any(WlPresentation.class))).thenReturn(baseline);
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.SERIES_CHANGE, series, first, null));
+
+    DicomImageElement next = mockImage(1400.0, 700.0, 0.0, 1400.0);
+    PresetWindowLevel nextAuto = preset("Auto Level [Image]", 1400.0, 700.0, true);
+    when(next.getDefaultPreset(any(WlPresentation.class))).thenReturn(nextAuto);
+    when(next.getPresetList(any(WlPresentation.class))).thenReturn(List.of(nextAuto));
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.IMAGE_CHANGE, series, next, null));
+    assertSame(baseline, op.getParam(ActionW.PRESET.cmd()));
+    assertEquals(800.0, op.getParam(ActionW.WINDOW.cmd()));
+
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.RESET_DISPLAY, series, next, null));
+    assertSame(nextAuto, op.getParam(ActionW.PRESET.cmd()));
+    assertEquals(1400.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(700.0, op.getParam(ActionW.LEVEL.cmd()));
+  }
+
+  @Test
+  void nonMrAutoStillRefreshesForEachImage() {
+    WindowAndPresetsOp op = new WindowAndPresetsOp();
+    PresetWindowLevel oldAuto = preset("Auto Level [Image]", 800.0, 400.0, true);
+    PresetWindowLevel nextAuto = preset("Auto Level [Image]", 1200.0, 600.0, true);
+    DicomImageElement next = mockImage(1200.0, 600.0, 0.0, 1200.0);
+    when(next.getPresetList(any(WlPresentation.class))).thenReturn(List.of(nextAuto));
+    op.setParam(ActionW.PRESET.cmd(), oldAuto);
+    op.setParam(ActionW.DEFAULT_PRESET.cmd(), false);
+
+    op.handleImageOpEvent(new ImageOpEvent(OpEvent.IMAGE_CHANGE, buildSeries("CT"), next, null));
+
+    assertSame(nextAuto, op.getParam(ActionW.PRESET.cmd()));
+    assertEquals(1200.0, op.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(600.0, op.getParam(ActionW.LEVEL.cmd()));
   }
 
   @Test

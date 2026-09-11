@@ -23,9 +23,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import javax.swing.BoundedRangeModel;
@@ -36,6 +39,7 @@ import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JSeparator;
 import javax.swing.KeyStroke;
+import javax.swing.SwingWorker;
 import org.dcm4che3.data.Tag;
 import org.dcm4che3.img.data.PrDicomObject;
 import org.dcm4che3.img.lut.PresetWindowLevel;
@@ -160,6 +164,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   private final WindowLevelSetting windowLevelSetting = new WindowLevelSetting();
   private final Map<ViewCanvas<DicomImageElement>, KeyboardWindowLevelState> previousWindowLevels =
       new WeakHashMap<>();
+  private SwingWorker<PresetWindowLevel, Void> pendingMrAutoLevel;
 
   /**
    * Return the single instance of this class. This method guarantees the singleton property of this
@@ -378,10 +383,10 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
             && image != null
             && windowAction.isPresent()
             && levelAction.isPresent()) {
-          Optional<? extends ComboItemListener<?>> presetAction = getAction(ActionW.PRESET);
+          OpManager display = view2d.getDisplayOpManager();
           PresetWindowLevel oldPreset =
-              presetAction
-                  .map(comboItemListener -> (PresetWindowLevel) comboItemListener.getSelectedItem())
+              display
+                  .getParamValue(WindowOp.OP_NAME, ActionW.PRESET.cmd(), PresetWindowLevel.class)
                   .orElse(null);
           PresetWindowLevel newPreset = null;
           boolean pixelPadding =
@@ -406,40 +411,31 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
           double imageMin = image.getMinValue(wlp);
           double imageMax = image.getMaxValue(wlp);
 
-          if (isDefaultPresetSelected
-              && WindowLevelMemory.isMrSeries(series)
-              && WindowAndPresetsOp.isImplausibleWindowLevel(
-                  windowAction.get().getRealValue(),
-                  levelAction.get().getRealValue(),
-                  view2d
-                      .getDisplayOpManager()
-                      .getParamValue(WindowOp.OP_NAME, ActionW.LUT_SHAPE.cmd(), LutShape.class)
-                      .orElse(null),
-                  image,
-                  wlp)) {
-            newPreset =
-                newPresetList.stream()
-                    .filter(PresetWindowLevel::isAutoLevel)
-                    .findFirst()
-                    .orElse(null);
-            if (newPreset != null) {
-              LOGGER.warn(
-                  "Switching implausible MR default window/level W:{}, L:{} to Auto Level for image range [{}, {}]",
-                  windowAction.get().getRealValue(),
-                  levelAction.get().getRealValue(),
-                  imageMin,
-                  imageMax);
-              isDefaultPresetSelected = false;
-            }
-          }
-
-          // Assume the image cannot display when win =1 and level = 0
+          // Read the actual display values, not the rounded slider positions. Slider ranges
+          // expand with new pixel extrema, so reading them back can change an untouched W/L.
+          Number currentWindow =
+              display
+                  .getParamValue(WindowOp.OP_NAME, ActionW.WINDOW.cmd(), Number.class)
+                  .orElse(null);
+          Number currentLevel =
+              display
+                  .getParamValue(WindowOp.OP_NAME, ActionW.LEVEL.cmd(), Number.class)
+                  .orElse(null);
+          double currentWindowValue =
+              currentWindow == null
+                  ? windowAction.get().getRealValue()
+                  : currentWindow.doubleValue();
+          double currentLevelValue =
+              currentLevel == null ? levelAction.get().getRealValue() : currentLevel.doubleValue();
           boolean invalidWindowLevel =
-              windowAction.get().getSliderValue() <= 1 && levelAction.get().getSliderValue() == 0;
-          // Keep manual and DICOM MR baselines stable, but let Auto Level follow each image.
-          if (newPreset == null
-              && WindowLevelMemory.shouldRefreshPreset(
-                  view2d.getSeries(), oldPreset, invalidWindowLevel)) {
+              currentWindow == null
+                  || currentLevel == null
+                  || !Double.isFinite(currentWindowValue)
+                  || currentWindowValue <= 0.0
+                  || !Double.isFinite(currentLevelValue);
+          // All MR presets, including Auto Level, stay fixed until the user changes them.
+          if (WindowLevelMemory.shouldRefreshPreset(
+              view2d.getSeries(), oldPreset, invalidWindowLevel)) {
             if (isDefaultPresetSelected) {
               newPreset = image.getDefaultPreset(wlp);
             } else {
@@ -460,13 +456,15 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
           }
 
           Optional<? extends ComboItemListener<?>> lutShapeAction = getAction(ActionW.LUT_SHAPE);
-          double windowValue =
-              newPreset == null ? windowAction.get().getRealValue() : newPreset.getWindow();
-          double levelValue =
-              newPreset == null ? levelAction.get().getRealValue() : newPreset.getLevel();
+          double windowValue = newPreset == null ? currentWindowValue : newPreset.getWindow();
+          double levelValue = newPreset == null ? currentLevelValue : newPreset.getLevel();
           LutShape lutShapeItem =
               newPreset == null
-                  ? lutShapeAction.map(c -> (LutShape) c.getSelectedItem()).orElse(null)
+                  ? display
+                      .getParamValue(WindowOp.OP_NAME, ActionW.LUT_SHAPE.cmd(), LutShape.class)
+                      .orElseGet(
+                          () ->
+                              lutShapeAction.map(c -> (LutShape) c.getSelectedItem()).orElse(null))
                   : newPreset.getLutShape();
 
           Double levelMin =
@@ -495,7 +493,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
           Optional<ImageOpNode> node = view2d.getDisplayOpManager().getNode(WindowOp.OP_NAME);
           if (node.isPresent()) {
             ImageOpNode n = node.get();
-            n.setParam(ActionW.PRESET.cmd(), newPreset);
+            n.setParam(ActionW.PRESET.cmd(), newPreset == null ? oldPreset : newPreset);
             n.setParam(ActionW.DEFAULT_PRESET.cmd(), isDefaultPresetSelected);
             n.setParam(ActionW.WINDOW.cmd(), windowValue);
             n.setParam(ActionW.LEVEL.cmd(), levelValue);
@@ -905,15 +903,103 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
       restorePreviousKeyboardWindowLevel(view);
     } else if (shortcutManager.matches(
         ShortcutManager.ID_DICOM_WINDOW_LEVEL_AUTO, keyEvent, modifiers)) {
-      getWindowLevelPreset(KeyEvent.VK_0).ifPresent(preset -> applyKeyboardPreset(view, preset));
+      applyAutoWindowLevel(view);
     } else {
       return false;
     }
     return true;
   }
 
+  void applyAutoWindowLevel(ViewCanvas<DicomImageElement> view) {
+    cancelPendingMrAutoLevel();
+    Object presentation = view.getActionValue(ActionW.PR_STATE.cmd());
+    boolean pixelPadding =
+        view.getDisplayOpManager()
+            .getParamValue(WindowOp.OP_NAME, ActionW.IMAGE_PIX_PADDING.cmd(), Boolean.class)
+            .orElse(Boolean.TRUE);
+    if (!WindowLevelMemory.isMrSeries(view.getSeries())
+        || !pixelPadding
+        || PRManager.getPrDicomObject(presentation) != null
+        || view instanceof MprView
+        || view instanceof MipView) {
+      getWindowLevelPreset(KeyEvent.VK_0).ifPresent(preset -> applyKeyboardPreset(view, preset));
+      return;
+    }
+    Optional<KeyboardWindowLevelState> before = captureWindowLevelState(view);
+    if (before.isEmpty() || view.getImage() == null) {
+      return;
+    }
+    KeyboardWindowLevelState original = before.get();
+    Object filter = view.getActionValue(ActionW.FILTERED_SERIES.cmd());
+    List<DicomImageElement> images = MrAutoWindowLevel.nearbyImages(view);
+    pendingMrAutoLevel =
+        new SwingWorker<>() {
+          @Override
+          protected PresetWindowLevel doInBackground() {
+            return MrAutoWindowLevel.estimate(images, this::isCancelled);
+          }
+
+          @Override
+          protected void done() {
+            if (isCancelled() || pendingMrAutoLevel != this) {
+              return;
+            }
+            pendingMrAutoLevel = null;
+            // Scrolling in this series is OK. A later adjustment, presentation/filter change,
+            // or selection of another pane/series takes precedence over the pending request.
+            if (getSelectedViewPane() != view
+                || view.getImage() == null
+                || !captureWindowLevelState(view).filter(original::equals).isPresent()
+                || !Objects.equals(presentation, view.getActionValue(ActionW.PR_STATE.cmd()))
+                || filter != view.getActionValue(ActionW.FILTERED_SERIES.cmd())
+                || !view.getDisplayOpManager()
+                    .getParamValue(WindowOp.OP_NAME, ActionW.IMAGE_PIX_PADDING.cmd(), Boolean.class)
+                    .orElse(Boolean.TRUE)) {
+              return;
+            }
+            try {
+              PresetWindowLevel preset = get();
+              if (preset == null) {
+                LOGGER.debug("MR Auto Level could not obtain a usable pixel range");
+                return;
+              }
+              KeyboardWindowLevelState updated =
+                  new KeyboardWindowLevelState(
+                      original.series(),
+                      preset.getWindow(),
+                      preset.getLevel(),
+                      preset.getLutShape(),
+                      preset,
+                      false);
+              if (applyKeyboardWindowLevelState(view, updated)
+                  && (Double.compare(original.window(), updated.window()) != 0
+                      || Double.compare(original.level(), updated.level()) != 0
+                      || !Objects.equals(original.lutShape(), updated.lutShape()))) {
+                // Repeating Auto must not erase the useful previous setting behind the 9 shortcut.
+                previousWindowLevels.put(view, original);
+              }
+            } catch (CancellationException e) {
+              // A newer request superseded this one.
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            } catch (ExecutionException e) {
+              LOGGER.warn("Cannot calculate MR Auto Level", e.getCause());
+            }
+          }
+        };
+    pendingMrAutoLevel.execute();
+  }
+
+  private void cancelPendingMrAutoLevel() {
+    if (pendingMrAutoLevel != null) {
+      pendingMrAutoLevel.cancel(false);
+      pendingMrAutoLevel = null;
+    }
+  }
+
   private void adjustKeyboardWindowLevel(
       ViewCanvas<DicomImageElement> view, boolean adjustWindow, int direction) {
+    cancelPendingMrAutoLevel();
     Optional<KeyboardWindowLevelState> currentState = captureWindowLevelState(view);
     Optional<SliderChangeListener> action =
         getAction(adjustWindow ? ActionW.WINDOW : ActionW.LEVEL);
@@ -946,6 +1032,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   }
 
   private void applyKeyboardPreset(ViewCanvas<DicomImageElement> view, PresetWindowLevel preset) {
+    cancelPendingMrAutoLevel();
     captureWindowLevelState(view)
         .ifPresent(
             current -> {
@@ -960,6 +1047,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   }
 
   private void restorePreviousKeyboardWindowLevel(ViewCanvas<DicomImageElement> view) {
+    cancelPendingMrAutoLevel();
     KeyboardWindowLevelState previous = previousWindowLevels.get(view);
     if (previous == null || previous.series() != view.getSeries()) {
       previousWindowLevels.remove(view);
@@ -1296,6 +1384,9 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   }
 
   public void reset(ResetTools action) {
+    if (ResetTools.ALL.equals(action) || ResetTools.WL.equals(action)) {
+      cancelPendingMrAutoLevel();
+    }
     AuditLog.LOGGER.info("reset action:{}", action.name());
     if (ResetTools.ALL.equals(action)) {
       firePropertyChange(

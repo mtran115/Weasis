@@ -121,7 +121,6 @@ import org.weasis.dicom.viewer2d.KOComponentFactory.KOViewButton;
 import org.weasis.dicom.viewer2d.KOComponentFactory.KOViewButton.eState;
 import org.weasis.dicom.viewer2d.mpr.MprView.Plane;
 import org.weasis.opencv.data.PlanarImage;
-import org.weasis.opencv.op.lut.DefaultWlPresentation;
 import org.weasis.opencv.op.lut.LutShape;
 import org.weasis.opencv.op.lut.WlPresentation;
 
@@ -673,6 +672,9 @@ public class View2d extends DefaultView2d<DicomImageElement> {
   }
 
   private void rememberWindowLevel(MediaSeries<DicomImageElement> currentSeries) {
+    if (getActionValue(ActionW.PR_STATE.cmd()) instanceof PRSpecialElement) {
+      return;
+    }
     OpManager disOp = getDisplayOpManager();
     boolean defaultPreset =
         disOp
@@ -692,6 +694,9 @@ public class View2d extends DefaultView2d<DicomImageElement> {
   }
 
   private boolean restoreWindowLevel(MediaSeries<DicomImageElement> currentSeries) {
+    if (getActionValue(ActionW.PR_STATE.cmd()) instanceof PRSpecialElement) {
+      return false;
+    }
     Optional<WindowLevelMemory.State> remembered = MR_WINDOW_LEVEL_MEMORY.recall(currentSeries);
     if (remembered.isEmpty()) {
       return false;
@@ -699,43 +704,16 @@ public class View2d extends DefaultView2d<DicomImageElement> {
 
     WindowLevelMemory.State state = remembered.get();
     OpManager disOp = getDisplayOpManager();
-    PresetWindowLevel preset = null;
-    double window = state.window();
-    double level = state.level();
-    LutShape lutShape = state.lutShape();
-    if (WindowLevelMemory.Mode.AUTO.equals(state.mode())) {
-      DicomImageElement image = getImage();
-      if (image == null) {
-        return false;
-      }
-      boolean pixelPadding =
-          disOp
-              .getParamValue(WindowOp.OP_NAME, ActionW.IMAGE_PIX_PADDING.cmd(), Boolean.class)
-              .orElse(Boolean.TRUE);
-      DefaultWlPresentation wlp = new DefaultWlPresentation(null, pixelPadding);
-      preset =
-          image.getPresetList(wlp).stream()
-              .filter(PresetWindowLevel::isAutoLevel)
-              .findFirst()
-              .orElse(null);
-      if (preset == null) {
-        return false;
-      }
-      window = preset.getWindow();
-      level = preset.getLevel();
-      lutShape = preset.getLutShape();
-      disOp.setParamValue(WindowOp.OP_NAME, ActionW.LEVEL_MIN.cmd(), image.getMinValue(wlp));
-      disOp.setParamValue(WindowOp.OP_NAME, ActionW.LEVEL_MAX.cmd(), image.getMaxValue(wlp));
+    // Restore the exact baseline, including Auto Level. Recomputing Auto from the slice
+    // selected on return makes contrast jump when moving between sequences or key images.
+    disOp.setParamValue(WindowOp.OP_NAME, ActionW.PRESET.cmd(), state.preset());
+    disOp.setParamValue(WindowOp.OP_NAME, ActionW.DEFAULT_PRESET.cmd(), state.defaultPreset());
+    disOp.setParamValue(WindowOp.OP_NAME, ActionW.WINDOW.cmd(), state.window());
+    disOp.setParamValue(WindowOp.OP_NAME, ActionW.LEVEL.cmd(), state.level());
+    if (state.lutShape() != null) {
+      disOp.setParamValue(WindowOp.OP_NAME, ActionW.LUT_SHAPE.cmd(), state.lutShape());
     }
-
-    disOp.setParamValue(WindowOp.OP_NAME, ActionW.PRESET.cmd(), preset);
-    disOp.setParamValue(WindowOp.OP_NAME, ActionW.DEFAULT_PRESET.cmd(), false);
-    disOp.setParamValue(WindowOp.OP_NAME, ActionW.WINDOW.cmd(), window);
-    disOp.setParamValue(WindowOp.OP_NAME, ActionW.LEVEL.cmd(), level);
-    if (lutShape != null) {
-      disOp.setParamValue(WindowOp.OP_NAME, ActionW.LUT_SHAPE.cmd(), lutShape);
-    }
-    actionsInView.put(ActionW.PRESET.cmd(), preset);
+    actionsInView.put(ActionW.PRESET.cmd(), state.preset());
     return true;
   }
 

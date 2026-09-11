@@ -50,16 +50,14 @@ public class WindowAndPresetsOp extends WindowOp {
       setParam(P_IMAGE_ELEMENT, img);
       removeParam(P_PR_ELEMENT);
 
-      if (img != null && img != previousImage) {
+      // An MR preset establishes a series baseline. Recompute it only when explicitly applied
+      // or reset; per-slice Auto Level makes varying pixel ranges visibly pulse.
+      if (img != null && img != previousImage && !isMrSeries(event)) {
         PresetWindowLevel preset = (PresetWindowLevel) getParam(ActionW.PRESET.cmd());
         if (preset != null && preset.isAutoLevel()) {
           applyAutoPreset(img);
         } else if (LangUtil.nullToTrue((Boolean) getParam(ActionW.DEFAULT_PRESET.cmd()))) {
-          if (isMrSeries(event)) {
-            applyAutoPresetIfImplausible(img, preset);
-          } else {
-            applyDefaultPreset(img, false, false);
-          }
+          applyDefaultPreset(img, false, false);
         }
       }
     } else if (OpEvent.RESET_DISPLAY.equals(type) || OpEvent.SERIES_CHANGE.equals(type)) {
@@ -164,45 +162,6 @@ public class WindowAndPresetsOp extends WindowOp {
         setPreset(autoPreset, img, pixelPadding, false);
       }
     }
-  }
-
-  private void applyAutoPresetIfImplausible(ImageElement img, PresetWindowLevel preset) {
-    if (!img.isImageAvailable()) {
-      img.getImage();
-    }
-    if (!(img instanceof DicomImageElement imageElement)) {
-      return;
-    }
-
-    boolean pixelPadding = LangUtil.nullToTrue((Boolean) getParam(ActionW.IMAGE_PIX_PADDING.cmd()));
-    DefaultWlPresentation wlp = new DefaultWlPresentation(null, pixelPadding);
-    double window =
-        preset == null ? getNumberParam(ActionW.WINDOW.cmd(), Double.NaN) : preset.getWindow();
-    double level =
-        preset == null ? getNumberParam(ActionW.LEVEL.cmd(), Double.NaN) : preset.getLevel();
-    double imageMin = imageElement.getMinValue(wlp);
-    double imageMax = imageElement.getMaxValue(wlp);
-    LutShape shape =
-        preset == null ? (LutShape) getParam(ActionW.LUT_SHAPE.cmd()) : preset.getLutShape();
-    if (!isImplausibleWindowLevel(window, level, shape, imageElement, wlp)) {
-      return;
-    }
-
-    PresetWindowLevel autoPreset = findAutoPreset(imageElement, wlp);
-    if (autoPreset != null) {
-      LOGGER.warn(
-          "Switching implausible MR default window/level W:{}, L:{} to Auto Level for image range [{}, {}]",
-          window,
-          level,
-          imageMin,
-          imageMax);
-      setPreset(autoPreset, img, pixelPadding, false);
-    }
-  }
-
-  private double getNumberParam(String key, double defaultValue) {
-    Object value = getParam(key);
-    return value instanceof Number number ? number.doubleValue() : defaultValue;
   }
 
   public static boolean isImplausiblePreset(
