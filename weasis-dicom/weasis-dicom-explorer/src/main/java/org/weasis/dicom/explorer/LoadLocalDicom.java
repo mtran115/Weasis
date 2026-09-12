@@ -10,6 +10,7 @@
 package org.weasis.dicom.explorer;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.function.BooleanSupplier;
 import javax.swing.JOptionPane;
@@ -35,6 +36,8 @@ public class LoadLocalDicom extends LoadDicom {
   private final File[] files;
   private final boolean recursive;
   private final boolean clearExistingStudies;
+  private List<Path> importRoots;
+  private Path importDirectory;
 
   public LoadLocalDicom(
       File[] files, boolean recursive, DataExplorerModel explorerModel, OpeningViewer openingMode) {
@@ -73,6 +76,38 @@ public class LoadLocalDicom extends LoadDicom {
     this.files = Objects.requireNonNull(files);
     this.recursive = recursive;
     this.clearExistingStudies = clearExistingStudies;
+  }
+
+  /** For extracted archives, retain the original archive folder rather than the temporary tree. */
+  public void setImportDirectory(Path directory) {
+    importDirectory = directory == null ? null : directory.toAbsolutePath().normalize();
+  }
+
+  @Override
+  protected void recordImportDirectory(MediaSeriesGroup study, java.net.URI source) {
+    if (source != null && "file".equalsIgnoreCase(source.getScheme())) {
+      importDirectoryFor(Path.of(source))
+          .ifPresent(directory -> LocalImportDirectory.record(study, directory));
+    }
+  }
+
+  private Optional<Path> importDirectoryFor(Path file) {
+    if (importDirectory != null) return Optional.of(importDirectory);
+    if (importRoots == null) {
+      importRoots =
+          Arrays.stream(files)
+              .filter(Objects::nonNull)
+              .map(
+                  value ->
+                      value.isDirectory()
+                          ? value.toPath()
+                          : value.toPath().toAbsolutePath().getParent())
+              .filter(Objects::nonNull)
+              .map(path -> path.toAbsolutePath().normalize())
+              .distinct()
+              .toList();
+    }
+    return LocalImportDirectory.forFile(file, importRoots);
   }
 
   @Override
@@ -132,13 +167,17 @@ public class LoadLocalDicom extends LoadDicom {
         } else if (reading == Reading.UNSUPPORTED) {
           unsupported.incrementAndGet();
         }
-      } else if (FileUtil.isFileExtensionMatching(value.toPath(), DicomZipCodec.FILE_EXTENSIONS)
-          || MimeInspector.isMatchingMimeTypeFromMagicNumber(value, DicomZipMediaIO.MIME_TYPE)) {
+      } else if (isDicomZip(value)) {
         if (isCancelled()) {
           return;
         }
         DicomZipMediaIO.loadDicomZip(
-            value, dicomModel, HangingProtocols.OpeningViewer.ALL_PATIENTS, null, false);
+            value,
+            dicomModel,
+            HangingProtocols.OpeningViewer.ALL_PATIENTS,
+            null,
+            false,
+            importDirectoryFor(value.toPath()).orElse(null));
         if (isCancelled()) {
           return;
         }
@@ -165,6 +204,13 @@ public class LoadLocalDicom extends LoadDicom {
       }
       addSelectionAndNotify(folder.listFiles(), false);
     }
+  }
+
+  static boolean isDicomZip(File file) {
+    // Transcription Word documents live beside studies and have ZIP magic bytes too.
+    return !file.getName().toLowerCase(Locale.ROOT).endsWith(".docx")
+        && (FileUtil.isFileExtensionMatching(file.toPath(), DicomZipCodec.FILE_EXTENSIONS)
+            || MimeInspector.isMatchingMimeTypeFromMagicNumber(file, DicomZipMediaIO.MIME_TYPE));
   }
 
   public static void updateSeriesThumbnail(Set<DicomSeries> seriesList, DicomModel dicomModel) {

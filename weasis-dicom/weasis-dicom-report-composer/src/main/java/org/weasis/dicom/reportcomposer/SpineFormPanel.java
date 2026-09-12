@@ -11,13 +11,16 @@ package org.weasis.dicom.reportcomposer;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Graphics;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.Point;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -33,6 +36,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
@@ -63,6 +67,7 @@ final class SpineFormPanel extends JPanel {
   private final JButton resetButton;
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");
+  private final SpineFormShortcuts shortcuts;
 
   SpineFormPanel(SpineRegion region) {
     this.region = region;
@@ -76,7 +81,50 @@ final class SpineFormPanel extends JPanel {
     setAlignmentX(LEFT_ALIGNMENT);
     Dimension preferred = getPreferredSize();
     setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
+    setFocusable(true);
+    shortcuts = new SpineFormShortcuts(this);
     resetButton.addActionListener(event -> clearSelections());
+  }
+
+  @Override
+  public void addNotify() {
+    super.addNotify();
+    shortcuts.install();
+  }
+
+  @Override
+  public void removeNotify() {
+    shortcuts.uninstall();
+    super.removeNotify();
+  }
+
+  SpineFormShortcuts shortcuts() {
+    return shortcuts;
+  }
+
+  LevelControls levelAt(Point point) {
+    if (!getVisibleRect().contains(point)) return null;
+    return levelControls.values().stream()
+        .filter(
+            level -> level.panel.contains(SwingUtilities.convertPoint(this, point, level.panel)))
+        .findFirst()
+        .orElse(null);
+  }
+
+  LevelControls levelFor(Component component) {
+    return levelControls.values().stream()
+        .filter(
+            level -> component != null && SwingUtilities.isDescendingFrom(component, level.panel))
+        .findFirst()
+        .orElse(null);
+  }
+
+  LevelControls level(String name) {
+    return levelControls.get(name);
+  }
+
+  void submitFromKeyboard() {
+    addButton.doClick(0);
   }
 
   SpineRegion region() {
@@ -130,6 +178,7 @@ final class SpineFormPanel extends JPanel {
   }
 
   void clearSelections() {
+    shortcuts.reset();
     alignmentControls.values().forEach(checkBox -> checkBox.setSelected(false));
     scoliosisSeverity.setSelectedItem(Severity.MILD);
     scoliosisSeverity.setEnabled(false);
@@ -296,9 +345,25 @@ final class SpineFormPanel extends JPanel {
     }
   }
 
-  private final class LevelControls {
+  final class LevelControls {
     private final String level;
-    private final JPanel panel = new JPanel(new GridBagLayout());
+    private boolean keyboardHovered;
+    private final JPanel panel =
+        new JPanel(new GridBagLayout()) {
+          @Override
+          protected void paintBorder(Graphics graphics) {
+            super.paintBorder(graphics);
+            if (keyboardHovered) {
+              Graphics copy = graphics.create();
+              try {
+                copy.setColor(new Color(59, 130, 246));
+                copy.drawRect(0, 0, getWidth() - 1, getHeight() - 1);
+              } finally {
+                copy.dispose();
+              }
+            }
+          }
+        };
     private final DirectChoiceControl<ListhesisDirection> listhesisDirection =
         new DirectChoiceControl<>(
             List.of(ListhesisDirection.ANTEROLISTHESIS, ListhesisDirection.RETROLISTHESIS));
@@ -441,6 +506,79 @@ final class SpineFormPanel extends JPanel {
 
     JPanel panel() {
       return panel;
+    }
+
+    String name() {
+      return level;
+    }
+
+    void setKeyboardHovered(boolean hovered) {
+      if (keyboardHovered != hovered) {
+        keyboardHovered = hovered;
+        panel.repaint();
+      }
+    }
+
+    void editText() {
+      java.awt.Window window = SwingUtilities.getWindowAncestor(panel);
+      if (window != null && !window.isFocused()) {
+        window.toFront();
+        window.requestFocus();
+        SwingUtilities.invokeLater(freeText::requestFocusInWindow);
+      }
+      freeText.requestFocusInWindow();
+      freeText.setCaretPosition(freeText.getDocument().getLength());
+    }
+
+    void toggle(char key) {
+      JCheckBox button =
+          switch (key) {
+            case 'B' -> bulge;
+            case 'P' -> protrusion;
+            case 'E' -> extrusion;
+            case 'A' -> annularFissure;
+            case 'V' -> ventralEpiduralLipomatosis;
+            default -> throw new IllegalArgumentException("Unknown finding shortcut");
+          };
+      button.doClick(0);
+    }
+
+    boolean hasCanalControl() {
+      return region == SpineRegion.CERVICAL || region == SpineRegion.LUMBAR;
+    }
+
+    void setSeverity(char target, int number) {
+      DirectChoiceControl<Severity> control =
+          switch (target) {
+            case 'C' -> spinalCanalSeverity;
+            case 'L' -> leftForaminalSeverity;
+            case 'R' -> rightForaminalSeverity;
+            default -> throw new IllegalArgumentException("Unknown severity shortcut");
+          };
+      if (number == 0) control.clear();
+      else control.select(SEVERITIES[number - 1]);
+    }
+
+    void setLaterality(char target, char side) {
+      DirectChoiceControl<Laterality> control =
+          target == 'F' ? facetArthrosis : posteriorElementHypertrophy;
+      if (side == '0') control.clear();
+      else
+        control.select(
+            switch (side) {
+              case 'L' -> Laterality.LEFT;
+              case 'R' -> Laterality.RIGHT;
+              case 'B' -> Laterality.BILATERAL;
+              default -> throw new IllegalArgumentException("Unknown laterality shortcut");
+            });
+    }
+
+    boolean hasDiscHerniation() {
+      return protrusion.isSelected() || extrusion.isSelected();
+    }
+
+    void setDiscLocations(java.util.Set<ProtrusionLocation> selected) {
+      discLocations.forEach((location, button) -> button.setSelected(selected.contains(location)));
     }
 
     LevelSelection selection() {

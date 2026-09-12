@@ -197,6 +197,22 @@ public class DicomZipMediaIO implements MediaReader<MediaElement> {
       OpeningViewer openingViewer,
       Component parent,
       boolean clearExistingStudies) {
+    loadDicomZip(
+        file,
+        dicomModel,
+        openingViewer,
+        parent,
+        clearExistingStudies,
+        file == null ? null : file.toPath().toAbsolutePath().getParent());
+  }
+
+  public static void loadDicomZip(
+      File file,
+      DicomModel dicomModel,
+      OpeningViewer openingViewer,
+      Component parent,
+      boolean clearExistingStudies,
+      Path importDirectory) {
     if (file != null && file.canRead()) {
       Path dir =
           FileUtil.createTempDir(
@@ -229,26 +245,26 @@ public class DicomZipMediaIO implements MediaReader<MediaElement> {
         zipFile.extractAll(dir.toString());
       } catch (IOException e) {
         LOGGER.error("unzipping", e);
+        return;
+      }
+      // Clear before parsing DICOMDIR; parsing creates the new study nodes and their origins.
+      if (clearExistingStudies) {
+        dicomModel.removeAllPatientsAndCloseViewers();
       }
       File dicomdir = new File(dir.toFile(), "DICOMDIR");
       if (dicomdir.canRead()) {
-        DicomDirLoader dirImport = new DicomDirLoader(dicomdir, dicomModel, false);
+        DicomDirLoader dirImport = new DicomDirLoader(dicomdir, dicomModel, false, importDirectory);
         List<LoadSeries> loadSeries = dirImport.readDicomDir();
         if (loadSeries != null && !loadSeries.isEmpty()) {
-          if (clearExistingStudies) {
-            dicomModel.removeAllPatientsAndCloseViewers();
-          }
           DicomModel.LOADING_EXECUTOR.execute(
               new LoadDicomDir(loadSeries, dicomModel, openingViewer));
         } else {
           LOGGER.error("Cannot import DICOM from {}", file);
         }
       } else {
-        if (clearExistingStudies) {
-          dicomModel.removeAllPatientsAndCloseViewers();
-        }
         LoadLocalDicom dicom =
             new LoadLocalDicom(new File[] {dir.toFile()}, true, dicomModel, openingViewer);
+        dicom.setImportDirectory(importDirectory);
         DicomModel.LOADING_EXECUTOR.execute(dicom);
       }
     }

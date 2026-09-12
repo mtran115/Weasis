@@ -12,6 +12,7 @@ package org.weasis.dicom.explorer.imp;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -47,6 +48,7 @@ import org.weasis.dicom.codec.utils.DicomMediaUtils;
 import org.weasis.dicom.codec.utils.PatientComparator;
 import org.weasis.dicom.codec.utils.SeriesInstanceList;
 import org.weasis.dicom.explorer.DicomModel;
+import org.weasis.dicom.explorer.LocalImportDirectory;
 import org.weasis.dicom.explorer.wado.DownloadPriority;
 import org.weasis.dicom.explorer.wado.LoadSeries;
 import org.weasis.dicom.mf.SopInstance;
@@ -64,14 +66,28 @@ public class DicomDirLoader {
   private final WadoParameters wadoParameters;
   private final boolean writeInCache;
   private final File dcmDirFile;
+  private final Path importDirectory;
 
   public DicomDirLoader(File dcmDirFile, DataExplorerModel explorerModel, boolean writeInCache) {
+    this(
+        dcmDirFile,
+        explorerModel,
+        writeInCache,
+        dcmDirFile == null ? null : dcmDirFile.toPath().toAbsolutePath().getParent());
+  }
+
+  public DicomDirLoader(
+      File dcmDirFile,
+      DataExplorerModel explorerModel,
+      boolean writeInCache,
+      Path importDirectory) {
     if (dcmDirFile == null || !dcmDirFile.canRead() || !(explorerModel instanceof DicomModel)) {
       throw new IllegalArgumentException("invalid parameters");
     }
     this.dicomModel = (DicomModel) explorerModel;
     this.writeInCache = writeInCache;
     this.dcmDirFile = dcmDirFile;
+    this.importDirectory = importDirectory;
     wadoParameters = new WadoParameters("", true);
     seriesList = new ArrayList<>();
   }
@@ -151,6 +167,7 @@ public class DicomDirLoader {
           DicomMediaUtils.writeMetaData(study, dcmStudy);
           dicomModel.addHierarchyNode(patient, study);
         }
+        LocalImportDirectory.record(study, importDirectory);
         parseSeries(patient, study, dcmStudy, reader);
       }
       dcmStudy = findNextSiblingRecord(dcmStudy, reader);

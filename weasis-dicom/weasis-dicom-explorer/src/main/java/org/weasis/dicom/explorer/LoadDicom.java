@@ -181,6 +181,8 @@ public abstract class LoadDicom extends ExplorerTask<Boolean, String> {
       dicomModel.addHierarchyNode(patient, study);
     }
 
+    recordImportDirectory(study, dicomReader.getUri());
+
     boolean editableDicom = dicomReader.isEditableDicom();
     String seriesUID = (String) dicomReader.getTagValue(TagD.get(Tag.SeriesInstanceUID));
     DicomSeries dicomSeries = (DicomSeries) dicomModel.getHierarchyNode(study, seriesUID);
@@ -233,6 +235,10 @@ public abstract class LoadDicom extends ExplorerTask<Boolean, String> {
       LOGGER.error("Build DICOM hierarchy", e);
     }
     return dicomSeries;
+  }
+
+  protected void recordImportDirectory(MediaSeriesGroup study, java.net.URI source) {
+    // Local loaders provide provenance before the first viewer can open the study.
   }
 
   private DicomImageElement[] getDicomImageElements(

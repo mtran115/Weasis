@@ -10,13 +10,19 @@
 package org.weasis.dicom.reportcomposer;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Graphics;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.event.ActionListener;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +36,8 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
+import javax.swing.SwingUtilities;
+import javax.swing.text.JTextComponent;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
@@ -64,6 +72,10 @@ final class ShoulderFormPanel extends JPanel {
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");
 
+  private final List<ShortcutTarget> shortcutTargets = new ArrayList<>();
+  private final ShoulderFormShortcuts shortcuts;
+  private ShortcutTarget keyboardHovered;
+
   ShoulderFormPanel() {
     setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
     setBorder(BorderFactory.createTitledBorder("Structured shoulder findings"));
@@ -76,7 +88,66 @@ final class ShoulderFormPanel extends JPanel {
     setAlignmentX(LEFT_ALIGNMENT);
     Dimension preferred = getPreferredSize();
     setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
+    setFocusable(true);
+    shortcuts = new ShoulderFormShortcuts(this);
     resetButton.addActionListener(event -> clearSelections());
+  }
+
+  @Override
+  public void addNotify() {
+    super.addNotify();
+    shortcuts.install();
+  }
+
+  @Override
+  public void removeNotify() {
+    shortcuts.uninstall();
+    super.removeNotify();
+  }
+
+  ShoulderFormShortcuts shortcuts() {
+    return shortcuts;
+  }
+
+  ShortcutTarget targetAt(Point point) {
+    if (!getVisibleRect().contains(point)) return null;
+    return shortcutTargets.stream()
+        .filter(target -> target.bounds().contains(point))
+        .findFirst()
+        .orElse(null);
+  }
+
+  ShortcutTarget target(String name) {
+    return shortcutTargets.stream()
+        .filter(target -> target.name().equals(name))
+        .findFirst()
+        .orElseThrow();
+  }
+
+  void setKeyboardHovered(ShortcutTarget target) {
+    if (keyboardHovered != target) {
+      keyboardHovered = target;
+      repaint();
+    }
+  }
+
+  @Override
+  protected void paintChildren(Graphics graphics) {
+    super.paintChildren(graphics);
+    if (keyboardHovered != null) {
+      Rectangle bounds = keyboardHovered.bounds();
+      Graphics copy = graphics.create();
+      try {
+        copy.setColor(new Color(59, 130, 246));
+        copy.drawRect(bounds.x, bounds.y, bounds.width - 1, bounds.height - 1);
+      } finally {
+        copy.dispose();
+      }
+    }
+  }
+
+  void submitFromKeyboard() {
+    addButton.doClick(0);
   }
 
   void addSubmitListener(ActionListener listener) {
@@ -122,6 +193,7 @@ final class ShoulderFormPanel extends JPanel {
   }
 
   void clearSelections() {
+    shortcuts.reset();
     subcoracoidBursitis.clear();
     subacromialSubdeltoidBursitis.clear();
     acJointOsteoarthrosis.clear();
@@ -135,9 +207,9 @@ final class ShoulderFormPanel extends JPanel {
 
   private JPanel buildBursaeAndJointPanel() {
     JPanel panel = choicePanel("Bursae and AC joint");
-    addChoiceRow(panel, 0, "Subcoracoid bursitis", subcoracoidBursitis);
-    addChoiceRow(panel, 1, "Subacromial/subdeltoid bursitis", subacromialSubdeltoidBursitis);
-    addChoiceRow(panel, 2, "AC joint osteoarthrosis", acJointOsteoarthrosis);
+    addSeverityTarget(panel, 0, "Subcoracoid bursitis", subcoracoidBursitis);
+    addSeverityTarget(panel, 1, "Subacromial/subdeltoid bursitis", subacromialSubdeltoidBursitis);
+    addSeverityTarget(panel, 2, "AC joint osteoarthrosis", acJointOsteoarthrosis);
     return panel;
   }
 
@@ -160,6 +232,15 @@ final class ShoulderFormPanel extends JPanel {
       constraints.weightx = 1.0;
       constraints.fill = GridBagConstraints.HORIZONTAL;
       tendonPanel.add(tearControls.panel(), constraints);
+      shortcutTargets.add(
+          new ShortcutTarget(
+              tendon.toString(),
+              tendonPanel,
+              tendonPanel,
+              tendonPanel,
+              control,
+              tearControls,
+              false));
       panel.add(stretch(tendonPanel));
     }
     return panel;
@@ -168,22 +249,38 @@ final class ShoulderFormPanel extends JPanel {
   private JPanel buildLabrumPanel() {
     JPanel panel = new JPanel(new BorderLayout(6, 3));
     panel.setBorder(BorderFactory.createTitledBorder("Labral tear"));
-    JPanel choices = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 2));
+    // Fixed rows keep the cyst toggle visible in a narrow composer. Preserve child paths for
+    // drafts.
+    JPanel choices = new JPanel(new GridBagLayout());
+    GridBagConstraints locationConstraints = new GridBagConstraints();
+    locationConstraints.fill = GridBagConstraints.HORIZONTAL;
+    locationConstraints.weightx = 1.0;
+    locationConstraints.insets = new Insets(1, 2, 1, 2);
     for (LabralLocation location : LabralLocation.values()) {
       JToggleButton button = new FindingToggleButton(location.toString());
       button.setMargin(new Insets(2, 7, 2, 7));
       labralTearLocations.put(location, button);
-      choices.add(button);
+      int index = choices.getComponentCount();
+      locationConstraints.gridx = index % 2;
+      locationConstraints.gridy = index / 2;
+      choices.add(button, locationConstraints);
     }
     paralabralCyst.setMargin(new Insets(2, 7, 2, 7));
-    choices.add(paralabralCyst);
+    locationConstraints.gridx = 0;
+    locationConstraints.gridy = 2;
+    locationConstraints.gridwidth = 2;
+    choices.add(paralabralCyst, locationConstraints);
     panel.add(choices, BorderLayout.CENTER);
+    shortcutTargets.add(new ShortcutTarget("Labral tear", panel, panel, panel, null, null, true));
     return panel;
   }
 
   private JPanel buildBicepsPanel() {
     JPanel panel = choicePanel("Long head of biceps");
     addChoiceRow(panel, 0, "Tenosynovitis", longHeadBicepsTenosynovitis);
+    shortcutTargets.add(
+        new ShortcutTarget(
+            "Long head of biceps", panel, panel, panel, longHeadBicepsTenosynovitis, null, false));
     return panel;
   }
 
@@ -193,6 +290,7 @@ final class ShoulderFormPanel extends JPanel {
     freeText.setLineWrap(true);
     freeText.setWrapStyleWord(true);
     panel.add(new JScrollPane(freeText), BorderLayout.CENTER);
+    shortcutTargets.add(new ShortcutTarget("Free text", panel, panel, panel, null, null, false));
     return panel;
   }
 
@@ -209,17 +307,27 @@ final class ShoulderFormPanel extends JPanel {
     return panel;
   }
 
-  private static void addChoiceRow(
+  private void addSeverityTarget(
+      JPanel panel, int row, String label, DirectChoiceControl<Degree> choice) {
+    JLabel heading = addChoiceRow(panel, row, label, choice);
+    // Keep the component hierarchy unchanged: saved drafts address controls by their paths.
+    shortcutTargets.add(
+        new ShortcutTarget(label, choice.panel(), heading, choice.panel(), choice, null, false));
+  }
+
+  private static JLabel addChoiceRow(
       JPanel panel, int row, String label, DirectChoiceControl<?> choice) {
     GridBagConstraints constraints = constraints(row * 2);
     constraints.gridwidth = 2;
-    panel.add(new JLabel(label), constraints);
+    JLabel heading = new JLabel(label);
+    panel.add(heading, constraints);
     constraints = constraints(row * 2 + 1);
     constraints.gridwidth = 2;
     constraints.weightx = 1.0;
     constraints.fill = GridBagConstraints.HORIZONTAL;
     constraints.insets = new Insets(0, 15, 4, 3);
     panel.add(choice.panel(), constraints);
+    return heading;
   }
 
   private static GridBagConstraints constraints(int row) {
@@ -243,6 +351,130 @@ final class ShoulderFormPanel extends JPanel {
     Dimension preferred = component.getPreferredSize();
     component.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
     return component;
+  }
+
+  final class ShortcutTarget {
+    private final String name;
+    private final JPanel panel;
+    private final Component first;
+    private final Component last;
+    private final DirectChoiceControl<Degree> degree;
+    private final CuffTearControls tear;
+    private final boolean labrum;
+
+    ShortcutTarget(
+        String name,
+        JPanel panel,
+        Component first,
+        Component last,
+        DirectChoiceControl<Degree> degree,
+        CuffTearControls tear,
+        boolean labrum) {
+      this.name = name;
+      this.panel = panel;
+      this.first = first;
+      this.last = last;
+      this.degree = degree;
+      this.tear = tear;
+      this.labrum = labrum;
+    }
+
+    String name() {
+      return name;
+    }
+
+    JPanel panel() {
+      return panel;
+    }
+
+    boolean hasDegree() {
+      return degree != null;
+    }
+
+    Rectangle bounds() {
+      Rectangle result =
+          SwingUtilities.convertRectangle(
+              first.getParent(), first.getBounds(), ShoulderFormPanel.this);
+      if (first != last) {
+        result =
+            result.union(
+                SwingUtilities.convertRectangle(
+                    last.getParent(), last.getBounds(), ShoulderFormPanel.this));
+        result.grow(2, 1);
+      }
+      return result;
+    }
+
+    void setDegree(Degree value) {
+      if (value == Degree.NONE) degree.clear();
+      else degree.select(value);
+    }
+
+    JToggleButton button(char key) {
+      if (tear != null) {
+        return switch (key) {
+          case 'A' -> tear.types.get(CuffTearType.ARTICULAR_SURFACE);
+          case 'B' -> tear.types.get(CuffTearType.BURSAL_SURFACE);
+          case 'I' -> tear.types.get(CuffTearType.INTERSTITIAL);
+          case 'F' -> tear.types.get(CuffTearType.FULL_THICKNESS);
+          case 'H' -> tear.highGrade;
+          case 'P' -> tear.atFootprint;
+          case 'G' -> tear.backgroundTendinosis;
+          default -> null;
+        };
+      }
+      if (labrum) {
+        return switch (key) {
+          case 'A' -> labralTearLocations.get(LabralLocation.ANTERIOR);
+          case 'S' -> labralTearLocations.get(LabralLocation.SUPERIOR);
+          case 'P' -> labralTearLocations.get(LabralLocation.POSTERIOR);
+          case 'I' -> labralTearLocations.get(LabralLocation.INFERIOR);
+          case 'C' -> paralabralCyst;
+          default -> null;
+        };
+      }
+      return null;
+    }
+
+    JTextComponent textField() {
+      return tear == null ? freeText : tear.details;
+    }
+
+    void editText() {
+      JTextComponent text = textField();
+      java.awt.Window window = SwingUtilities.getWindowAncestor(text);
+      if (window != null && !window.isFocused()) {
+        window.toFront();
+        window.requestFocus();
+        SwingUtilities.invokeLater(text::requestFocusInWindow);
+      }
+      text.scrollRectToVisible(new Rectangle(0, 0, text.getWidth(), text.getHeight()));
+      text.requestFocusInWindow();
+      text.setCaretPosition(text.getDocument().getLength());
+    }
+
+    String help() {
+      if (tear != null) {
+        return name
+            + " · Numpad: 1 Mild · 2 Mod · 3 Severe\n"
+            + "Numpad . Minimal · 0 Clear · A Articular · B Bursal\n"
+            + "I Interstitial · F Full · H High-grade · P Footprint\n"
+            + "G Background tendinosis · T Details · Cmd+Z Undo";
+      }
+      if (labrum) {
+        return name
+            + "\nA Anterior · S Superior · P Posterior · I Inferior\n"
+            + "C Paralabral cyst · T Text\n"
+            + ShoulderFormShortcuts.COMMON_HELP;
+      }
+      if (hasDegree()) {
+        return name
+            + "\nNumpad: 1 Mild · 2 Moderate · 3 Severe\n"
+            + "Numpad . Minimal · 0 Clear · T Text\n"
+            + ShoulderFormShortcuts.COMMON_HELP;
+      }
+      return name + " — T Text · Esc Leave text\n" + ShoulderFormShortcuts.COMMON_HELP;
+    }
   }
 
   private static final class CuffTearControls {
@@ -312,7 +544,12 @@ final class ShoulderFormPanel extends JPanel {
 
     private void updateModifierState() {
       boolean enabled = types.values().stream().anyMatch(JToggleButton::isSelected);
-      highGrade.setEnabled(enabled);
+      highGrade.setEnabled(
+          types.entrySet().stream()
+              .anyMatch(
+                  entry ->
+                      entry.getKey() != CuffTearType.FULL_THICKNESS
+                          && entry.getValue().isSelected()));
       atFootprint.setEnabled(enabled);
       backgroundTendinosis.setEnabled(enabled);
       details.setEnabled(enabled);

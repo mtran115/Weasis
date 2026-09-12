@@ -17,6 +17,7 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Window;
+import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -29,6 +30,7 @@ import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JRootPane;
 import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -59,62 +61,67 @@ final class ArrowAnnotationDialog extends JDialog {
     setLayout(new BorderLayout(8, 8));
     JLabel instructions =
         new JLabel(
-            "Press on a finding and drag outward, or click for an automatic arrow. Repeat as needed.",
+            "<html><center>Press on a finding and drag outward, or click for an automatic arrow. Repeat as needed.<br>Enter saves the key image with or without arrows. Esc cancels.</center></html>",
             SwingConstants.CENTER);
     instructions.setBorder(GuiUtils.getEmptyBorder(8, 8, 0, 8));
     add(instructions, BorderLayout.NORTH);
     add(arrowCanvas, BorderLayout.CENTER);
 
+    add(
+        buildButtons(
+            getRootPane(),
+            arrowCanvas,
+            () -> {
+              accepted = true;
+              dispose();
+            },
+            this::dispose),
+        BorderLayout.SOUTH);
+    setMinimumSize(new Dimension(720, 560));
+    setSize(new Dimension(980, 760));
+  }
+
+  static JPanel buildButtons(JRootPane root, ArrowCanvas canvas, Runnable save, Runnable cancel) {
     JButton undoButton = new JButton("Undo Last");
     undoButton.setEnabled(false);
-    undoButton.addActionListener(event -> arrowCanvas.removeLastPlacement());
+    undoButton.addActionListener(event -> canvas.removeLastPlacement());
     JButton clearButton = new JButton("Clear All");
     clearButton.setEnabled(false);
-    clearButton.addActionListener(event -> arrowCanvas.clearPlacements());
+    clearButton.addActionListener(event -> canvas.clearPlacements());
     JButton noArrowButton = new JButton("Use Without Arrows");
     noArrowButton.addActionListener(
         event -> {
-          arrowCanvas.clearPlacements();
-          accepted = true;
-          dispose();
+          canvas.clearPlacements();
+          save.run();
         });
     JButton cancelButton = new JButton("Cancel");
-    cancelButton.addActionListener(event -> dispose());
-    JButton useButton = new JButton("Use Arrow");
-    useButton.setEnabled(false);
-    arrowCanvas.setPlacementListener(
+    cancelButton.addActionListener(event -> cancel.run());
+    JButton saveButton = new JButton("Save Key Image (Enter)");
+    ActionListener saveAction = event -> save.run();
+    saveButton.addActionListener(saveAction);
+    canvas.setPlacementListener(
         placements -> {
           boolean hasArrows = !placements.isEmpty();
           undoButton.setEnabled(hasArrows);
           clearButton.setEnabled(hasArrows);
-          useButton.setEnabled(hasArrows);
-          useButton.setText(placements.size() == 1 ? "Use Arrow" : "Use Arrows");
         });
-    useButton.addActionListener(
-        event -> {
-          accepted = true;
-          dispose();
-        });
-    getRootPane().setDefaultButton(useButton);
-    getRootPane()
-        .registerKeyboardAction(
-            event -> dispose(),
-            KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
-            JComponent.WHEN_IN_FOCUSED_WINDOW);
-
-    JPanel buttons =
-        GuiUtils.getFlowLayoutPanel(
-            java.awt.FlowLayout.TRAILING,
-            8,
-            8,
-            undoButton,
-            clearButton,
-            noArrowButton,
-            cancelButton,
-            useButton);
-    add(buttons, BorderLayout.SOUTH);
-    setMinimumSize(new Dimension(720, 560));
-    setSize(new Dimension(980, 760));
+    root.setDefaultButton(saveButton);
+    KeyStroke enter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
+    root.registerKeyboardAction(saveAction, enter, JComponent.WHEN_IN_FOCUSED_WINDOW);
+    root.registerKeyboardAction(
+        event -> cancel.run(),
+        KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+        JComponent.WHEN_IN_FOCUSED_WINDOW);
+    List<JButton> buttons =
+        List.of(undoButton, clearButton, noArrowButton, cancelButton, saveButton);
+    for (JButton button : buttons) {
+      // Enter always accepts the current arrows, even after Undo/Clear or when another button
+      // has keyboard focus. Clicking Use Without Arrows remains an explicit discard action.
+      button.setDefaultCapable(button == saveButton);
+      button.registerKeyboardAction(saveAction, enter, JComponent.WHEN_FOCUSED);
+    }
+    return GuiUtils.getFlowLayoutPanel(
+        java.awt.FlowLayout.TRAILING, 8, 8, buttons.toArray(JButton[]::new));
   }
 
   record AnnotationResult(boolean accepted, List<ArrowPlacement> placements) {
@@ -142,7 +149,7 @@ final class ArrowAnnotationDialog extends JDialog {
         Math.clamp(arrowHead.y + directionY * offset, 0, maxY));
   }
 
-  private static final class ArrowCanvas extends JComponent {
+  static final class ArrowCanvas extends JComponent {
     private final BufferedImage image;
     private final List<ArrowPlacement> placements = new ArrayList<>();
     private Point arrowHeadPoint;

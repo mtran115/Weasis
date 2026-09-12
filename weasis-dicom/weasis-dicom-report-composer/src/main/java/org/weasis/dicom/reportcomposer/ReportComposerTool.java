@@ -84,6 +84,7 @@ import org.weasis.core.ui.editor.SeriesViewerEvent.EVENT;
 import org.weasis.core.ui.editor.SeriesViewerListener;
 import org.weasis.core.ui.editor.image.DefaultView2d;
 import org.weasis.dicom.codec.DicomImageElement;
+import org.weasis.dicom.explorer.LocalImportDirectory;
 import org.weasis.dicom.reportcomposer.ArrowAnnotationDialog.AnnotationResult;
 import org.weasis.dicom.reportcomposer.CasePacketExporter.ExportResult;
 import org.weasis.dicom.reportcomposer.DicomContextReader.Selection;
@@ -92,6 +93,7 @@ import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.FindingChoice;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.SpineRegion;
+import org.weasis.dicom.reportcomposer.TranscriptionDestination.Destination;
 
 public class ReportComposerTool extends PluginTool implements SeriesViewerListener {
   public static final String BUTTON_NAME = "Report Composer";
@@ -106,6 +108,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final BackgroundCaseRecorder caseRecorder = new BackgroundCaseRecorder();
   private final Timer draftSaveTimer = new Timer(500, event -> persistCurrentDraft());
   private final JLabel localSaveLabel = new JLabel("Local training capture ready");
+  private final JTextArea shortcutHelp = new JTextArea(SpineFormShortcuts.IDLE_HELP, 4, 0);
   private final StructuredFindingDraftTracker<SpineRegion, SpineFindingBuilder.Selection>
       spineFindingTracker =
           new StructuredFindingDraftTracker<>(
@@ -175,6 +178,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private ReportDraft currentDraft;
   private String editingFindingId;
   private Path outputDirectory;
+  private Path lastChosenOutputDirectory;
+  private final TranscriptionDestination transcriptionDestination = new TranscriptionDestination();
   private Path lastExportDirectory;
   private boolean updatingCatalogControls;
   private boolean updatingReportInstructions;
@@ -377,6 +382,25 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     return contains(point);
   }
 
+  private boolean forwardComposerViewerShortcut(KeyEvent event) {
+    if (lastActiveCanvas == null || !lastActiveCanvas.isShowing()) return false;
+    KeyEvent forwarded =
+        new KeyEvent(
+            lastActiveCanvas,
+            event.getID(),
+            event.getWhen(),
+            event.getModifiersEx(),
+            event.getKeyCode(),
+            event.getKeyChar(),
+            event.getKeyLocation());
+    if (handleCaptureShortcut(forwarded)) return true;
+    if (SpineFormShortcuts.isTopRowDigit(event)) {
+      lastActiveCanvas.getEventManager().keyPressed(forwarded);
+      return true;
+    }
+    return false;
+  }
+
   @Override
   protected void changeToolWindowAnchor(CLocation clocation) {
     GuiExecutor.execute(this::updatePopOutButton);
@@ -392,6 +416,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     tabs.addChangeListener(
         event -> {
           composeScrollPosition.setComposeSelected(tabs.getSelectedIndex() == 0);
+          shortcutHelp.setVisible(
+              tabs.getSelectedIndex() == 0
+                  && (shoulderForm.isVisible()
+                      || spineForms.values().stream().anyMatch(Component::isVisible)));
           savePendingStructuredFindings();
           if (tabs.getSelectedIndex() == 1) {
             refreshCaptureViewports();
@@ -401,7 +429,19 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     localSaveLabel.setBorder(GuiUtils.getEmptyBorder(3, 4, 3, 4));
     localSaveLabel.setToolTipText(
         "Drafts and training records stay on this computer. Export completes the annotation pass.");
-    add(localSaveLabel, BorderLayout.SOUTH);
+    JPanel footer = new JPanel(new BorderLayout(0, 3));
+    shortcutHelp.setEditable(false);
+    shortcutHelp.setFocusable(false);
+    shortcutHelp.setOpaque(false);
+    shortcutHelp.setFont(localSaveLabel.getFont().deriveFont(11f));
+    shortcutHelp.setBorder(GuiUtils.getEmptyBorder(3, 4, 3, 4));
+    // Fixed height keeps hover targets stationary as the command hints change.
+    shortcutHelp.setPreferredSize(
+        new Dimension(0, shortcutHelp.getFontMetrics(shortcutHelp.getFont()).getHeight() * 4 + 6));
+    shortcutHelp.setVisible(false);
+    footer.add(shortcutHelp, BorderLayout.CENTER);
+    footer.add(localSaveLabel, BorderLayout.SOUTH);
+    add(footer, BorderLayout.SOUTH);
   }
 
   private JPanel buildCaseHeader() {
@@ -501,12 +541,42 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       form.setVisible(false);
       form.addSubmitListener(event -> saveSpineFindings(form));
       form.addOtherFindingListener(event -> showOtherStructuredFinding());
+      form.shortcuts().setTextRoot(this);
+      form.shortcuts()
+          .setHelpListener(
+              text -> {
+                if (form.isVisible() && !text.equals(shortcutHelp.getText()))
+                  shortcutHelp.setText(text);
+              });
+      form.shortcuts().setViewerShortcutHandler(this::forwardComposerViewerShortcut);
+      form.shortcuts()
+          .setViewerWindowPredicate(
+              window ->
+                  lastActiveCanvas != null
+                      && lastActiveCanvas.isShowing()
+                      && SwingUtilities.getWindowAncestor(lastActiveCanvas) == window);
       spineForms.put(region, form);
       content.add(fillWidth(form));
     }
     shoulderForm.setVisible(false);
     shoulderForm.addSubmitListener(event -> saveShoulderFindings());
     shoulderForm.addOtherFindingListener(event -> showOtherStructuredFinding());
+    shoulderForm.shortcuts().setTextRoot(this);
+    shoulderForm
+        .shortcuts()
+        .setHelpListener(
+            text -> {
+              if (shoulderForm.isVisible() && !text.equals(shortcutHelp.getText()))
+                shortcutHelp.setText(text);
+            });
+    shoulderForm.shortcuts().setViewerShortcutHandler(this::forwardComposerViewerShortcut);
+    shoulderForm
+        .shortcuts()
+        .setViewerWindowPredicate(
+            window ->
+                lastActiveCanvas != null
+                    && lastActiveCanvas.isShowing()
+                    && SwingUtilities.getWindowAncestor(lastActiveCanvas) == window);
     content.add(fillWidth(shoulderForm));
     kneeForm.setVisible(false);
     kneeForm.addSubmitListener(event -> saveKneeFindings());
@@ -839,6 +909,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     spineForms.forEach(
         (region, form) ->
             form.setVisible(showStructuredSpine && region == selectedRegion.orElse(null)));
+    shortcutHelp.setVisible(
+        (showStructuredSpine || showStructuredShoulder) && tabs.getSelectedIndex() == 0);
     shoulderForm.setVisible(showStructuredShoulder);
     kneeForm.setVisible(showStructuredKnee);
     brainForm.setVisible(showStructuredBrain);
@@ -1098,6 +1170,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     CaseContext context =
         selection.filter(value -> value.context().hasStudy()).map(Selection::context).orElse(null);
     String key = context == null ? null : context.draftKey();
+    updateOutputDirectory(
+        key, selection.flatMap(value -> LocalImportDirectory.find(value.canvas().getSeries())));
     if (java.util.Objects.equals(key, activeStudyKey)) {
       if (context == null) setComposerInputEnabled(false);
       activeStudyContext = context;
@@ -1219,6 +1293,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       suspendedInputs.forEach(Component::setEnabled);
       suspendedInputs.clear();
     } else if (suspendedInputs.isEmpty()) {
+      spineForms.values().forEach(form -> form.shortcuts().reset());
+      shoulderForm.shortcuts().reset();
       suspendComposerInput(tabs);
     }
   }
@@ -1749,20 +1825,42 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void chooseOutputDirectory() {
-    String initial = outputDirectory == null ? "" : outputDirectory.toString();
-    SystemFileChooser chooser = new SystemFileChooser(initial);
-    chooser.setDialogTitle("Choose Google Drive transcription folder");
+    if (!requireActiveDraft()) return;
+    chooseOutputDirectory(
+        activeStudyKey,
+        activeSelection().flatMap(value -> LocalImportDirectory.find(value.canvas().getSeries())));
+  }
+
+  private Optional<Destination> chooseOutputDirectory(
+      String studyKey, Optional<Path> importDirectory) {
+    Path initial =
+        transcriptionDestination
+            .resolve(studyKey, importDirectory)
+            .map(
+                destination ->
+                    destination.automatic()
+                        ? destination.directory().getParent()
+                        : destination.directory())
+            .orElse(lastChosenOutputDirectory);
+    SystemFileChooser chooser = new SystemFileChooser(initial == null ? "" : initial.toString());
+    chooser.setDialogTitle("Choose Transcription Folder");
     chooser.setFileSelectionMode(SystemFileChooser.DIRECTORIES_ONLY);
     chooser.setMultiSelectionEnabled(false);
     if (chooser.showOpenDialog(this) == SystemFileChooser.APPROVE_OPTION) {
       File selected = chooser.getSelectedFile();
       if (selected != null) {
-        outputDirectory = selected.toPath().toAbsolutePath().normalize();
+        lastChosenOutputDirectory = selected.toPath().toAbsolutePath().normalize();
+        transcriptionDestination.choose(studyKey, importDirectory, lastChosenOutputDirectory);
         WProperties persistence = GuiUtils.getUICore().getLocalPersistence();
-        persistence.setProperty(OUTPUT_DIRECTORY_KEY, outputDirectory.toString());
-        updateOutputFolderLabel();
+        persistence.setProperty(OUTPUT_DIRECTORY_KEY, lastChosenOutputDirectory.toString());
+        updateOutputDirectory(
+            activeStudyKey,
+            activeSelection()
+                .flatMap(value -> LocalImportDirectory.find(value.canvas().getSeries())));
+        return transcriptionDestination.resolve(studyKey, importDirectory);
       }
     }
+    return Optional.empty();
   }
 
   private void exportPacket() {
@@ -1789,14 +1887,18 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             : snapshot;
     ReportPacket packet = snapshot.packet();
     ExamTemplate historyExam = selectedExamTemplate();
-    if (!normalLumbar && outputDirectory == null) {
-      chooseOutputDirectory();
-      if (outputDirectory == null) {
+    Optional<Path> importDirectory =
+        source.flatMap(value -> LocalImportDirectory.find(value.canvas().getSeries()));
+    Optional<Destination> selectedDestination =
+        transcriptionDestination.resolve(snapshot.studyKey(), importDirectory);
+    if (!normalLumbar && selectedDestination.isEmpty()) {
+      selectedDestination = chooseOutputDirectory(snapshot.studyKey(), importDirectory);
+      if (selectedDestination.isEmpty()) {
         saveSnapshot(snapshot);
         return;
       }
     }
-    Path destination = outputDirectory;
+    Destination destination = selectedDestination.orElse(null);
     exportInProgress = true;
     exportButton.setEnabled(false);
     if (completion.studyKey().equals(activeStudyKey)) {
@@ -1807,7 +1909,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     new SwingWorker<ExportCompletion, Void>() {
       @Override
       protected ExportCompletion doInBackground() throws Exception {
-        ExportResult exported = normalLumbar ? null : packetExporter.export(packet, destination);
+        ExportResult exported =
+            normalLumbar
+                ? null
+                : packetExporter.export(packet, TranscriptionDestination.prepare(destination));
         instructionHistory.record(historyExam, packet.reportInstructions());
         boolean recorded;
         try {
@@ -1860,10 +1965,27 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                 result.recorded() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
           }
         } catch (Exception error) {
-          showWarning(
-              "The transcription packet could not be exported. The annotation pass remains a draft.");
-          if (completion.studyKey().equals(activeStudyKey)) statusLabel.setText("Export failed.");
           saveSnapshot(snapshot);
+          if (error.getCause() instanceof TranscriptionDestination.DirectoryUnavailableException) {
+            if (completion.studyKey().equals(activeStudyKey)) {
+              statusLabel.setText("Choose a writable transcription folder.");
+              showWarning(
+                  "The transcription folder could not be created or is not writable:\n"
+                      + destination.directory()
+                      + "\nChoose another folder to export this case. Your draft is saved.");
+              Optional<Destination> replacement =
+                  chooseOutputDirectory(snapshot.studyKey(), importDirectory);
+              if (replacement.isPresent() && completion.studyKey().equals(activeStudyKey))
+                exportPacket();
+            } else {
+              showWarning(
+                  "The transcription folder was unavailable. The case remains a saved draft; reopen it and choose another folder to export.");
+            }
+          } else {
+            showWarning(
+                "The transcription packet could not be exported. The annotation pass remains a draft.");
+            if (completion.studyKey().equals(activeStudyKey)) statusLabel.setText("Export failed.");
+          }
         }
       }
     }.execute();
@@ -1975,7 +2097,23 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private void initializeOutputDirectory() {
     String saved = GuiUtils.getUICore().getLocalPersistence().getProperty(OUTPUT_DIRECTORY_KEY, "");
     if (!saved.isBlank()) {
-      outputDirectory = Path.of(saved).toAbsolutePath().normalize();
+      try {
+        lastChosenOutputDirectory = Path.of(saved).toAbsolutePath().normalize();
+      } catch (java.nio.file.InvalidPathException ignored) {
+        // A stale chooser preference must not block startup or the study-derived default.
+      }
+    }
+  }
+
+  private void updateOutputDirectory(String studyKey, Optional<Path> importDirectory) {
+    Path resolved =
+        transcriptionDestination
+            .resolve(studyKey, importDirectory)
+            .map(Destination::directory)
+            .orElse(null);
+    if (!java.util.Objects.equals(outputDirectory, resolved)) {
+      outputDirectory = resolved;
+      updateOutputFolderLabel();
     }
   }
 
@@ -1984,7 +2122,16 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       outputFolderLabel.setText("No transcription folder selected");
       outputFolderLabel.setToolTipText(null);
     } else {
-      outputFolderLabel.setText("Destination: " + outputDirectory.getFileName());
+      String name =
+          Optional.ofNullable(outputDirectory.getFileName()).orElse(outputDirectory).toString();
+      outputFolderLabel.setText(
+          "Destination: "
+              + name
+              + ("notes".equals(name) && outputDirectory.getParent() != null
+                  ? " — "
+                      + Optional.ofNullable(outputDirectory.getParent().getFileName())
+                          .orElse(outputDirectory.getParent())
+                  : ""));
       outputFolderLabel.setToolTipText(outputDirectory.toString());
     }
   }

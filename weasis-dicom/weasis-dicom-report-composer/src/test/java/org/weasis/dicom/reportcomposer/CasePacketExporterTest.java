@@ -79,6 +79,20 @@ class CasePacketExporterTest {
         duplicate.caseDirectory().getFileName().toString());
   }
 
+  @Test
+  void exportsIntoAutomaticallyCreatedNotesWithoutChangingOtherNotes() throws Exception {
+    TranscriptionDestination policy = new TranscriptionDestination();
+    var destination =
+        policy.resolve("study", java.util.Optional.of(temporaryDirectory)).orElseThrow();
+    Path notes = TranscriptionDestination.prepare(destination);
+    Path existing = Files.writeString(notes.resolve("existing.txt"), "keep me");
+    var result = new CasePacketExporter().export(samplePacket(), notes);
+    assertEquals(notes, result.caseDirectory().getParent());
+    assertTrue(
+        Files.isRegularFile(result.caseDirectory().resolve("TRANSCRIPTION_INSTRUCTIONS.docx")));
+    assertEquals("keep me", Files.readString(existing));
+  }
+
   private static ReportPacket samplePacket() {
     CaseContext context =
         new CaseContext(
