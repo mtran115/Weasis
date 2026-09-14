@@ -59,6 +59,27 @@ history contains only a timestamp, normalized exam category, and the raw instruc
 not copy patient or study metadata and is not included in the exported packet. Because the text is
 stored verbatim, anything manually typed into that field is retained.
 
+### Composer navigation and export shortcuts
+
+| Action | macOS | Windows / Linux |
+| --- | --- | --- |
+| Compose tab | Cmd+Shift+C | Ctrl+Shift+C |
+| Key Images tab | Cmd+Shift+K | Ctrl+Shift+K |
+| Preview tab | Cmd+Shift+P | Ctrl+Shift+P |
+| Export instruction packet | Cmd+Shift+E | Ctrl+Alt+E |
+
+These shortcuts work while the visible composer or its associated active image viewport has
+keyboard focus, including from composer text fields. They do not require hovering over a section.
+Tab changes use the same draft and scroll-position handling as clicking a tab. Export opens
+Preview and invokes the existing export action, including saving current structured selections,
+checking unfinished findings, and choosing a destination when needed. It also supports Finish
+Normal Case. Holding a key does not repeatedly switch tabs or create duplicate exports.
+
+Find these actions under **Keyboard Shortcuts → Report Composer** to customize them. Tab and
+export-button tooltips show the current bindings. Custom bindings without Cmd/Ctrl leave text
+typing alone. Shortcuts are inactive in other windows, dialogs, and menus. Windows/Linux use
+Ctrl+Alt+E because Ctrl+Shift+E already opens the docking panel list.
+
 ### Spine form keyboard shortcuts
 
 Hover over a cervical, thoracic, or lumbar level, or the Alignment / Degenerative changes section,

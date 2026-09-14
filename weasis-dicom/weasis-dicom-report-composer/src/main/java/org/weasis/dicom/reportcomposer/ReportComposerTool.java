@@ -174,6 +174,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JButton openExportButton =
       iconButton(ActionIcon.OPEN_EXTERNAL, "Open exported case folder");
   private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
+  private final ComposerNavigationShortcuts navigationShortcuts =
+      new ComposerNavigationShortcuts(this, tabs, exportButton, this::isNavigationViewerFocus);
 
   private ReportDraft currentDraft;
   private String editingFindingId;
@@ -227,6 +229,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   @Override
   public void addNotify() {
     super.addNotify();
+    navigationShortcuts.install();
     if (!canvasInteractionListenerInstalled) {
       Toolkit.getDefaultToolkit()
           .addAWTEventListener(
@@ -241,6 +244,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   @Override
   public void removeNotify() {
+    navigationShortcuts.uninstall();
     persistCurrentDraft();
     if (canvasInteractionListenerInstalled) {
       Toolkit.getDefaultToolkit().removeAWTEventListener(canvasInteractionListener);
@@ -401,6 +405,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     return false;
   }
 
+  private boolean isNavigationViewerFocus(Component component) {
+    return lastActiveCanvas != null
+        && lastActiveCanvas.isShowing()
+        && DicomContextReader.canvasFor(component)
+            .filter(canvas -> canvas == lastActiveCanvas)
+            .isPresent();
+  }
+
   @Override
   protected void changeToolWindowAnchor(CLocation clocation) {
     GuiExecutor.execute(this::updatePopOutButton);
@@ -413,6 +425,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     tabs.addTab("Compose", buildComposeTab());
     tabs.addTab("Key Images", buildKeyImageTab());
     tabs.addTab("Preview", buildPreviewTab());
+    navigationShortcuts.updateTooltips();
     tabs.addChangeListener(
         event -> {
           composeScrollPosition.setComposeSelected(tabs.getSelectedIndex() == 0);

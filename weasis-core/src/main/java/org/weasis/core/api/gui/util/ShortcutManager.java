@@ -390,6 +390,10 @@ public final class ShortcutManager {
   // -- Shortcut IDs: Report Composer --
   public static final String ID_REPORT_COMPOSER_CAPTURE_VIEW_1 = "reportComposer.captureViewport1";
   public static final String ID_REPORT_COMPOSER_CAPTURE_VIEW_2 = "reportComposer.captureViewport2";
+  public static final String ID_REPORT_COMPOSER_COMPOSE = "reportComposer.composeTab";
+  public static final String ID_REPORT_COMPOSER_KEY_IMAGES = "reportComposer.keyImagesTab";
+  public static final String ID_REPORT_COMPOSER_PREVIEW = "reportComposer.previewTab";
+  public static final String ID_REPORT_COMPOSER_EXPORT = "reportComposer.exportPacket";
 
   // -- Shortcut IDs: Docking --
   public static final String ID_DOCKING_MAXIMIZE = "docking.maximize";
@@ -937,7 +941,7 @@ public final class ShortcutManager {
         KeyEvent.VK_B,
         KeyEvent.CTRL_MASK | KeyEvent.ALT_MASK);
 
-    // ---- Report Composer shortcuts (ReportComposerTool.trackCanvasInteraction()) ----
+    // ---- Report Composer shortcuts ----
     register(
         ID_REPORT_COMPOSER_CAPTURE_VIEW_1,
         Messages.getString("ShortcutManager.report_composer_capture_view_1"),
@@ -952,6 +956,37 @@ public final class ShortcutManager {
         ShortcutContext.DICOM_VIEWER,
         0,
         0);
+    int composerModifier =
+        (SystemInfo.isMacOS ? KeyEvent.META_MASK : KeyEvent.CTRL_MASK) | KeyEvent.SHIFT_MASK;
+    register(
+        ID_REPORT_COMPOSER_COMPOSE,
+        Messages.getString("ShortcutManager.report_composer_compose"),
+        CATEGORY_REPORT_COMPOSER,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_C,
+        composerModifier);
+    register(
+        ID_REPORT_COMPOSER_KEY_IMAGES,
+        Messages.getString("ShortcutManager.report_composer_key_images"),
+        CATEGORY_REPORT_COMPOSER,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_K,
+        composerModifier);
+    register(
+        ID_REPORT_COMPOSER_PREVIEW,
+        Messages.getString("ShortcutManager.report_composer_preview"),
+        CATEGORY_REPORT_COMPOSER,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_P,
+        composerModifier);
+    register(
+        ID_REPORT_COMPOSER_EXPORT,
+        Messages.getString("ShortcutManager.report_composer_export"),
+        CATEGORY_REPORT_COMPOSER,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_E,
+        // Ctrl+Shift+E already opens the docking panel list on Windows/Linux.
+        SystemInfo.isMacOS ? composerModifier : KeyEvent.CTRL_MASK | KeyEvent.ALT_MASK);
 
     // ---- Docking framework tab shortcuts (WeasisWin.createMainPanel()) ----
     register(
