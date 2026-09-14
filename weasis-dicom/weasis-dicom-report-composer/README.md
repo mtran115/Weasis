@@ -49,6 +49,9 @@ viewing a study never creates folders or checks drive permissions.
 Each study has a separate durable local draft.
 Compose starts at the top when a study is first viewed and remembers that
 study's scroll position when switching tabs or returning to the study during the same session.
+Compose sections, including individual spine levels and shoulder tendons, use subtle alternating
+background tints to make them easier to distinguish. Colors adapt to the current light or dark
+theme; selected findings and keyboard hover targets retain their blue highlights.
 
 After a successful export, nonblank text from the shared **Report text / instructions** field is
 also appended to `.weasis/data/report-composer/instruction-history.jsonl`. This local learning

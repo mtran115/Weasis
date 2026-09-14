@@ -394,6 +394,7 @@ final class SpineFormPanel extends JPanel {
 
     LevelControls(String level) {
       this.level = level;
+      ComposerSectionStyle.markSection(panel);
       panel.setBorder(
           BorderFactory.createCompoundBorder(
               BorderFactory.createMatteBorder(1, 0, 0, 0, Color.GRAY),
