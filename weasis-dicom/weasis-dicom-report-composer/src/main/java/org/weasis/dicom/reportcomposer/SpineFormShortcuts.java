@@ -35,11 +35,13 @@ import javax.swing.SwingUtilities;
 import javax.swing.text.JTextComponent;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.ProtrusionLocation;
 import org.weasis.dicom.reportcomposer.SpineFormPanel.LevelControls;
+import org.weasis.dicom.reportcomposer.SpineFormPanel.SectionControls;
+import org.weasis.dicom.reportcomposer.SpineFormPanel.ShortcutTarget;
 
 /** Hover-scoped form commands. No bindings are installed on the image viewer or text documents. */
 final class SpineFormShortcuts implements KeyEventDispatcher {
   static final String IDLE_HELP =
-      "Hover over a spine level for shortcuts.\n"
+      "Hover a section: S Straightening / Spondylosis\n"
           + "B Bulge · P Protrusion · E Extrusion · A Fissure · V Lipomatosis\n"
           + "C/L/R Stenosis · F Facet · H Hypertrophy · D Location\n"
           + "T Text · Cmd+Enter Add findings · Cmd+Z Undo field edit";
@@ -51,7 +53,7 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
   private Consumer<String> help = text -> {};
   private Predicate<KeyEvent> viewerShortcut = event -> false;
   private Predicate<Window> viewerWindow = window -> false;
-  private LevelControls hovered;
+  private ShortcutTarget hovered;
   private Window pointerWindow;
   private char pending;
   private EnumSet<ProtrusionLocation> discChoices;
@@ -130,7 +132,7 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
     SwingUtilities.invokeLater(
         () -> {
           updateQueued = false;
-          if (installed) setHovered(activeWindow() ? levelUnderPointer() : null);
+          if (installed) setHovered(activeWindow() ? targetUnderPointer() : null);
         });
   }
 
@@ -145,7 +147,7 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
         && MenuSelectionManager.defaultManager().getSelectedPath().length == 0;
   }
 
-  LevelControls levelUnderPointer() {
+  ShortcutTarget targetUnderPointer() {
     // A detached composer can be behind the active viewer at the same screen coordinates.
     // Use the actual mouse-event window as well as coordinates so it cannot edit through it.
     if (pointerWindow != null && pointerWindow != SwingUtilities.getWindowAncestor(form))
@@ -154,16 +156,15 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
     if (pointer == null) return null;
     Point point = new Point(pointer.getLocation());
     SwingUtilities.convertPointFromScreen(point, form);
-    return form.levelAt(point);
+    return form.targetAt(point);
   }
 
-  void setHovered(LevelControls level) {
-    if (hovered != level) {
-      if (hovered != null) hovered.setKeyboardHovered(false);
-      hovered = level;
+  void setHovered(ShortcutTarget target) {
+    if (hovered != target) {
+      hovered = target;
       pending = 0;
       discChoices = null;
-      if (hovered != null) hovered.setKeyboardHovered(true);
+      form.setKeyboardHovered(target);
     }
     updateHelp();
   }
@@ -192,7 +193,7 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
     }
     // Resolve from the current pointer, including after a scroll/layout change without mouse
     // motion.
-    setHovered(levelUnderPointer());
+    setHovered(targetUnderPointer());
     Component focus = focusOwner();
     boolean handled = handleKey(event, focus);
     if (!handled
@@ -251,42 +252,50 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
       return false;
     }
     if (modifiers != 0) return false;
-    // Top-row digits never select, clear, or dismiss a composer choice.
-    int digit = numpadDigit(event);
-    if (digit >= 0) return applyNumber(digit);
     if (key == KeyEvent.VK_ESCAPE) {
       cancelPending();
       return true;
     }
+    if (hovered instanceof SectionControls section) {
+      if (key != KeyEvent.VK_S) return false;
+      cancelPending();
+      if (section.toggle() != null && section.toggle().isEnabled())
+        edit(() -> section.toggle().doClick(0));
+      return true;
+    }
+    LevelControls level = (LevelControls) hovered;
+    // Top-row digits never select, clear, or dismiss a composer choice.
+    int digit = numpadDigit(event);
+    if (digit >= 0) return applyNumber(level, digit);
     if (pending == 'D' && key == KeyEvent.VK_ENTER) {
-      if (!discChoices.isEmpty()) edit(() -> hovered.setDiscLocations(discChoices));
+      if (!discChoices.isEmpty()) edit(() -> level.setDiscLocations(discChoices));
       cancelPending();
       return true;
     }
     char letter = key >= KeyEvent.VK_A && key <= KeyEvent.VK_Z ? (char) key : 0;
     if ((pending == 'F' || pending == 'H') && "LRB".indexOf(letter) >= 0 && letter != 0) {
       char target = pending;
-      edit(() -> hovered.setLaterality(target, letter));
+      edit(() -> level.setLaterality(target, letter));
       cancelPending();
       return true;
     }
     if ("BPEAV".indexOf(letter) >= 0 && letter != 0) {
       cancelPending();
-      edit(() -> hovered.toggle(letter));
+      edit(() -> level.toggle(letter));
       return true;
     }
     if ("CLRFHD".indexOf(letter) >= 0 && letter != 0) {
       cancelPending();
-      if (letter == 'C' && !hovered.hasCanalControl()) {
+      if (letter == 'C' && !level.hasCanalControl()) {
         help.accept(hovered.name() + " — this form has no canal stenosis control.");
         return true;
       }
       if (letter == 'D') {
-        if (!hovered.hasDiscHerniation()) {
+        if (!level.hasDiscHerniation()) {
           help.accept(hovered.name() + " — select P Protrusion or E Extrusion first.");
           return true;
         }
-        var selected = hovered.selection();
+        var selected = level.selection();
         discChoices = EnumSet.noneOf(ProtrusionLocation.class);
         discChoices.addAll(
             selected.protrusion() ? selected.protrusionLocations() : selected.extrusionLocations());
@@ -298,7 +307,7 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
     }
     if (letter == 'T') {
       cancelPending();
-      hovered.editText();
+      level.editText();
       return true;
     }
     return false;
@@ -331,7 +340,7 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
         && event.getKeyLocation() != KeyEvent.KEY_LOCATION_NUMPAD;
   }
 
-  private boolean applyNumber(int digit) {
+  private boolean applyNumber(LevelControls level, int digit) {
     if (pending == 0) return false;
     if (pending == 'D') {
       if (digit >= 1 && digit <= ProtrusionLocation.values().length) {
@@ -343,11 +352,11 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
       }
     } else if ((pending == 'F' || pending == 'H') && digit == 0) {
       char target = pending;
-      edit(() -> hovered.setLaterality(target, '0'));
+      edit(() -> level.setLaterality(target, '0'));
       cancelPending();
     } else if ("CLR".indexOf(pending) >= 0 && digit <= 3) {
       char target = pending;
-      edit(() -> hovered.setSeverity(target, digit));
+      edit(() -> level.setSeverity(target, digit));
       cancelPending();
     }
     // Invalid numpad choices stay within the active command, without reaching viewer actions.
@@ -361,11 +370,12 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
   }
 
   private void edit(Runnable action) {
-    JsonNode before = ComposerFormState.capture(hovered.panel());
+    ShortcutTarget target = hovered;
+    JsonNode before = ComposerFormState.capture(target.panel());
     action.run();
-    JsonNode after = ComposerFormState.capture(hovered.panel());
+    JsonNode after = ComposerFormState.capture(target.panel());
     if (!before.equals(after)) {
-      undo.push(new Edit(hovered, before, after));
+      undo.push(new Edit(target, before, after));
       while (undo.size() > 100) undo.removeLast();
     }
   }
@@ -374,11 +384,11 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
     if (undo.isEmpty()) return;
     Edit edit = undo.pop();
     // Do not overwrite intervening mouse or free-text edits in this section.
-    if (!edit.after().equals(ComposerFormState.capture(edit.level().panel()))) {
+    if (!edit.after().equals(ComposerFormState.capture(edit.target().panel()))) {
       undo.clear();
       return;
     }
-    ComposerFormState.restore(edit.level().panel(), edit.before());
+    ComposerFormState.restore(edit.target().panel(), edit.before());
   }
 
   private void updateHelp() {
@@ -387,6 +397,15 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
       return;
     }
     String prefix = hovered.name() + " — ";
+    if (hovered instanceof SectionControls section) {
+      help.accept(
+          prefix
+              + (section.toggle() == null
+                  ? "no straightening control in this form"
+                  : "S Toggle " + section.toggle().getText())
+              + "\nCmd+Enter Add findings · Cmd+Z Undo field edit");
+      return;
+    }
     if (pending == 'D') {
       String selected =
           discChoices.stream()
@@ -419,5 +438,5 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
     }
   }
 
-  private record Edit(LevelControls level, JsonNode before, JsonNode after) {}
+  private record Edit(ShortcutTarget target, JsonNode before, JsonNode after) {}
 }

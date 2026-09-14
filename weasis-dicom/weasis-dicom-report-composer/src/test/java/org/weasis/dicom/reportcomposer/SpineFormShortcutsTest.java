@@ -13,17 +13,24 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import java.awt.Component;
+import java.awt.Container;
+import java.awt.Dimension;
+import java.awt.Point;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import javax.swing.JToggleButton;
+import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Laterality;
+import org.weasis.dicom.reportcomposer.SpineFindingBuilder.OverviewFinding;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.ProtrusionLocation;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.Severity;
 import org.weasis.dicom.reportcomposer.SpineFindingBuilder.SpineRegion;
@@ -230,7 +237,7 @@ class SpineFormShortcutsTest {
           f.press('L');
           for (int code :
               new int[] {
-                'B', 'P', 'E', 'A', 'V', 'C', 'L', 'R', 'F', 'H', 'D', 'T', KeyEvent.VK_NUMPAD2
+                'B', 'P', 'E', 'A', 'V', 'S', 'C', 'L', 'R', 'F', 'H', 'D', 'T', KeyEvent.VK_NUMPAD2
               }) {
             assertFalse(
                 f.commands.handleKey(
@@ -341,7 +348,7 @@ class SpineFormShortcutsTest {
           Fixture f = new Fixture(SpineRegion.CERVICAL, "C2-3");
           SpineFormShortcuts dispatcher = spy(f.commands);
           doReturn(true).when(dispatcher).activeWindow();
-          doReturn(f.form.level("C2-3")).when(dispatcher).levelUnderPointer();
+          doReturn(f.form.level("C2-3")).when(dispatcher).targetUnderPointer();
           doReturn(f.form).when(dispatcher).focusOwner();
           AtomicInteger forwarded = new AtomicInteger();
           dispatcher.setViewerShortcutHandler(
@@ -390,7 +397,7 @@ class SpineFormShortcutsTest {
               dispatcher.dispatchKeyEvent(key(f.form, 'P', KeyEvent.KEY_LOCATION_STANDARD, 0)));
           assertFalse(f.level().protrusion());
           doReturn(true).when(dispatcher).activeWindow();
-          doReturn(f.form.level("C2-3")).when(dispatcher).levelUnderPointer();
+          doReturn(f.form.level("C2-3")).when(dispatcher).targetUnderPointer();
           doReturn(new JTextField()).when(dispatcher).focusOwner();
           dispatcher.setViewerShortcutHandler(
               event -> {
@@ -403,6 +410,226 @@ class SpineFormShortcutsTest {
           assertFalse(
               dispatcher.dispatchKeyEvent(key(f.form, 'B', KeyEvent.KEY_LOCATION_STANDARD, 0)));
         });
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = SpineRegion.class,
+      names = {"CERVICAL", "LUMBAR"})
+  void straighteningUsesExistingAlignmentRulesAndUndo(SpineRegion region) throws Exception {
+    edt(
+        () -> {
+          Fixture f = new Fixture(region, region.levels().getFirst());
+          var section = f.form.alignmentSection();
+          JToggleButton other =
+              button(
+                  section.panel(), region == SpineRegion.CERVICAL ? "Reversal" : "Dextroscoliosis");
+          other.doClick(0);
+          var before = ComposerFormState.capture(f.form);
+          AtomicInteger edits = new AtomicInteger();
+          ComposerFormState.watch(f.form, edits::incrementAndGet);
+          f.commands.setHovered(section);
+          f.press('S');
+          assertTrue(section.toggle().isSelected());
+          assertEquals(region == SpineRegion.LUMBAR, other.isSelected());
+          assertTrue(edits.get() > 0);
+          f.command(KeyEvent.VK_Z);
+          assertEquals(before, ComposerFormState.capture(f.form));
+          f.press('S');
+          f.press('S');
+          assertFalse(section.toggle().isSelected());
+        });
+  }
+
+  @ParameterizedTest
+  @EnumSource(SpineRegion.class)
+  void spondylosisPreservesLevelSelectionsAndSupportsDraftRestoreAndUndo(SpineRegion region)
+      throws Exception {
+    edt(
+        () -> {
+          Fixture f = new Fixture(region, region.levels().getFirst());
+          var section = f.form.degenerativeSection();
+          f.commands.setHovered(section);
+          f.press('S');
+          JToggleButton level = button(section.toggle().getParent(), f.level);
+          assertTrue(level.isEnabled());
+          level.doClick(0);
+          var before = ComposerFormState.capture(f.form);
+          f.press('S');
+          assertFalse(f.form.selection().overviewLevels().containsKey(OverviewFinding.SPONDYLOSIS));
+          assertTrue(level.isSelected());
+          assertFalse(level.isEnabled());
+          f.command(KeyEvent.VK_Z);
+          assertEquals(before, ComposerFormState.capture(f.form));
+          assertTrue(level.isEnabled());
+          assertEquals(
+              List.of(f.level),
+              f.form.selection().overviewLevels().get(OverviewFinding.SPONDYLOSIS));
+          SpineFormPanel restored = new SpineFormPanel(region);
+          ComposerFormState.restore(restored, before);
+          assertEquals(f.form.selection(), restored.selection());
+          f.press('S');
+          f.press('S');
+          assertEquals(before, ComposerFormState.capture(f.form));
+        });
+  }
+
+  @Test
+  void sectionCommandsRespectTypingModifiersAndHoverScope() throws Exception {
+    edt(
+        () -> {
+          Fixture f = new Fixture(SpineRegion.LUMBAR, "L4-5");
+          var before = ComposerFormState.capture(f.form);
+          for (var section : List.of(f.form.alignmentSection(), f.form.degenerativeSection())) {
+            f.commands.setHovered(section);
+            assertFalse(
+                f.commands.handleKey(
+                    key(f.form, 'S', KeyEvent.KEY_LOCATION_STANDARD, 0), new JTextField()));
+            for (int modifiers :
+                new int[] {
+                  InputEvent.META_DOWN_MASK,
+                  InputEvent.CTRL_DOWN_MASK,
+                  InputEvent.ALT_DOWN_MASK,
+                  InputEvent.SHIFT_DOWN_MASK
+                }) {
+              assertFalse(
+                  f.commands.handleKey(
+                      key(f.form, 'S', KeyEvent.KEY_LOCATION_STANDARD, modifiers), f.form));
+            }
+            for (int code :
+                new int[] {'B', 'P', KeyEvent.VK_1, KeyEvent.VK_LEFT, KeyEvent.VK_RIGHT}) {
+              assertFalse(
+                  f.commands.handleKey(
+                      key(f.form, code, KeyEvent.KEY_LOCATION_STANDARD, 0), f.form));
+            }
+            f.form.setEnabled(false);
+            assertFalse(
+                f.commands.handleKey(key(f.form, 'S', KeyEvent.KEY_LOCATION_STANDARD, 0), f.form));
+            f.form.setEnabled(true);
+          }
+          f.commands.setHovered(f.form.level("L4-5"));
+          assertFalse(
+              f.commands.handleKey(key(f.form, 'S', KeyEvent.KEY_LOCATION_STANDARD, 0), f.form));
+          f.commands.setHovered(null);
+          assertFalse(
+              f.commands.handleKey(key(f.form, 'S', KeyEvent.KEY_LOCATION_STANDARD, 0), f.form));
+          assertEquals(before, ComposerFormState.capture(f.form));
+        });
+  }
+
+  @Test
+  void switchingToSectionCancelsPendingLevelChoiceAndResetClearsSectionUndo() throws Exception {
+    edt(
+        () -> {
+          Fixture f = new Fixture(SpineRegion.LUMBAR, "L4-5");
+          f.press('L');
+          f.commands.setHovered(f.form.alignmentSection());
+          assertFalse(
+              f.commands.handleKey(
+                  key(f.form, KeyEvent.VK_NUMPAD3, KeyEvent.KEY_LOCATION_NUMPAD, 0), f.form));
+          f.press('S');
+          assertEquals(Severity.NONE, f.level().leftForaminalSeverity());
+          f.commands.setHovered(f.form.degenerativeSection());
+          f.press('S');
+          AtomicInteger submits = new AtomicInteger();
+          f.form.addSubmitListener(event -> submits.incrementAndGet());
+          f.command(KeyEvent.VK_ENTER);
+          assertEquals(1, submits.get());
+          f.form.clearSelections();
+          var cleared = ComposerFormState.capture(f.form);
+          f.commands.setHovered(f.form.degenerativeSection());
+          f.command(KeyEvent.VK_Z);
+          assertEquals(cleared, ComposerFormState.capture(f.form));
+        });
+  }
+
+  @Test
+  void sectionUndoDoesNotOverwriteLaterMouseChangesAndThoracicCannotAddStraightening()
+      throws Exception {
+    edt(
+        () -> {
+          Fixture f = new Fixture(SpineRegion.THORACIC, "T2-3");
+          var before = ComposerFormState.capture(f.form);
+          f.commands.setHovered(f.form.alignmentSection());
+          f.press('S');
+          assertEquals(before, ComposerFormState.capture(f.form));
+          f.commands.setHovered(f.form.degenerativeSection());
+          f.press('S');
+          button(f.form.degenerativeSection().toggle().getParent(), "T2-3").doClick(0);
+          var afterMouse = ComposerFormState.capture(f.form);
+          f.command(KeyEvent.VK_Z);
+          assertEquals(afterMouse, ComposerFormState.capture(f.form));
+        });
+  }
+
+  @Test
+  void sectionDispatcherConsumesHeldSAndResolvesTheCurrentTarget() throws Exception {
+    edt(
+        () -> {
+          Fixture f = new Fixture(SpineRegion.CERVICAL, "C2-3");
+          SpineFormShortcuts dispatcher = spy(f.commands);
+          doReturn(true).when(dispatcher).activeWindow();
+          doReturn(f.form.alignmentSection()).when(dispatcher).targetUnderPointer();
+          doReturn(f.form).when(dispatcher).focusOwner();
+          for (int i = 0; i < 3; i++)
+            assertTrue(
+                dispatcher.dispatchKeyEvent(key(f.form, 'S', KeyEvent.KEY_LOCATION_STANDARD, 0)));
+          assertTrue(f.form.alignmentSection().toggle().isSelected());
+          assertFalse(f.form.degenerativeSection().toggle().isSelected());
+          assertTrue(
+              dispatcher.dispatchKeyEvent(
+                  new KeyEvent(f.form, KeyEvent.KEY_TYPED, 0, 0, KeyEvent.VK_UNDEFINED, 's')));
+          assertTrue(
+              dispatcher.dispatchKeyEvent(
+                  new KeyEvent(f.form, KeyEvent.KEY_RELEASED, 0, 0, KeyEvent.VK_S, 's')));
+          doReturn(f.form.degenerativeSection()).when(dispatcher).targetUnderPointer();
+          assertTrue(
+              dispatcher.dispatchKeyEvent(key(f.form, 'S', KeyEvent.KEY_LOCATION_STANDARD, 0)));
+          assertTrue(f.form.degenerativeSection().toggle().isSelected());
+          assertTrue(f.form.alignmentSection().toggle().isSelected());
+        });
+  }
+
+  @Test
+  void pointerTargetsSectionsAndLevelsButNotScrolledOutControls() throws Exception {
+    edt(
+        () -> {
+          SpineFormPanel form = new SpineFormPanel(SpineRegion.LUMBAR);
+          form.setSize(form.getPreferredSize());
+          layout(form);
+          for (var target :
+              List.of(form.alignmentSection(), form.degenerativeSection(), form.level("L4-5"))) {
+            Point point = SwingUtilities.convertPoint(target.panel(), 5, 5, form);
+            assertSame(target, form.targetAt(point));
+          }
+          JViewport viewport = new JViewport();
+          viewport.setView(form);
+          viewport.setExtentSize(new Dimension(form.getWidth(), 300));
+          Point alignment =
+              SwingUtilities.convertPoint(form.alignmentSection().panel(), 5, 5, form);
+          Point level = SwingUtilities.convertPoint(form.level("L4-5").panel(), 5, 5, form);
+          viewport.setViewPosition(new Point(0, level.y));
+          assertNull(form.targetAt(alignment));
+          assertSame(form.level("L4-5"), form.targetAt(level));
+        });
+  }
+
+  private static JToggleButton button(Container root, String text) {
+    for (Component child : root.getComponents()) {
+      if (child instanceof JToggleButton button && text.equals(button.getText())) return button;
+      if (child instanceof Container container) {
+        JToggleButton found = button(container, text);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
+  private static void layout(Container root) {
+    root.doLayout();
+    for (Component child : root.getComponents()) {
+      if (child instanceof Container container) layout(container);
+    }
   }
 
   private static KeyEvent key(Component source, int code, int location, int modifiers) {

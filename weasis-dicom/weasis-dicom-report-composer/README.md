@@ -61,8 +61,9 @@ stored verbatim, anything manually typed into that field is retained.
 
 ### Spine form keyboard shortcuts
 
-Hover over a cervical, thoracic, or lumbar level to target it without clicking. A blue outline
-marks that level, and the footer shows the available keys or the pending choice. These shortcuts
+Hover over a cervical, thoracic, or lumbar level, or the Alignment / Degenerative changes section,
+to target it without clicking. A blue outline marks the target, and the footer shows the available
+keys or the pending choice. These shortcuts
 operate the existing form controls and use the same draft saving and training capture.
 
 | Keys, pressed in sequence | Action at the hovered level |
@@ -78,6 +79,12 @@ operate the existing form controls and use the same draft saving and training ca
 | Escape | Cancel a pending choice, or leave a composer text field |
 | Cmd+Z (Ctrl+Z on other platforms) | Undo a keyboard field edit, unless intervening edits changed that section |
 | Cmd+Enter (Ctrl+Enter on other platforms) | Add Selected Findings |
+
+Hover over **Alignment** and press **S** to toggle **Straightening** in cervical or lumbar forms.
+Hover over **Degenerative changes** and press **S** to toggle **Spondylosis** in any spine form.
+Press S again to uncheck it. Existing level selections are preserved when toggling spondylosis;
+straightening uses the existing alignment rules. The thoracic form has no straightening control.
+Both section shortcuts support Cmd+Z / Ctrl+Z undo and Cmd+Enter / Ctrl+Enter to add findings.
 
 **Only numpad digits select numeric choices.** Top-row numbers retain the viewer's shortcuts,
 including when focus is on a spine-form button or panel. Text fields retain normal typing and

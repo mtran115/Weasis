@@ -68,6 +68,9 @@ final class SpineFormPanel extends JPanel {
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");
   private final SpineFormShortcuts shortcuts;
+  private SectionControls alignmentSection;
+  private SectionControls degenerativeSection;
+  private ShortcutTarget keyboardHovered;
 
   SpineFormPanel(SpineRegion region) {
     this.region = region;
@@ -102,13 +105,48 @@ final class SpineFormPanel extends JPanel {
     return shortcuts;
   }
 
-  LevelControls levelAt(Point point) {
+  ShortcutTarget targetAt(Point point) {
     if (!getVisibleRect().contains(point)) return null;
+    for (SectionControls section : List.of(alignmentSection, degenerativeSection)) {
+      if (section.panel().contains(SwingUtilities.convertPoint(this, point, section.panel())))
+        return section;
+    }
     return levelControls.values().stream()
         .filter(
             level -> level.panel.contains(SwingUtilities.convertPoint(this, point, level.panel)))
         .findFirst()
         .orElse(null);
+  }
+
+  SectionControls alignmentSection() {
+    return alignmentSection;
+  }
+
+  SectionControls degenerativeSection() {
+    return degenerativeSection;
+  }
+
+  void setKeyboardHovered(ShortcutTarget target) {
+    if (keyboardHovered != target) {
+      keyboardHovered = target;
+      repaint();
+    }
+  }
+
+  @Override
+  protected void paintChildren(Graphics graphics) {
+    super.paintChildren(graphics);
+    if (keyboardHovered != null) {
+      JPanel panel = keyboardHovered.panel();
+      Point origin = SwingUtilities.convertPoint(panel, 0, 0, this);
+      Graphics copy = graphics.create();
+      try {
+        copy.setColor(new Color(59, 130, 246));
+        copy.drawRect(origin.x, origin.y, panel.getWidth() - 1, panel.getHeight() - 1);
+      } finally {
+        copy.dispose();
+      }
+    }
   }
 
   LevelControls levelFor(Component component) {
@@ -229,6 +267,15 @@ final class SpineFormPanel extends JPanel {
       panel.add(stretch(scoliosisDetails));
       updateScoliosisControls();
     }
+    JCheckBox straightening =
+        switch (region) {
+          case CERVICAL -> alignmentControls.get(AlignmentFinding.CERVICAL_STRAIGHTENING);
+          case LUMBAR -> alignmentControls.get(AlignmentFinding.LUMBAR_STRAIGHTENING);
+          case THORACIC -> null;
+        };
+    alignmentSection = new SectionControls("Alignment", panel, straightening);
+    if (straightening != null)
+      straightening.setToolTipText("Hover over Alignment and press S to toggle straightening");
     return panel;
   }
 
@@ -256,6 +303,11 @@ final class SpineFormPanel extends JPanel {
       details.add(degenerativeDetails, BorderLayout.CENTER);
       panel.add(stretch(details));
     }
+    JCheckBox spondylosis = overviewControls.get(OverviewFinding.SPONDYLOSIS).enabled;
+    spondylosis.setToolTipText(
+        "Hover over Degenerative changes and press S to toggle spondylosis; "
+            + "leave all levels clear for an unlocalized finding");
+    degenerativeSection = new SectionControls("Degenerative changes", panel, spondylosis);
     return panel;
   }
 
@@ -345,25 +397,17 @@ final class SpineFormPanel extends JPanel {
     }
   }
 
-  final class LevelControls {
+  sealed interface ShortcutTarget permits LevelControls, SectionControls {
+    JPanel panel();
+
+    String name();
+  }
+
+  record SectionControls(String name, JPanel panel, JCheckBox toggle) implements ShortcutTarget {}
+
+  final class LevelControls implements ShortcutTarget {
     private final String level;
-    private boolean keyboardHovered;
-    private final JPanel panel =
-        new JPanel(new GridBagLayout()) {
-          @Override
-          protected void paintBorder(Graphics graphics) {
-            super.paintBorder(graphics);
-            if (keyboardHovered) {
-              Graphics copy = graphics.create();
-              try {
-                copy.setColor(new Color(59, 130, 246));
-                copy.drawRect(0, 0, getWidth() - 1, getHeight() - 1);
-              } finally {
-                copy.dispose();
-              }
-            }
-          }
-        };
+    private final JPanel panel = new JPanel(new GridBagLayout());
     private final DirectChoiceControl<ListhesisDirection> listhesisDirection =
         new DirectChoiceControl<>(
             List.of(ListhesisDirection.ANTEROLISTHESIS, ListhesisDirection.RETROLISTHESIS));
@@ -505,19 +549,14 @@ final class SpineFormPanel extends JPanel {
       panel.add(freeText, constraints);
     }
 
-    JPanel panel() {
+    @Override
+    public JPanel panel() {
       return panel;
     }
 
-    String name() {
+    @Override
+    public String name() {
       return level;
-    }
-
-    void setKeyboardHovered(boolean hovered) {
-      if (keyboardHovered != hovered) {
-        keyboardHovered = hovered;
-        panel.repaint();
-      }
     }
 
     void editText() {
