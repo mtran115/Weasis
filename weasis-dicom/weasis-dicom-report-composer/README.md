@@ -14,6 +14,15 @@ final formatted radiology report.
    direct-click forms for their commonly repeated findings; other exams use the phrase catalog.
    The shared **Report text / instructions** box accepts any additional text for every exam and
    saves it automatically in the current study draft.
+   Quick-add buttons above this box show up to six phrases for the selected exam, based on common
+   reading shorthand. **Motion limit** and **Artifact limit** are always available; **More…** holds
+   additional exam phrases and common limitations. Hover a button to see its full wording. Clicking
+   inserts editable text at the cursor (or replaces selected text), separated from surrounding
+   instructions by line breaks. The first bracketed detail, such as `[level]` or `[size]`, is selected
+   for typing; **Tab** moves to the next detail in that inserted phrase and **Shift+Tab** moves back.
+   Fill these details before export. The same autosave, study restoration, export, and instruction
+   history apply to quick-added text. Selecting a different exam changes the buttons, not existing
+   instructions. Exams with little saved phrase history show fewer buttons.
    Press **Add Selected Findings** to finalize and clear the form, or move directly to **Key
    Images** or **Preview** to update the draft while preserving the current checkboxes. Reopening
    Preview does not duplicate unchanged selections. Every generated finding remains editable in

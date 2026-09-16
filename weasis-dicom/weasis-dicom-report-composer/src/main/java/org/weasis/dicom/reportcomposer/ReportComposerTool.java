@@ -153,6 +153,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final BrainFormPanel brainForm = new BrainFormPanel();
   private final WristFormPanel wristForm = new WristFormPanel();
   private final JTextArea reportInstructions = textArea(4);
+  private final QuickPhraseBar reportQuickPhrases = new QuickPhraseBar(reportInstructions);
   private final JTextArea findingText = textArea(3);
   private final JTextArea impressionText = textArea(2);
   private final JCheckBox includeInImpression = new JCheckBox("Include in impression", true);
@@ -650,6 +651,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                 reportInstructionsChanged();
               }
             });
+    panel.add(reportQuickPhrases, BorderLayout.NORTH);
     panel.add(new JScrollPane(reportInstructions), BorderLayout.CENTER);
     return panel;
   }
@@ -864,6 +866,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       return;
     }
     ExamTemplate exam = selectedExamTemplate();
+    reportQuickPhrases.setExam(exam);
     updatingCatalogControls = true;
     categoryCombo.removeAllItems();
     for (String category : MriFindingCatalog.categories(exam)) {
@@ -2093,6 +2096,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private void refreshReportInstructions() {
     String value = currentDraft == null ? "" : currentDraft.reportInstructions();
     reportInstructions.setEnabled(currentDraft != null);
+    reportQuickPhrases.setAvailable(currentDraft != null);
     if (reportInstructions.getText().equals(value)) {
       return;
     }
