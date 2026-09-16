@@ -235,7 +235,9 @@ class ComposerNavigationShortcutsTest {
       composer.add(tabs);
       export.addActionListener(event -> exports.incrementAndGet());
       dispatcher =
-          spy(new ComposerNavigationShortcuts(composer, tabs, export, focus -> focus == viewer));
+          spy(
+              new ComposerNavigationShortcuts(
+                  composer, tabs, export, focus -> focus == viewer, () -> {}));
       doReturn(true).when(dispatcher).activeContext(any());
       doReturn(text).when(dispatcher).focusOwner();
       dispatcher.updateTooltips();

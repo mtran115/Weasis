@@ -50,6 +50,7 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
   private final JTabbedPane tabs;
   private final JButton exportButton;
   private final Predicate<Component> viewerFocus;
+  private final Runnable beforeNavigation;
   private final ShortcutManager shortcuts = ShortcutManager.getInstance();
   private final Set<Integer> heldKeys = new HashSet<>();
   private final PropertyChangeListener shortcutListener =
@@ -61,11 +62,13 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
       JComponent composer,
       JTabbedPane tabs,
       JButton exportButton,
-      Predicate<Component> viewerFocus) {
+      Predicate<Component> viewerFocus,
+      Runnable beforeNavigation) {
     this.composer = composer;
     this.tabs = tabs;
     this.exportButton = exportButton;
     this.viewerFocus = viewerFocus;
+    this.beforeNavigation = beforeNavigation;
   }
 
   void install() {
@@ -147,6 +150,8 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
         consume(event);
         if (tabs.isEnabledAt(command.tabIndex)
             && (command != Command.EXPORT || exportButton.isEnabled())) {
+          // Explicitly opening the already-selected tab also ends a temporary capture preview.
+          beforeNavigation.run();
           tabs.setSelectedIndex(command.tabIndex);
           if (command == Command.EXPORT) exportButton.doClick(0);
         }

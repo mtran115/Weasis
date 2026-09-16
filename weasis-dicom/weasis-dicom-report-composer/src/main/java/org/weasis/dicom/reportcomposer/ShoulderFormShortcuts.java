@@ -111,9 +111,15 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
     setHovered(null);
   }
 
-  private void observeInteraction(AWTEvent event) {
+  void observeInteraction(AWTEvent event) {
     if (event instanceof MouseEvent mouse) {
       pointerWindow = SwingUtilities.getWindowAncestor(mouse.getComponent());
+      if (ComposerHoverFocus.isHoverMotion(mouse) && activeWindow()) {
+        ShortcutTarget target = targetUnderPointer();
+        setHovered(target);
+        if (target != null)
+          ComposerHoverFocus.activate(form, textRoot, mouse.getComponent(), focusOwner());
+      }
     }
     queueHoverUpdate();
   }

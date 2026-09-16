@@ -26,6 +26,10 @@ final formatted radiology report.
    The series and image reference are recorded automatically. Assign the **Capture key image from
    viewport 1** and **Capture key image from viewport 2** actions in Keyboard Shortcuts to capture
    either viewport directly.
+   After saving a capture, **Key Images** shows the new image for two seconds, then returns to
+   **Compose** at its previous scroll position. Clicking, typing, or scrolling in Key Images keeps
+   it open for editing. Explicit tab navigation, a new capture, or a study change cancels the
+   pending return; each successful capture starts a fresh two-second preview.
 4. Edit the key-image caption when the arrow instruction needs clarification; edits save locally
    automatically. The **Finding** selector shows its association and lets you change or clear it.
 5. In **Preview**, export the packet. For locally imported studies the default destination is
@@ -108,8 +112,10 @@ straightening uses the existing alignment rules. The thoracic form has no straig
 Both section shortcuts support Cmd+Z / Ctrl+Z undo and Cmd+Enter / Ctrl+Enter to add findings.
 
 **Only numpad digits select numeric choices.** Top-row numbers retain the viewer's shortcuts,
-including when focus is on a spine-form button or panel. Text fields retain normal typing and
-text-editing shortcuts. Left/right key-image shortcuts are not reassigned. Holding a finding key
+including when focus is on a spine-form button or panel. Moving from Report text / instructions
+(or another composer text field) onto a section’s controls activates its shortcuts without clicking.
+Moving within a text box or its scrollbars keeps normal typing and text-editing shortcuts; click a
+text box or press T to resume text entry. Left/right key-image shortcuts are not reassigned. Holding a finding key
 does not repeatedly toggle it.
 
 P and E retain the current disc location selection, initially Central, and remain mutually
@@ -128,7 +134,8 @@ viewer is the active window; T explicitly activates the composer to enter text.
 Hover over a tendon, a specific bursitis/AC joint row, the biceps section, or the labrum.
 The blue outline identifies the target; the footer shows its shortcuts. Numeric selections use
 **only the numpad**, including when Num Lock is off. Top-row digits and key-image arrows retain
-their viewer shortcuts. Text fields retain normal typing and text-editing shortcuts.
+their viewer shortcuts. Moving from a composer text field onto section controls activates shortcuts
+without clicking, as in the spine forms. Text boxes and their scrollbars keep normal text editing.
 
 | Keys | At a hovered rotator cuff tendon |
 | --- | --- |

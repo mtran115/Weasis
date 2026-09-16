@@ -175,7 +175,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       iconButton(ActionIcon.OPEN_EXTERNAL, "Open exported case folder");
   private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
   private final ComposerNavigationShortcuts navigationShortcuts =
-      new ComposerNavigationShortcuts(this, tabs, exportButton, this::isNavigationViewerFocus);
+      new ComposerNavigationShortcuts(
+          this, tabs, exportButton, this::isNavigationViewerFocus, this::cancelKeyImagePreview);
 
   private ReportDraft currentDraft;
   private String editingFindingId;
@@ -206,6 +207,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private long saveGeneration;
   private long draftChangeGeneration;
   private PendingCapture pendingCapture;
+  private Timer keyImagePreviewTimer;
 
   public ReportComposerTool() {
     super(BUTTON_NAME, POSITION.EAST, ExtendedMode.NORMALIZED, Insertable.Type.TOOL_EXT, 145);
@@ -244,6 +246,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   @Override
   public void removeNotify() {
+    cancelKeyImagePreview();
     navigationShortcuts.uninstall();
     persistCurrentDraft();
     if (canvasInteractionListenerInstalled) {
@@ -324,6 +327,15 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void trackCanvasInteraction(AWTEvent event) {
+    if (keyImagePreviewTimer != null
+        && event.getSource() instanceof Component component
+        && SwingUtilities.isDescendingFrom(component, tabs)
+        && ((event instanceof MouseEvent mouse
+                && (mouse.getID() == MouseEvent.MOUSE_PRESSED
+                    || mouse.getID() == MouseEvent.MOUSE_WHEEL))
+            || (event instanceof KeyEvent key && key.getID() == KeyEvent.KEY_PRESSED))) {
+      cancelKeyImagePreview();
+    }
     if (event instanceof KeyEvent keyEvent && handleCaptureShortcut(keyEvent)) {
       return;
     }
@@ -428,6 +440,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     navigationShortcuts.updateTooltips();
     tabs.addChangeListener(
         event -> {
+          cancelKeyImagePreview();
           composeScrollPosition.setComposeSelected(tabs.getSelectedIndex() == 0);
           shortcutHelp.setVisible(
               tabs.getSelectedIndex() == 0
@@ -1088,6 +1101,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   void disposeTrainingCapture() {
     GuiExecutor.execute(
         () -> {
+          cancelKeyImagePreview();
           if (!recorderDisposed) {
             persistCurrentDraft();
             recorderDisposed = true;
@@ -1197,6 +1211,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       return;
     }
 
+    cancelKeyImagePreview();
     persistCurrentDraft();
     if (pendingCapture != null && !pendingCapture.studyKey().equals(key)) pendingCapture = null;
     activeStudyKey = key;
@@ -1608,6 +1623,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void captureKeyImage(Optional<Selection> selection, String missingSelectionMessage) {
+    cancelKeyImagePreview();
     if (selection.isEmpty() || !selection.get().context().hasStudy()) {
       showWarning(missingSelectionMessage);
       return;
@@ -1623,6 +1639,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void captureKeyImage(DicomContextReader.CapturedView capture) {
+    // Cancel before opening the annotation dialog, which runs its own Swing event loop.
+    cancelKeyImagePreview();
     persistCurrentDraft();
     ReportDraft capturedDraft = currentDraft;
     FindingEntry selectedFinding = findingList.getSelectedValue();
@@ -1643,13 +1661,42 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (capturedDraft == currentDraft) {
       refreshAll();
       keyImageList.setSelectedValue(keyImage, true);
-      tabs.setSelectedIndex(1);
+      previewCapturedKeyImage();
       persistCurrentDraft();
     } else {
       String key = capturedDraft.context().draftKey();
       saveSnapshot(
           TrainingCaseSnapshot.capture(
               capturedDraft, draftExamTemplates.get(key).name(), draftEditorStates.get(key)));
+    }
+  }
+
+  private void previewCapturedKeyImage() {
+    cancelKeyImagePreview();
+    tabs.setSelectedIndex(1);
+    Timer timer =
+        new Timer(
+            2000,
+            event -> {
+              // A queued callback from an earlier capture must not end a newer preview.
+              if (event.getSource() != keyImagePreviewTimer) return;
+              cancelKeyImagePreview();
+              if (tabs.isShowing()
+                  && tabs.isEnabled()
+                  && tabs.isEnabledAt(0)
+                  && tabs.getSelectedIndex() == 1) {
+                tabs.setSelectedIndex(0);
+              }
+            });
+    timer.setRepeats(false);
+    keyImagePreviewTimer = timer;
+    timer.start();
+  }
+
+  private void cancelKeyImagePreview() {
+    if (keyImagePreviewTimer != null) {
+      keyImagePreviewTimer.stop();
+      keyImagePreviewTimer = null;
     }
   }
 
