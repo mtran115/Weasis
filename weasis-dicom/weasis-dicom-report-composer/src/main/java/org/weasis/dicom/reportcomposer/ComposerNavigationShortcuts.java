@@ -33,6 +33,8 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
     COMPOSE(ShortcutManager.ID_REPORT_COMPOSER_COMPOSE, 0, "Compose"),
     KEY_IMAGES(ShortcutManager.ID_REPORT_COMPOSER_KEY_IMAGES, 1, "Key Images"),
     PREVIEW(ShortcutManager.ID_REPORT_COMPOSER_PREVIEW, 2, "Preview"),
+    FOCUS_PREVIEW(
+        ShortcutManager.ID_REPORT_COMPOSER_FOCUS_PREVIEW, 2, "Activate composer and open Preview"),
     EXPORT(ShortcutManager.ID_REPORT_COMPOSER_EXPORT, 2, "Export packet / finish normal case");
 
     final String id;
@@ -51,6 +53,7 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
   private final JButton exportButton;
   private final Predicate<Component> viewerFocus;
   private final Runnable beforeNavigation;
+  private final Runnable activateComposer;
   private final ShortcutManager shortcuts = ShortcutManager.getInstance();
   private final Set<Integer> heldKeys = new HashSet<>();
   private final PropertyChangeListener shortcutListener =
@@ -63,12 +66,14 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
       JTabbedPane tabs,
       JButton exportButton,
       Predicate<Component> viewerFocus,
-      Runnable beforeNavigation) {
+      Runnable beforeNavigation,
+      Runnable activateComposer) {
     this.composer = composer;
     this.tabs = tabs;
     this.exportButton = exportButton;
     this.viewerFocus = viewerFocus;
     this.beforeNavigation = beforeNavigation;
+    this.activateComposer = activateComposer;
   }
 
   void install() {
@@ -90,12 +95,18 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
 
   void updateTooltips() {
     for (Command command : Command.values()) {
-      var entry = shortcuts.getEntry(command.id);
-      String binding = entry == null ? "" : entry.getShortcutText().replace("Meta", "Cmd");
-      String tooltip = command.description + (binding.isEmpty() ? "" : " — " + binding);
+      if (command == Command.FOCUS_PREVIEW) continue;
+      String tooltip = tooltip(command);
+      if (command == Command.PREVIEW) tooltip += " | " + tooltip(Command.FOCUS_PREVIEW);
       if (command == Command.EXPORT) exportButton.setToolTipText(tooltip);
       else tabs.setToolTipTextAt(command.tabIndex, tooltip);
     }
+  }
+
+  private String tooltip(Command command) {
+    var entry = shortcuts.getEntry(command.id);
+    String binding = entry == null ? "" : entry.getShortcutText().replace("Meta", "Cmd");
+    return command.description + (binding.isEmpty() ? "" : " — " + binding);
   }
 
   boolean acceptsFocus(Component focus) {
@@ -103,9 +114,9 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
         && (SwingUtilities.isDescendingFrom(focus, composer) || viewerFocus.test(focus));
   }
 
-  boolean activeContext(Component focus) {
+  boolean activeContext(Component focus, Command command) {
     Window active = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-    return composer.isShowing()
+    return (composer.isShowing() || (command == Command.FOCUS_PREVIEW && composer.isDisplayable()))
         && composer.isEnabled()
         && tabs.isEnabled()
         && acceptsFocus(focus)
@@ -137,13 +148,13 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
     }
     swallowTyped = false;
     Component focus = focusOwner();
-    if (!activeContext(focus)) return false;
     // Custom unmodified bindings must still leave ordinary typing and Option characters alone.
     if (focus instanceof JTextComponent
         && (event.getModifiersEx() & (InputEvent.META_DOWN_MASK | InputEvent.CTRL_DOWN_MASK)) == 0)
       return false;
     for (Command command : Command.values()) {
       if (shortcuts.matches(command.id, event)) {
+        if (!activeContext(focus, command)) return false;
         // Record the press before an export can open a modal folder chooser or result dialog.
         heldKeys.add(event.getKeyCode());
         swallowTyped = true;
@@ -153,6 +164,7 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
           // Explicitly opening the already-selected tab also ends a temporary capture preview.
           beforeNavigation.run();
           tabs.setSelectedIndex(command.tabIndex);
+          if (command == Command.FOCUS_PREVIEW) activateComposer.run();
           if (command == Command.EXPORT) exportButton.doClick(0);
         }
         return true;

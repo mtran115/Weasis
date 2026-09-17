@@ -393,6 +393,7 @@ public final class ShortcutManager {
   public static final String ID_REPORT_COMPOSER_COMPOSE = "reportComposer.composeTab";
   public static final String ID_REPORT_COMPOSER_KEY_IMAGES = "reportComposer.keyImagesTab";
   public static final String ID_REPORT_COMPOSER_PREVIEW = "reportComposer.previewTab";
+  public static final String ID_REPORT_COMPOSER_FOCUS_PREVIEW = "reportComposer.focusPreview";
   public static final String ID_REPORT_COMPOSER_EXPORT = "reportComposer.exportPacket";
 
   // -- Shortcut IDs: Docking --
@@ -979,6 +980,13 @@ public final class ShortcutManager {
         ShortcutContext.DICOM_VIEWER,
         KeyEvent.VK_P,
         composerModifier);
+    register(
+        ID_REPORT_COMPOSER_FOCUS_PREVIEW,
+        Messages.getString("ShortcutManager.report_composer_focus_preview"),
+        CATEGORY_REPORT_COMPOSER,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_UP,
+        0);
     register(
         ID_REPORT_COMPOSER_EXPORT,
         Messages.getString("ShortcutManager.report_composer_export"),

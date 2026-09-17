@@ -21,9 +21,23 @@ import bibliothek.gui.dock.station.screen.window.DefaultScreenDockWindowFactory;
 import bibliothek.gui.dock.station.screen.window.DefaultScreenDockWindowFactory.Kind;
 import bibliothek.gui.dock.station.screen.window.ScreenDockFrame;
 import bibliothek.gui.dock.station.screen.window.WindowConfiguration;
+import java.awt.Component;
+import java.awt.Frame;
+import java.awt.Window;
 
 final class ComposerWindowSupport {
   private ComposerWindowSupport() {}
+
+  static void activateWindow(Window window, Component focusTarget) {
+    if (window == null) return;
+    if (window instanceof Frame frame && (frame.getExtendedState() & Frame.ICONIFIED) != 0) {
+      frame.setExtendedState(frame.getExtendedState() & ~Frame.ICONIFIED);
+    }
+    window.toFront();
+    window.requestFocus();
+    // Unlike requestFocusInWindow, this also transfers focus across native pop-out windows.
+    focusTarget.requestFocus();
+  }
 
   static boolean installNativePopOut(
       CControl control, CommonDockable composerDockable, String windowTitle) {

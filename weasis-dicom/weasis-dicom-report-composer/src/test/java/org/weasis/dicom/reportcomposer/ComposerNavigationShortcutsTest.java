@@ -13,9 +13,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import java.awt.Component;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.JButton;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
@@ -37,17 +39,78 @@ class ComposerNavigationShortcutsTest {
   }
 
   @Test
-  void defaultBindingsHaveNoViewerConflicts() {
+  void defaultBindingsOnlyReuseUpForTheRequestedFocusShortcut() {
     for (Command command : Command.values()) {
       var entry = shortcuts.getEntry(command.id);
       assertNotNull(entry);
       assertNotEquals(0, entry.getKeyCode());
       assertFalse(entry.getDescription().startsWith("!"));
       assertEquals(
-          java.util.List.of(),
-          shortcuts.findConflicts(command.id, entry.getKeyCode(), entry.getModifier()),
+          command == Command.FOCUS_PREVIEW
+              ? java.util.List.of(ShortcutManager.ID_VIEWER_SCROLL_UP)
+              : java.util.List.of(),
+          shortcuts.findConflicts(command.id, entry.getKeyCode(), entry.getModifier()).stream()
+              .map(conflict -> conflict.getId())
+              .toList(),
           command.description);
     }
+  }
+
+  @Test
+  void upActivatesPreviewWithoutExportingAndTheNextExportShortcutWorksAfterFocusMoves()
+      throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture();
+          f.focus.set(f.viewer);
+          KeyEvent up = f.key(Command.FOCUS_PREVIEW, KeyEvent.KEY_PRESSED);
+          assertEquals(KeyEvent.VK_UP, up.getKeyCode());
+          assertEquals(0, up.getModifiersEx());
+          assertTrue(shortcuts.matches(ShortcutManager.ID_VIEWER_SCROLL_UP, up));
+          assertTrue(f.dispatcher.dispatchKeyEvent(up));
+          assertTrue(up.isConsumed());
+          assertEquals(2, f.tabs.getSelectedIndex());
+          assertEquals(1, f.activations.get());
+          assertSame(f.export, f.dispatcher.focusOwner());
+          assertEquals(0, f.exports.get());
+          // The held key remains consumed even after focus crosses into the composer window.
+          assertTrue(
+              f.dispatcher.dispatchKeyEvent(f.key(Command.FOCUS_PREVIEW, KeyEvent.KEY_PRESSED)));
+          assertEquals(1, f.activations.get());
+          assertTrue(
+              f.dispatcher.dispatchKeyEvent(f.key(Command.FOCUS_PREVIEW, KeyEvent.KEY_RELEASED)));
+          // A customized plain-letter export shortcut must work from the new non-text focus.
+          var exportBinding = shortcuts.getEntry(Command.EXPORT.id);
+          exportBinding.setKeyCode(KeyEvent.VK_E);
+          exportBinding.setModifier(0);
+          f.tap(Command.EXPORT);
+          assertEquals(1, f.exports.get());
+          f.tap(Command.FOCUS_PREVIEW);
+          assertEquals(2, f.activations.get());
+        });
+  }
+
+  @Test
+  void focusShortcutCanBeReboundAndStillRespectsEditingAndInactiveContexts() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture();
+          KeyEvent up = f.key(Command.FOCUS_PREVIEW, KeyEvent.KEY_PRESSED);
+          assertFalse(f.dispatcher.dispatchKeyEvent(up));
+          assertEquals(0, f.activations.get());
+          var binding = shortcuts.getEntry(Command.FOCUS_PREVIEW.id);
+          binding.setKeyCode(KeyEvent.VK_F8);
+          f.dispatcher.updateTooltips();
+          assertTrue(f.tabs.getToolTipTextAt(2).contains("F8"));
+          f.focus.set(f.viewer);
+          assertFalse(f.dispatcher.dispatchKeyEvent(up));
+          f.tap(Command.FOCUS_PREVIEW);
+          assertEquals(1, f.activations.get());
+          doReturn(false).when(f.dispatcher).activeContext(any(), any());
+          assertFalse(
+              f.dispatcher.dispatchKeyEvent(f.key(Command.FOCUS_PREVIEW, KeyEvent.KEY_PRESSED)));
+          assertEquals(1, f.activations.get());
+        });
   }
 
   @Test
@@ -107,6 +170,10 @@ class ComposerNavigationShortcutsTest {
           f.tabs.setEnabledAt(1, false);
           f.tap(Command.KEY_IMAGES);
           assertEquals(0, f.tabs.getSelectedIndex());
+          f.focus.set(f.viewer);
+          f.tabs.setEnabledAt(2, false);
+          f.tap(Command.FOCUS_PREVIEW);
+          assertEquals(0, f.activations.get());
         });
   }
 
@@ -125,6 +192,8 @@ class ComposerNavigationShortcutsTest {
                 KeyEvent.VK_NUMPAD1,
                 KeyEvent.VK_LEFT,
                 KeyEvent.VK_RIGHT,
+                KeyEvent.VK_UP,
+                KeyEvent.VK_DOWN,
                 KeyEvent.VK_ENTER
               }) {
             assertFalse(
@@ -164,7 +233,7 @@ class ComposerNavigationShortcutsTest {
           doReturn(f.viewer).when(f.dispatcher).focusOwner();
           f.tap(Command.KEY_IMAGES);
           assertEquals(1, f.tabs.getSelectedIndex());
-          doReturn(false).when(f.dispatcher).activeContext(any());
+          doReturn(false).when(f.dispatcher).activeContext(any(), any());
           assertFalse(f.dispatcher.dispatchKeyEvent(f.key(Command.PREVIEW, KeyEvent.KEY_PRESSED)));
           assertFalse(f.dispatcher.dispatchKeyEvent(f.key(Command.EXPORT, KeyEvent.KEY_PRESSED)));
           assertEquals(1, f.tabs.getSelectedIndex());
@@ -190,7 +259,7 @@ class ComposerNavigationShortcutsTest {
           assertEquals(2, f.tabs.getSelectedIndex());
           entry.setKeyCode(0);
           f.dispatcher.updateTooltips();
-          assertEquals("Preview", f.tabs.getToolTipTextAt(2));
+          assertTrue(f.tabs.getToolTipTextAt(2).startsWith("Preview | Activate composer"));
           assertFalse(f.dispatcher.dispatchKeyEvent(old));
           assertTrue(f.export.getToolTipText().contains("Export packet"));
         });
@@ -222,6 +291,8 @@ class ComposerNavigationShortcutsTest {
     final JTextField text = new JTextField();
     final JButton export = new JButton("Export Instruction Packet");
     final AtomicInteger exports = new AtomicInteger();
+    final AtomicInteger activations = new AtomicInteger();
+    final AtomicReference<Component> focus = new AtomicReference<>(text);
     final ComposerNavigationShortcuts dispatcher;
 
     Fixture() {
@@ -237,16 +308,30 @@ class ComposerNavigationShortcutsTest {
       dispatcher =
           spy(
               new ComposerNavigationShortcuts(
-                  composer, tabs, export, focus -> focus == viewer, () -> {}));
-      doReturn(true).when(dispatcher).activeContext(any());
-      doReturn(text).when(dispatcher).focusOwner();
+                  composer,
+                  tabs,
+                  export,
+                  component -> component == viewer,
+                  () -> {},
+                  () -> {
+                    assertEquals(2, tabs.getSelectedIndex());
+                    activations.incrementAndGet();
+                    focus.set(export);
+                  }));
+      doReturn(true).when(dispatcher).activeContext(any(), any());
+      doAnswer(ignored -> focus.get()).when(dispatcher).focusOwner();
       dispatcher.updateTooltips();
     }
 
     KeyEvent key(Command command, int eventId) {
       var entry = ShortcutManager.getInstance().getEntry(command.id);
       return new KeyEvent(
-          text, eventId, 0, entry.getModifier(), entry.getKeyCode(), KeyEvent.CHAR_UNDEFINED);
+          focus.get(),
+          eventId,
+          0,
+          entry.getModifier(),
+          entry.getKeyCode(),
+          KeyEvent.CHAR_UNDEFINED);
     }
 
     void tap(Command command) {

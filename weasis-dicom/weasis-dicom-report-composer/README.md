@@ -79,6 +79,7 @@ stored verbatim, anything manually typed into that field is retained.
 | Compose tab | Cmd+Shift+C | Ctrl+Shift+C |
 | Key Images tab | Cmd+Shift+K | Ctrl+Shift+K |
 | Preview tab | Cmd+Shift+P | Ctrl+Shift+P |
+| Activate composer and open Preview | Up Arrow | Up Arrow |
 | Export instruction packet | Cmd+Shift+E | Ctrl+Alt+E |
 
 These shortcuts work while the visible composer or its associated active image viewport has
@@ -87,6 +88,14 @@ Tab changes use the same draft and scroll-position handling as clicking a tab. E
 Preview and invokes the existing export action, including saving current structured selections,
 checking unfinished findings, and choosing a destination when needed. It also supports Finish
 Normal Case. Holding a key does not repeatedly switch tabs or create duplicate exports.
+
+**Up Arrow** brings the composer to the foreground, opens **Preview**, and focuses the export
+button so the export shortcut can follow immediately. It works from the associated image viewport
+or composer controls, including with the native pop-out window on another monitor. A minimized
+composer window is restored. This binding takes priority over the viewer's previous-image action
+while the composer is active; text editors retain ordinary Up Arrow cursor movement. The existing
+Preview tab shortcut remains available. Change **Activate window and open Preview** under Keyboard
+Shortcuts → Report Composer to choose another key.
 
 Find these actions under **Keyboard Shortcuts → Report Composer** to customize them. Tab and
 export-button tooltips show the current bindings. Custom bindings without Cmd/Ctrl leave text

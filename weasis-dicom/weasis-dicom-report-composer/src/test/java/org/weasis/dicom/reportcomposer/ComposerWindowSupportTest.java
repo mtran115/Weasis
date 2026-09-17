@@ -12,6 +12,7 @@ package org.weasis.dicom.reportcomposer;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.*;
 
 import bibliothek.gui.dock.ScreenDockStation;
 import bibliothek.gui.dock.common.CControl;
@@ -20,7 +21,9 @@ import bibliothek.gui.dock.common.DefaultSingleCDockable;
 import bibliothek.gui.dock.common.mode.ExtendedMode;
 import bibliothek.gui.dock.station.screen.ScreenDockWindow;
 import bibliothek.gui.dock.station.screen.window.ScreenDockFrame;
+import java.awt.Frame;
 import java.awt.GraphicsEnvironment;
+import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
@@ -28,6 +31,20 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 class ComposerWindowSupportTest {
+  @Test
+  void activatingAnIconifiedWindowRestoresItAndFocusesTheExportControl() {
+    JFrame window = mock(JFrame.class);
+    JButton export = mock(JButton.class);
+    when(window.getExtendedState()).thenReturn(Frame.ICONIFIED | Frame.MAXIMIZED_BOTH);
+    ComposerWindowSupport.activateWindow(window, export);
+    var order = inOrder(window, export);
+    order.verify(window).setExtendedState(Frame.MAXIMIZED_BOTH);
+    order.verify(window).toFront();
+    order.verify(window).requestFocus();
+    order.verify(export).requestFocus();
+    verify(export, never()).doClick();
+  }
+
   @Test
   void externalizesComposerAsNormalNativeFrame() throws Exception {
     Assumptions.assumeFalse(GraphicsEnvironment.isHeadless());

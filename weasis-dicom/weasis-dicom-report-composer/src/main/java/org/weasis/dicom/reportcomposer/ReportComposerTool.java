@@ -177,7 +177,12 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
   private final ComposerNavigationShortcuts navigationShortcuts =
       new ComposerNavigationShortcuts(
-          this, tabs, exportButton, this::isNavigationViewerFocus, this::cancelKeyImagePreview);
+          this,
+          tabs,
+          exportButton,
+          this::isNavigationViewerFocus,
+          this::cancelKeyImagePreview,
+          this::activateComposerPreview);
 
   private ReportDraft currentDraft;
   private String editingFindingId;
@@ -424,6 +429,16 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         && DicomContextReader.canvasFor(component)
             .filter(canvas -> canvas == lastActiveCanvas)
             .isPresent();
+  }
+
+  private void activateComposerPreview() {
+    showDockable();
+    if (ExtendedMode.MINIMIZED.equals(dockable.getExtendedMode())) {
+      dockable.setExtendedMode(ExtendedMode.NORMALIZED);
+    }
+    Component focusTarget = exportButton.isEnabled() ? exportButton : tabs;
+    dockable.toFront(focusTarget);
+    ComposerWindowSupport.activateWindow(SwingUtilities.getWindowAncestor(this), focusTarget);
   }
 
   @Override
