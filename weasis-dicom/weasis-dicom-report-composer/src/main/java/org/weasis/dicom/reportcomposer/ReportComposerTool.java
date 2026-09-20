@@ -223,6 +223,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     setDockableWidth(430);
     initializeOutputDirectory();
     buildInterface();
+    reportQuickPhrases.installTextMenus(this);
     updateOutputFolderLabel();
     initializeCatalogControls();
     installDraftRecording();
@@ -881,7 +882,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       return;
     }
     ExamTemplate exam = selectedExamTemplate();
-    reportQuickPhrases.setExam(exam);
+    reportQuickPhrases.setContext(exam, activeStudyKey);
     updatingCatalogControls = true;
     categoryCombo.removeAllItems();
     for (String category : MriFindingCatalog.categories(exam)) {
@@ -1124,6 +1125,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             persistCurrentDraft();
             recorderDisposed = true;
             caseRecorder.close();
+            reportQuickPhrases.close();
           }
         });
   }

@@ -14,15 +14,42 @@ final formatted radiology report.
    direct-click forms for their commonly repeated findings; other exams use the phrase catalog.
    The shared **Report text / instructions** box accepts any additional text for every exam and
    saves it automatically in the current study draft.
-   Quick-add buttons above this box show up to six phrases for the selected exam, based on common
-   reading shorthand. **Motion limit** and **Artifact limit** are always available; **More…** holds
-   additional exam phrases and common limitations. Hover a button to see its full wording. Clicking
-   inserts editable text at the cursor (or replaces selected text), separated from surrounding
-   instructions by line breaks. The first bracketed detail, such as `[level]` or `[size]`, is selected
-   for typing; **Tab** moves to the next detail in that inserted phrase and **Shift+Tab** moves back.
-   Fill these details before export. The same autosave, study restoration, export, and instruction
-   history apply to quick-added text. Selecting a different exam changes the buttons, not existing
-   instructions. Exams with little saved phrase history show fewer buttons.
+   Quick-add buttons above this box show up to six shortcuts for the selected MRI body part,
+   including shared **All exams** phrases; **More…** holds the rest. Initial shortcuts use the
+   existing curated phrase list. Hover a button to see its full label, usage count, and exact text.
+   Clicking inserts editable text at the cursor (or replaces selected text), separated from
+   surrounding instructions by line breaks. The first bracketed detail, such as `[level]` or
+   `[size]`, is selected for typing; **Tab** moves to the next detail and **Shift+Tab** moves back.
+   Fill these details before export. Quick-added text uses the same autosave, study restoration,
+   export, and instruction history as typed text.
+
+   Highlight wording in the instructions and click **Add shortcut**, or right-click selected text
+   in an editable composer field and choose **Add shortcut…**. The dialog preserves your shorthand
+   verbatim and lets you choose a short button label, MRI body part (defaulting to the current exam),
+   and whether to pin it. Saving a shortcut leaves the original study text unchanged. New shortcuts
+   are pinned by default; uncheck **Pin near the top** to let usage alone determine their position.
+   Cervical, thoracic, and lumbar spine each have separate libraries. **All exams** makes a phrase
+   available for every body part. Duplicate text within a category (ignoring case/spacing) offers
+   to open the existing shortcut for editing, retaining its counts.
+
+   **Manage…** opens a searchable library with body-part filters, full-text preview, usage counts,
+   and **New**, **Edit**, and **Delete** controls. Edit also changes the category or pin. All preset
+   phrases can be edited or removed, including motion/artifact phrases; deleted presets do not
+   return after restarting. Deleting a shortcut does not remove text already inserted into studies.
+   Pinned shortcuts rank first, then the most-used for the current MRI body part. Each successful
+   insertion counts once; saving a phrase, typing text, or reopening a report does not count.
+   Shared phrases also keep independent counts per body part. Usage-based ordering refreshes on
+   study/exam changes, never immediately after a click. Explicit library edits refresh immediately.
+
+   **Export…** and **Import…** in Manage back up/merge the entire library, pins, and counts as JSON.
+   Import preserves locally edited wording/pins, restores imported customizations of untouched
+   presets, adds new text, and merges matching counts using the larger value so repeated imports
+   do not double counts. Conflicting custom shortcuts with different text keep both versions.
+   Import merges rather than removes other existing shortcuts. Invalid imports make no changes. The personal library is stored separately
+   from study drafts in `.weasis/data/report-composer/shortcuts.json`. Saves run in the background
+   using a temporary file and replacement; a failed save keeps changes in memory and displays
+   **Retry save**. An unreadable existing library is preserved rather than replaced with defaults.
+   No AI service is involved and no DICOM metadata is copied into the library.
    Press **Add Selected Findings** to finalize and clear the form, or move directly to **Key
    Images** or **Preview** to update the draft while preserving the current checkboxes. Reopening
    Preview does not duplicate unchanged selections. Every generated finding remains editable in

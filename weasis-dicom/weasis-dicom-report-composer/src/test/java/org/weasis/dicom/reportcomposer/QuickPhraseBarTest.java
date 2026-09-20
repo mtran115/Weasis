@@ -17,8 +17,12 @@ import java.awt.event.KeyEvent;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.JButton;
 import javax.swing.JMenuItem;
+import javax.swing.JPanel;
+import javax.swing.JSpinner;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import javax.swing.event.PopupMenuEvent;
 import org.junit.jupiter.api.Test;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
 import org.weasis.dicom.reportcomposer.ReportQuickPhrases.Phrase;
@@ -41,7 +45,7 @@ class QuickPhraseBarTest {
           assertEquals(f.text.getText(), saved.get());
           assertEquals(
               f.text.getText().indexOf("\nKeep this instruction."), f.text.getCaretPosition());
-          button(f.bar, "Motion limit").doClick(0);
+          menuItem(f.bar, "Motion limit").doClick(0);
           assertTrue(
               f.text
                   .getText()
@@ -129,9 +133,111 @@ class QuickPhraseBarTest {
           assertFalse(f.key(KeyEvent.VK_TAB, 0).isConsumed());
           assertEquals("New study instructions.", f.text.getText());
           f.text.setEditable(false);
-          button(f.bar, "Motion limit").doClick(0);
+          menuItem(f.bar, "Motion limit").doClick(0);
           assertEquals("New study instructions.", f.text.getText());
         });
+  }
+
+  @Test
+  void usagePromotesPhrasesOnlyWhenTheStudyChangesAndPinsRemainFirst() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture(ExamTemplate.KNEE);
+          f.bar.setContext(ExamTemplate.KNEE, "study-a");
+          String first = button(f.bar, "Prepatellar edema").getText();
+          menuItem(f.bar, "Popliteal cyst").doClick(0);
+          menuItem(f.bar, "Popliteal cyst").doClick(0);
+          assertEquals(first, button(f.bar, "Prepatellar edema").getText());
+          assertNull(button(f.bar, "Popliteal cyst"));
+          f.bar.setContext(ExamTemplate.KNEE, "study-a");
+          assertNull(button(f.bar, "Popliteal cyst"));
+          var used =
+              f.library
+                  .duplicate(ExamTemplate.KNEE.name(), "Small popliteal cyst.", null)
+                  .orElseThrow();
+          assertEquals(2, used.usesFor(ExamTemplate.KNEE));
+          f.bar.setContext(ExamTemplate.KNEE, "study-b");
+          assertNotNull(button(f.bar, "Popliteal cyst"));
+          assertEquals(used.id(), f.library.ranked(ExamTemplate.KNEE).getFirst().id());
+          var pinned =
+              f.library.save(
+                  null, ExamTemplate.KNEE.name(), "Custom", "exact shorthand [side]", true);
+          f.bar.setContext(ExamTemplate.KNEE, "study-c");
+          assertEquals(pinned.id(), f.library.ranked(ExamTemplate.KNEE).getFirst().id());
+          button(f.bar, "★ Custom").doClick(0);
+          assertEquals("[side]", f.text.getSelectedText());
+          assertEquals(1, f.library.find(pinned.id()).orElseThrow().usesFor(ExamTemplate.KNEE));
+        });
+  }
+
+  @Test
+  void disabledAndStaleActionsDoNotCountOrInsert() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture(ExamTemplate.KNEE);
+          JMenuItem old = menuItem(f.bar, "Motion limit");
+          f.bar.setContext(ExamTemplate.SHOULDER, "different-study");
+          old.doClick(0);
+          assertEquals("", f.text.getText());
+          assertEquals(0, f.library.find("default-ALL-0").orElseThrow().totalUses());
+          f.text.setEditable(false);
+          menuItem(f.bar, "Motion limit").doClick(0);
+          assertEquals(0, f.library.find("default-ALL-0").orElseThrow().totalUses());
+        });
+  }
+
+  @Test
+  void addSelectionRequiresNonblankEditableTextAndMenusDoNotChangeFormState() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture(ExamTemplate.LUMBAR_SPINE);
+          JButton add = button(f.bar, "Add shortcut");
+          assertFalse(add.isEnabled());
+          f.text.setText("T2 hyperint lesion L4 likely intraoss hemang");
+          f.text.selectAll();
+          assertTrue(add.isEnabled());
+          assertFalse(add.isFocusable());
+          String selected = f.text.getSelectedText();
+          f.text.setEditable(false);
+          assertFalse(add.isEnabled());
+          f.text.setEditable(true);
+          assertEquals(selected, f.text.getSelectedText());
+          JPanel form = new JPanel();
+          JTextField field = new JTextField("selected shorthand");
+          JTextArea readonly = new JTextArea("preview");
+          readonly.setEditable(false);
+          JSpinner number = new JSpinner();
+          form.add(field);
+          form.add(readonly);
+          form.add(number);
+          var before = ComposerFormState.capture(form);
+          f.bar.installTextMenus(form);
+          f.bar.installTextMenus(form);
+          assertNull(readonly.getComponentPopupMenu());
+          assertNull(
+              ((JSpinner.DefaultEditor) number.getEditor()).getTextField().getComponentPopupMenu());
+          var menu = field.getComponentPopupMenu();
+          assertNotNull(menu);
+          assertEquals(6, menu.getComponentCount());
+          field.selectAll();
+          var event = new PopupMenuEvent(menu);
+          for (var listener : menu.getPopupMenuListeners())
+            listener.popupMenuWillBecomeVisible(event);
+          JMenuItem save = (JMenuItem) menu.getComponent(menu.getComponentCount() - 1);
+          assertTrue(save.isEnabled());
+          f.bar.setContext(ExamTemplate.KNEE, "new-study");
+          // An old menu cannot open a save dialog under the new exam category.
+          save.doClick(0);
+          assertEquals(before, ComposerFormState.capture(form));
+          assertEquals(selected, f.text.getSelectedText());
+        });
+  }
+
+  private static JMenuItem menuItem(QuickPhraseBar bar, String label) {
+    for (Component component : bar.createMenu().getComponents()) {
+      if (component instanceof JMenuItem item && item.getText().equals(label)) return item;
+    }
+    throw new AssertionError("Missing menu item: " + label);
   }
 
   private static JButton button(Container root, String label) {
@@ -147,7 +253,8 @@ class QuickPhraseBarTest {
 
   private static final class Fixture {
     final JTextArea text = new JTextArea();
-    final QuickPhraseBar bar = new QuickPhraseBar(text);
+    final ShortcutLibrary library = new ShortcutLibrary(null);
+    final QuickPhraseBar bar = new QuickPhraseBar(text, library);
 
     Fixture(ExamTemplate exam) {
       bar.setExam(exam);
