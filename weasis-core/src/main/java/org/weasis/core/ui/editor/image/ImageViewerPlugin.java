@@ -194,6 +194,16 @@ public abstract class ImageViewerPlugin<E extends ImageElement> extends ViewerPl
     return selectedImagePane;
   }
 
+  @Override
+  public boolean requestFocusInWindow() {
+    // Docking reactivation can request focus on this outer panel after the canvas was clicked.
+    // The keyboard listeners live on the selected canvas, not on the viewer container.
+    ViewCanvas<E> view = getSelectedViewCanvas();
+    return view == null
+        ? super.requestFocusInWindow()
+        : view.getJComponent().requestFocusInWindow();
+  }
+
   public List<ViewCanvas<E>> getView2ds() {
     return cellManager.getAllViewCanvases();
   }

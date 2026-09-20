@@ -97,6 +97,10 @@ while the composer is active; text editors retain ordinary Up Arrow cursor movem
 Preview tab shortcut remains available. Change **Activate window and open Preview** under Keyboard
 Shortcuts → Report Composer to choose another key.
 
+After switching away from Weasis, clicking an image restores its viewer selection and keyboard
+focus, including numpad shortcuts. Docking reactivation directs focus to the selected image canvas;
+it does not leave keyboard focus on the surrounding viewer panel.
+
 Find these actions under **Keyboard Shortcuts → Report Composer** to customize them. Tab and
 export-button tooltips show the current bindings. Custom bindings without Cmd/Ctrl leave text
 typing alone. Shortcuts are inactive in other windows, dialogs, and menus. Windows/Linux use

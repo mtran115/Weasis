@@ -14,7 +14,9 @@ import java.awt.Rectangle;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.geom.Point2D;
+import java.util.Arrays;
 import java.util.Optional;
+import javax.swing.JComponent;
 import org.opencv.core.Point3;
 import org.weasis.core.Messages;
 import org.weasis.core.api.gui.util.Feature;
@@ -45,33 +47,31 @@ public final class FocusHandler<E extends ImageElement> extends MouseActionAdapt
 
   @Override
   public void mousePressed(MouseEvent evt) {
-    var pane = viewCanvas.getEventManager().getSelectedView2dContainer();
+    var selectedButton = findViewButtonAt(evt.getPoint());
+    buttonPressActive = selectedButton.isPresent();
+    if (buttonPressActive) {
+      // Consume before changing the active view so other action adapters skip this press.
+      evt.consume();
+    }
+    // Reactivating the app need not generate mouseEntered. Resolve the clicked canvas's owner
+    // instead of trusting the viewer that happened to be selected before focus left the app.
+    var pane = activateView();
     if (pane == null) {
       return;
     }
 
-    var selectedButton = findViewButtonAt(evt.getPoint());
-
     if (selectedButton.isPresent()) {
-      // Consume immediately so action adapters that check isConsumed() (SliderChangeListener,
-      // CrosshairListener, GraphicMouseHandler, …) skip the event before any side effect runs.
-      buttonPressActive = true;
-      evt.consume();
-      selectViewIfNeeded(pane);
-      viewCanvas.getJComponent().requestFocusInWindow();
+      requestKeyboardFocus(true);
       handleViewButtonClick(evt, selectedButton.get());
       return;
     }
-
-    buttonPressActive = false;
 
     if (evt.getClickCount() == 2) {
       pane.maximizedSelectedImagePane(viewCanvas, evt);
       return;
     }
 
-    selectViewIfNeeded(pane);
-    viewCanvas.getJComponent().requestFocusInWindow();
+    requestKeyboardFocus(true);
     updateCursorForMouseAction(evt);
   }
 
@@ -93,23 +93,46 @@ public final class FocusHandler<E extends ImageElement> extends MouseActionAdapt
   }
 
   private void activateViewUnderPointer() {
+    if (activateView() != null) requestKeyboardFocus(false);
+  }
+
+  private ImageViewerPlugin<E> activateView() {
     ImageViewerEventManager<E> eventManager = viewCanvas.getEventManager();
     if (eventManager == null) {
-      return;
+      return null;
     }
+    ImageViewerPlugin<E> selected = eventManager.getSelectedView2dContainer();
     ImageViewerPlugin<E> container =
         WinUtil.getParentOfClass(viewCanvas.getJComponent(), ImageViewerPlugin.class);
+    // Fullscreen reparents the canvas into a dialog, but it remains in its viewer's layout model.
+    if (container == null && selected != null && selected.isContainingView(viewCanvas)) {
+      container = selected;
+    }
     if (container == null) {
-      return;
+      return null;
     }
 
-    if (!container.equals(eventManager.getSelectedView2dContainer())) {
+    if (container != selected) {
       eventManager.setSelectedView2dContainer(container);
+    } else if (Arrays.stream(viewCanvas.getJComponent().getKeyListeners())
+        .noneMatch(listener -> listener == viewCanvas)) {
+      // Selection can survive a focus transition while its input listeners have been disabled.
+      // Repair only that inconsistent state; normal clicks do not rebuild the listeners.
+      container.setMouseActions(eventManager.getMouseActions());
     }
     if (container.getSelectedViewCanvas() != viewCanvas) {
       container.setSelectedImagePane(viewCanvas);
     }
-    viewCanvas.getJComponent().requestFocusInWindow();
+    return container;
+  }
+
+  private void requestKeyboardFocus(boolean clicked) {
+    JComponent component = viewCanvas.getJComponent();
+    if (!component.requestFocusInWindow() && clicked) {
+      // A first click may arrive before the OS marks the returning window active. Only an explicit
+      // click may request cross-window focus; hovering must not raise an inactive window.
+      component.requestFocus();
+    }
   }
 
   @Override
@@ -136,15 +159,6 @@ public final class FocusHandler<E extends ImageElement> extends MouseActionAdapt
         .filter(ViewButton::isVisible)
         .filter(button -> button.contains(point))
         .findFirst();
-  }
-
-  private void selectViewIfNeeded(ImageViewerPlugin<E> pane) {
-    if (pane.isContainingView(viewCanvas) && pane.getSelectedViewCanvas() != viewCanvas) {
-      // Register all EventManager actions immediately with this view. Waiting for focus gain
-      // is not enough since other MouseListeners may trigger before the focus event occurs,
-      // resulting in the view not yet being registered in the EventManager.
-      pane.setSelectedImagePane(viewCanvas);
-    }
   }
 
   private void handleViewButtonClick(MouseEvent evt, ViewButton button) {
