@@ -1372,6 +1372,14 @@ public abstract class DefaultView2d<E extends ImageElement> extends GraphicsPane
       infoLayer.paint(g2d);
     }
     drawOnTop(g2d);
+    if (getClientProperty(ViewCanvasOverlay.KEY) instanceof ViewCanvasOverlay overlay) {
+      Graphics2D copy = (Graphics2D) g2d.create();
+      try {
+        overlay.paint(copy, this);
+      } finally {
+        copy.dispose();
+      }
+    }
 
     g2d.setFont(defaultFont);
     g2d.setPaint(oldColor);

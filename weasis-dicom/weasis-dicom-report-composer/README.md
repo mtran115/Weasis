@@ -301,8 +301,12 @@ marked as a suggestion; use the **Finding** selector to confirm or correct it. D
 clears its key-image links. Report edits and structured-form restoration never silently retarget a
 key image to a different finding.
 
-This phase collects data only. Dataset review, de-identification, patient-level train/test splits,
-model training, and evaluated prelabels are later work.
+Report capture itself collects data only. A separate optional **Lumbar level mapping · pilot**
+now uses a local pretrained model to propose disc landmarks and collect explicit reader review.
+It provides correction/uncertainty controls, temporary sagittal overlays, and confirmed-level
+navigation to open axial series. It does not predict findings or modify reports, and its overlays
+are excluded from exported key images. See the [pilot setup and data documentation](../../scripts/lumbar-ai/README.md)
+for installation, the patient-level holdout, supported input, and validation limits.
 
 ## Development
 

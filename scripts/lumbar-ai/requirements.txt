@@ -1,0 +1,2 @@
+# Tested on Apple Silicon with Python 3.13. Pin the complete inference environment.
+-r requirements-macos.lock.txt

@@ -7,6 +7,7 @@ export WEASIS_USER_HOME="${WEASIS_REPORT_COMPOSER_HOME:-$HOME/.weasis-report-com
 export WEASIS_GOSH_PORT="${WEASIS_REPORT_COMPOSER_GOSH_PORT:-17180}"
 export WEASIS_PROFILE="${WEASIS_REPORT_COMPOSER_PROFILE:-report-composer-v1}"
 export WEASIS_NAME="${WEASIS_REPORT_COMPOSER_NAME:-Weasis Report Composer}"
+export WEASIS_LUMBAR_AI_ROOT="${WEASIS_LUMBAR_AI_ROOT:-$HOME/.weasis/ai/lumbar}"
 
 # JDK 26 fixes JDK-8372757, a native macOS accessibility crash in Swing popup menus.
 REPORT_COMPOSER_JAVA_HOME="${WEASIS_REPORT_COMPOSER_JAVA_HOME:-/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home}"

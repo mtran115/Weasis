@@ -154,6 +154,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final WristFormPanel wristForm = new WristFormPanel();
   private final JTextArea reportInstructions = textArea(4);
   private final QuickPhraseBar reportQuickPhrases = new QuickPhraseBar(reportInstructions);
+  private final LumbarLevelPanel lumbarLevels = new LumbarLevelPanel(this::activeSelection);
   private final JTextArea findingText = textArea(3);
   private final JTextArea impressionText = textArea(2);
   private final JCheckBox includeInImpression = new JCheckBox("Include in impression", true);
@@ -579,6 +580,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     JPanel content = verticalPanel();
     content.add(fillWidth(buildExamSelector()));
     content.add(fillWidth(buildReportInstructions()));
+    content.add(fillWidth(lumbarLevels));
     for (SpineRegion region : SpineRegion.values()) {
       SpineFormPanel form = new SpineFormPanel(region);
       form.setVisible(false);
@@ -883,6 +885,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
     ExamTemplate exam = selectedExamTemplate();
     reportQuickPhrases.setContext(exam, activeStudyKey);
+    lumbarLevels.setContext(
+        exam,
+        currentDraft == null ? null : activeStudyKey,
+        activeStudyContext == null ? null : activeStudyContext.studyInstanceUid());
     updatingCatalogControls = true;
     categoryCombo.removeAllItems();
     for (String category : MriFindingCatalog.categories(exam)) {
@@ -1126,6 +1132,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             recorderDisposed = true;
             caseRecorder.close();
             reportQuickPhrases.close();
+            lumbarLevels.close();
           }
         });
   }
@@ -1235,6 +1242,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     persistCurrentDraft();
     if (pendingCapture != null && !pendingCapture.studyKey().equals(key)) pendingCapture = null;
     activeStudyKey = key;
+    lumbarLevels.clear();
     activeStudyContext = context;
     long generation = ++studyLoadGeneration;
     currentDraft = null;
@@ -1748,6 +1756,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void refreshCaptureViewports() {
+    lumbarLevels.refreshOverlay();
     DefaultView2d<DicomImageElement> previousCanvas =
         captureViewportCombo.getSelectedItem() instanceof CaptureViewport viewport
             ? viewport.canvas()
