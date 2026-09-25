@@ -15,6 +15,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
+import org.weasis.dicom.reportcomposer.MriFindingCatalog.KeyedFinding;
 
 final class BrainFindingBuilder {
   private static final Pattern BARE_NUMBER = Pattern.compile("[0-9]+(?:\\.[0-9]+)?");
@@ -22,40 +23,52 @@ final class BrainFindingBuilder {
   private BrainFindingBuilder() {}
 
   static List<GeneratedFinding> generate(Selection selection) {
+    return generateKeyed(selection).stream().map(KeyedFinding::finding).toList();
+  }
+
+  static List<KeyedFinding> generateKeyed(Selection selection) {
     Objects.requireNonNull(selection);
-    List<GeneratedFinding> findings = new ArrayList<>();
+    List<KeyedFinding> findings = new ArrayList<>();
 
     for (TechnicalNote note : selection.technicalNotes()) {
-      addFinding(findings, note.phrase());
+      addFinding(findings, "technical:" + note.name(), note.phrase());
     }
     if (selection.normal() && !selection.hasIntracranialPositiveFinding()) {
-      addFinding(findings, "Normal MRI of the brain");
+      addFinding(findings, "normal", "Normal MRI of the brain");
     }
     if (selection.acuteFinding().hasFinding()) {
-      addFinding(findings, acuteFindingDescription(selection.acuteFinding()));
+      addFinding(findings, "acute", acuteFindingDescription(selection.acuteFinding()));
     }
     if (selection.whiteMatter().hasFinding()) {
-      addFinding(findings, whiteMatterDescription(selection.whiteMatter()));
+      addFinding(findings, "white-matter", whiteMatterDescription(selection.whiteMatter()));
     }
     if (selection.chronicMicrovascularChange() != Degree.NONE) {
       addFinding(
           findings,
+          "microvascular",
           selection.chronicMicrovascularChange().phrase()
               + " chronic microvascular ischemic white matter change");
     }
     if (selection.cerebralVolumeLoss() != Degree.NONE) {
       addFinding(
-          findings, selection.cerebralVolumeLoss().phrase() + " generalized cerebral volume loss");
+          findings,
+          "volume-loss",
+          selection.cerebralVolumeLoss().phrase() + " generalized cerebral volume loss");
     }
     if (selection.anteriorFalxLipoma()) {
       String size = measurement(selection.anteriorFalxLipomaSize(), "mm");
-      addFinding(findings, (size.isBlank() ? "" : size + " ") + "lipoma along the anterior falx");
+      addFinding(
+          findings,
+          "falx-lipoma",
+          (size.isBlank() ? "" : size + " ") + "lipoma along the anterior falx");
     }
     if (selection.sinus().hasFinding()) {
-      addFinding(findings, sinusDescription(selection.sinus()));
+      addFinding(findings, "sinus", sinusDescription(selection.sinus()));
     }
     if (ComposerText.hasText(selection.freeText())) {
-      findings.add(new GeneratedFinding(ComposerText.sentence(selection.freeText()), ""));
+      findings.add(
+          new KeyedFinding(
+              "free-text", new GeneratedFinding(ComposerText.sentence(selection.freeText()), "")));
     }
     return List.copyOf(findings);
   }
@@ -204,9 +217,9 @@ final class BrainFindingBuilder {
     return BARE_NUMBER.matcher(clean).matches() ? clean + " " + defaultUnit : clean;
   }
 
-  private static void addFinding(List<GeneratedFinding> findings, String text) {
+  private static void addFinding(List<KeyedFinding> findings, String key, String text) {
     String sentence = ComposerText.sentence(capitalize(text));
-    findings.add(new GeneratedFinding(sentence, sentence));
+    findings.add(new KeyedFinding(key, new GeneratedFinding(sentence, sentence)));
   }
 
   private static String capitalize(String value) {

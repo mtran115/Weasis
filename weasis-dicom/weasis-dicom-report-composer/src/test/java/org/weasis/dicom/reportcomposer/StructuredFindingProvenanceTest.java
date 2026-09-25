@@ -37,7 +37,7 @@ class StructuredFindingProvenanceTest {
             List.of());
     ReportDraft draft = draft();
     var original =
-        new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generate);
+        new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generateKeyed);
     original.synchronize(draft, selection);
     FindingEntry entry = draft.findings().getFirst();
     assertEquals(new ObjectMapper().valueToTree(selection), entry.metadata().structuredSelection());
@@ -45,7 +45,7 @@ class StructuredFindingProvenanceTest {
     assertFalse(entry.metadata().groupId().isBlank());
 
     var restored =
-        new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generate);
+        new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generateKeyed);
     restored.restoreSelection(draft, selection);
     assertFalse(restored.synchronize(draft, selection).changed());
     assertEquals(List.of(entry), draft.findings());
@@ -54,7 +54,7 @@ class StructuredFindingProvenanceTest {
   @Test
   void unchangedAnatomicalFindingsKeepIdsAcrossInsertionDeletionAndReordering() {
     var tracker =
-        new StructuredFindingDraftTracker<String, TextSelection>(
+        StructuredFindingDraftTracker.<String, TextSelection>keyedByText(
             TextSelection::group,
             selection ->
                 selection.texts().stream().map(text -> new GeneratedFinding(text, "")).toList());
@@ -106,7 +106,7 @@ class StructuredFindingProvenanceTest {
   }
 
   private static StructuredFindingDraftTracker<String, TextSelection> textTracker() {
-    return new StructuredFindingDraftTracker<>(
+    return StructuredFindingDraftTracker.keyedByText(
         TextSelection::group,
         selection ->
             selection.texts().stream().map(text -> new GeneratedFinding(text, "")).toList());

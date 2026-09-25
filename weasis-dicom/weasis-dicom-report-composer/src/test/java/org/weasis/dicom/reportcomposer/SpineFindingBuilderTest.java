@@ -31,6 +31,34 @@ import org.weasis.dicom.reportcomposer.SpineFindingBuilder.SpineRegion;
 
 class SpineFindingBuilderTest {
   @Test
+  void keepsDiscMigrationWhenOnlyABulgeIsSelected() {
+    LevelSelection level =
+        new LevelSelection(
+            "L4-5",
+            true,
+            List.of(),
+            List.of(),
+            false,
+            false,
+            MigrationDirection.INFERIOR,
+            "3",
+            "",
+            Laterality.NONE,
+            Laterality.NONE,
+            Severity.NONE,
+            Severity.NONE,
+            Severity.NONE);
+
+    GeneratedFinding finding =
+        SpineFindingBuilder.generate(
+                new Selection(SpineRegion.LUMBAR, AlignmentFinding.NONE, Map.of(), List.of(level)))
+            .getFirst();
+
+    assertEquals(
+        "L4-5: Disc bulge. 3 mm inferior migration of disc material.", finding.findingText());
+  }
+
+  @Test
   void generatesCervicalAlignmentAndOptionalLevelSpecificDegenerativeFindings() {
     Selection selection =
         new Selection(

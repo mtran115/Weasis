@@ -183,7 +183,7 @@ class LumbarTrainingLabelsTest {
   void structuredSelectionIsCountedOnceAndUnconstrainedFreeTextBlocksOmissions() {
     ReportDraft draft = new ReportDraft(context());
     var tracker =
-        new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generate);
+        new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generateKeyed);
     Selection selection = selection("");
     tracker.synchronize(draft, selection);
     assertEquals(2, draft.findings().size());
@@ -202,7 +202,7 @@ class LumbarTrainingLabelsTest {
   void editingStructuredProseRetainsEvidenceWithoutReusingTheOldSeverity() {
     ReportDraft draft = new ReportDraft(context());
     var tracker =
-        new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generate);
+        new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generateKeyed);
     tracker.synchronize(
         draft,
         new Selection(
@@ -224,7 +224,7 @@ class LumbarTrainingLabelsTest {
   void aDeletedStructuredFindingIsNotReassertedFromItsGroupsRemainingMetadata() {
     ReportDraft draft = new ReportDraft(context());
     var tracker =
-        new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generate);
+        new StructuredFindingDraftTracker<>(Selection::region, SpineFindingBuilder::generateKeyed);
     tracker.synchronize(draft, selection(""));
     draft.removeFinding(draft.findings().getFirst().id());
     JsonNode result = LumbarTrainingLabels.summarize(draft.snapshot(), "MRI LUMBAR SPINE", true);

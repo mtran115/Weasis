@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
@@ -112,23 +113,23 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final StructuredFindingDraftTracker<SpineRegion, SpineFindingBuilder.Selection>
       spineFindingTracker =
           new StructuredFindingDraftTracker<>(
-              SpineFindingBuilder.Selection::region, SpineFindingBuilder::generate);
+              SpineFindingBuilder.Selection::region, SpineFindingBuilder::generateKeyed);
   private final StructuredFindingDraftTracker<ExamTemplate, ShoulderFindingBuilder.Selection>
       shoulderFindingTracker =
           new StructuredFindingDraftTracker<>(
-              selection -> ExamTemplate.SHOULDER, ShoulderFindingBuilder::generate);
+              selection -> ExamTemplate.SHOULDER, ShoulderFindingBuilder::generateKeyed);
   private final StructuredFindingDraftTracker<ExamTemplate, KneeFindingBuilder.Selection>
       kneeFindingTracker =
           new StructuredFindingDraftTracker<>(
-              selection -> ExamTemplate.KNEE, KneeFindingBuilder::generate);
+              selection -> ExamTemplate.KNEE, KneeFindingBuilder::generateKeyed);
   private final StructuredFindingDraftTracker<ExamTemplate, BrainFindingBuilder.Selection>
       brainFindingTracker =
           new StructuredFindingDraftTracker<>(
-              selection -> ExamTemplate.BRAIN, BrainFindingBuilder::generate);
+              selection -> ExamTemplate.BRAIN, BrainFindingBuilder::generateKeyed);
   private final StructuredFindingDraftTracker<ExamTemplate, WristFindingBuilder.Selection>
       wristFindingTracker =
           new StructuredFindingDraftTracker<>(
-              selection -> ExamTemplate.WRIST, WristFindingBuilder::generate);
+              selection -> ExamTemplate.WRIST, WristFindingBuilder::generateKeyed);
   private final ViewerEventState viewerEventState = new ViewerEventState();
   private final AtomicBoolean studySynchronizationQueued = new AtomicBoolean();
   private final AtomicBoolean studySynchronizationRequested = new AtomicBoolean();
@@ -1456,9 +1457,22 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
   }
 
+  private void reportKeptEdits(StructuredFindingDraftTracker.SyncResult result) {
+    if (result.keptEdits().isEmpty()) {
+      return;
+    }
+    String findings =
+        result.keptEdits().stream()
+            .map(FindingEntry::findingText)
+            .collect(Collectors.joining(" | "));
+    statusLabel.setText("Kept your edited wording; form changes were not applied to: " + findings);
+    statusLabel.setToolTipText(findings);
+  }
+
   private boolean synchronizeSpineFindings(
       SpineFormPanel form, boolean warnWhenEmpty, boolean clearAfterSave) {
     var result = spineFindingTracker.synchronize(currentDraft, form.selection());
+    reportKeptEdits(result);
     if (!result.hasFindings()) {
       if (warnWhenEmpty) {
         showWarning("Select at least one " + form.region().formLabel() + " finding.");
@@ -1484,6 +1498,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private boolean synchronizeShoulderFindings(boolean warnWhenEmpty, boolean clearAfterSave) {
     var result = shoulderFindingTracker.synchronize(currentDraft, shoulderForm.selection());
+    reportKeptEdits(result);
     if (!result.hasFindings()) {
       if (warnWhenEmpty) {
         showWarning("Select at least one shoulder finding.");
@@ -1509,6 +1524,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private boolean synchronizeKneeFindings(boolean warnWhenEmpty, boolean clearAfterSave) {
     var result = kneeFindingTracker.synchronize(currentDraft, kneeForm.selection());
+    reportKeptEdits(result);
     if (!result.hasFindings()) {
       if (warnWhenEmpty) {
         showWarning("Select at least one knee finding.");
@@ -1534,6 +1550,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private boolean synchronizeBrainFindings(boolean warnWhenEmpty, boolean clearAfterSave) {
     var result = brainFindingTracker.synchronize(currentDraft, brainForm.selection());
+    reportKeptEdits(result);
     if (!result.hasFindings()) {
       if (warnWhenEmpty) {
         showWarning("Select at least one brain finding.");
@@ -1559,6 +1576,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private boolean synchronizeWristFindings(boolean warnWhenEmpty, boolean clearAfterSave) {
     var result = wristFindingTracker.synchronize(currentDraft, wristForm.selection());
+    reportKeptEdits(result);
     if (!result.hasFindings()) {
       if (warnWhenEmpty) {
         showWarning("Select at least one wrist finding.");

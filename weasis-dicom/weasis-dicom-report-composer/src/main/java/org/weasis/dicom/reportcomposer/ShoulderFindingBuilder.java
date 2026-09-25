@@ -16,43 +16,60 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
+import org.weasis.dicom.reportcomposer.MriFindingCatalog.KeyedFinding;
 
 final class ShoulderFindingBuilder {
   private ShoulderFindingBuilder() {}
 
   static List<GeneratedFinding> generate(Selection selection) {
+    return generateKeyed(selection).stream().map(KeyedFinding::finding).toList();
+  }
+
+  static List<KeyedFinding> generateKeyed(Selection selection) {
     Objects.requireNonNull(selection);
-    List<GeneratedFinding> findings = new ArrayList<>();
-    addGradedFinding(findings, selection.subcoracoidBursitis(), "subcoracoid bursitis");
+    List<KeyedFinding> findings = new ArrayList<>();
     addGradedFinding(
-        findings, selection.subacromialSubdeltoidBursitis(), "subacromial/subdeltoid bursitis");
+        findings, "subcoracoid-bursitis", selection.subcoracoidBursitis(), "subcoracoid bursitis");
     addGradedFinding(
-        findings, selection.acJointOsteoarthrosis(), "acromioclavicular joint osteoarthrosis");
+        findings,
+        "sasd-bursitis",
+        selection.subacromialSubdeltoidBursitis(),
+        "subacromial/subdeltoid bursitis");
+    addGradedFinding(
+        findings,
+        "ac-joint",
+        selection.acJointOsteoarthrosis(),
+        "acromioclavicular joint osteoarthrosis");
     for (RotatorCuffTendon tendon : RotatorCuffTendon.values()) {
       Degree degree = selection.rotatorCuffTendinosis().getOrDefault(tendon, Degree.NONE);
       CuffTearSelection tear =
           selection.rotatorCuffTears().getOrDefault(tendon, CuffTearSelection.empty());
       if (degree != Degree.NONE && !tear.backgroundTendinosis()) {
-        addGradedFinding(findings, degree, tendon.phrase() + " tendinosis");
+        addGradedFinding(
+            findings, "tendinosis:" + tendon.name(), degree, tendon.phrase() + " tendinosis");
       }
       if (tear.hasFinding()) {
-        addFinding(findings, cuffTearDescription(tendon, tear, degree));
+        addFinding(
+            findings, "cuff-tear:" + tendon.name(), cuffTearDescription(tendon, tear, degree));
       }
     }
     if (!selection.labralTearLocations().isEmpty()) {
       String locations =
           joinList(selection.labralTearLocations().stream().map(LabralLocation::phrase).toList());
       String cyst = selection.paralabralCyst() ? " with an adjacent paralabral cyst" : "";
-      addFinding(findings, capitalize(locations) + " labral tear" + cyst);
+      addFinding(findings, "labrum", capitalize(locations) + " labral tear" + cyst);
     } else if (selection.paralabralCyst()) {
-      addFinding(findings, "Paralabral cyst");
+      addFinding(findings, "labrum", "Paralabral cyst");
     }
     addGradedFinding(
         findings,
+        "biceps-tenosynovitis",
         selection.longHeadBicepsTenosynovitis(),
         "tenosynovitis of the long head of the biceps tendon");
     if (ComposerText.hasText(selection.freeText())) {
-      findings.add(new GeneratedFinding(ComposerText.sentence(selection.freeText()), ""));
+      findings.add(
+          new KeyedFinding(
+              "free-text", new GeneratedFinding(ComposerText.sentence(selection.freeText()), "")));
     }
     return List.copyOf(findings);
   }
@@ -84,15 +101,15 @@ final class ShoulderFindingBuilder {
   }
 
   private static void addGradedFinding(
-      List<GeneratedFinding> findings, Degree degree, String finding) {
+      List<KeyedFinding> findings, String key, Degree degree, String finding) {
     if (degree != Degree.NONE) {
-      addFinding(findings, capitalize(degree.phrase()) + " " + finding);
+      addFinding(findings, key, capitalize(degree.phrase()) + " " + finding);
     }
   }
 
-  private static void addFinding(List<GeneratedFinding> findings, String finding) {
+  private static void addFinding(List<KeyedFinding> findings, String key, String finding) {
     String sentence = ComposerText.sentence(finding);
-    findings.add(new GeneratedFinding(sentence, sentence));
+    findings.add(new KeyedFinding(key, new GeneratedFinding(sentence, sentence)));
   }
 
   private static String capitalize(String value) {

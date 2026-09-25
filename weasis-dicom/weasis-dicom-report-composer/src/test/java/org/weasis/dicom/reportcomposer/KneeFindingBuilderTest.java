@@ -182,6 +182,43 @@ class KneeFindingBuilderTest {
         freeText);
   }
 
+  @Test
+  void rootTearFollowsTheSelectedHorn() {
+    for (var test :
+        Map.of(
+                List.<MeniscusRegion>of(),
+                "Posterior root tear of the lateral meniscus.",
+                List.of(MeniscusRegion.POSTERIOR_HORN),
+                "Posterior root tear of the lateral meniscus.",
+                List.of(MeniscusRegion.ANTERIOR_HORN),
+                "Anterior root tear of the lateral meniscus.",
+                List.of(MeniscusRegion.ANTERIOR_HORN, MeniscusRegion.POSTERIOR_HORN),
+                "Anterior and posterior root tears of the lateral meniscus.")
+            .entrySet()) {
+      Selection selection =
+          selection(
+              false,
+              Map.of(
+                  Meniscus.LATERAL,
+                  new MeniscusSelection(
+                      false, test.getKey(), MeniscusTearType.ROOT, false, false, false)),
+              Map.of(),
+              false,
+              Map.of(),
+              Map.of(),
+              MarrowSelection.empty(),
+              FluidAmount.NONE,
+              false,
+              FluidAmount.NONE,
+              Degree.NONE,
+              Degree.NONE,
+              List.of(),
+              "");
+
+      assertEquals(List.of(finding(test.getValue())), KneeFindingBuilder.generate(selection));
+    }
+  }
+
   private static Selection selection(
       boolean normal,
       Map<Meniscus, MeniscusSelection> menisci,

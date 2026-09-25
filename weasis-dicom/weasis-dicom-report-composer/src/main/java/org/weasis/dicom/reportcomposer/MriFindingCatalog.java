@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -1342,4 +1343,12 @@ public final class MriFindingCatalog {
   }
 
   public record GeneratedFinding(String findingText, String impressionText) {}
+
+  /** A generated finding with a stable identity (such as {@code level:L4-5}) across rewording. */
+  public record KeyedFinding(String key, GeneratedFinding finding) {
+    public KeyedFinding {
+      key = Objects.requireNonNull(key);
+      finding = Objects.requireNonNull(finding);
+    }
+  }
 }

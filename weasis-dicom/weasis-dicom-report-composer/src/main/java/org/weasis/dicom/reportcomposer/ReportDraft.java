@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 public final class ReportDraft {
   private CaseContext context;
@@ -53,6 +54,30 @@ public final class ReportDraft {
 
   public void addFinding(FindingEntry finding) {
     findings.add(Objects.requireNonNull(finding));
+  }
+
+  Optional<FindingEntry> finding(String id) {
+    int index = indexOfFinding(id);
+    return index < 0 ? Optional.empty() : Optional.of(findings.get(index));
+  }
+
+  void insertFindingAfter(String anchorId, FindingEntry finding) {
+    int anchor = indexOfFinding(anchorId);
+    insertFinding(anchor < 0 ? -1 : anchor + 1, finding);
+  }
+
+  void insertFindingBefore(String anchorId, FindingEntry finding) {
+    insertFinding(indexOfFinding(anchorId), finding);
+  }
+
+  /** Appends when the anchor is missing ({@code index < 0}). */
+  private void insertFinding(int index, FindingEntry finding) {
+    Objects.requireNonNull(finding);
+    if (index < 0 || index > findings.size()) {
+      findings.add(finding);
+    } else {
+      findings.add(index, finding);
+    }
   }
 
   public void replaceFinding(String id, FindingEntry replacement) {

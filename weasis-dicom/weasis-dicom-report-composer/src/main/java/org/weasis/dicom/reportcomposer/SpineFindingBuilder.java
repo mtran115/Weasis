@@ -20,25 +20,34 @@ import java.util.Objects;
 import java.util.Optional;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
+import org.weasis.dicom.reportcomposer.MriFindingCatalog.KeyedFinding;
 
 final class SpineFindingBuilder {
   private SpineFindingBuilder() {}
 
   static List<GeneratedFinding> generate(Selection selection) {
+    return generateKeyed(selection).stream().map(KeyedFinding::finding).toList();
+  }
+
+  static List<KeyedFinding> generateKeyed(Selection selection) {
     Objects.requireNonNull(selection);
     SpineRegion region = selection.region();
-    List<GeneratedFinding> findings = new ArrayList<>();
+    List<KeyedFinding> findings = new ArrayList<>();
 
     for (AlignmentFinding alignment : selection.alignments()) {
       findings.add(
-          new GeneratedFinding(
-              ComposerText.sentence(alignmentText(selection, alignment, false)),
-              ComposerText.sentence(alignmentText(selection, alignment, true))));
+          new KeyedFinding(
+              "alignment:" + alignment.name(),
+              new GeneratedFinding(
+                  ComposerText.sentence(alignmentText(selection, alignment, false)),
+                  ComposerText.sentence(alignmentText(selection, alignment, true)))));
     }
 
     selection.listheses().stream()
         .sorted(Comparator.comparingInt(listhesis -> region.levels().indexOf(listhesis.level())))
-        .map(SpineFindingBuilder::generateListhesis)
+        .map(
+            listhesis ->
+                new KeyedFinding("listhesis:" + listhesis.level(), generateListhesis(listhesis)))
         .forEach(findings::add);
 
     for (OverviewFinding overview : OverviewFinding.values()) {
@@ -50,21 +59,26 @@ final class SpineFindingBuilder {
                 : overview.localizedText(region) + " at " + joinList(levels);
         String findingText = ComposerText.sentence(text);
         findings.add(
-            new GeneratedFinding(findingText, overview.includeInImpression() ? findingText : ""));
+            new KeyedFinding(
+                "overview:" + overview.name(),
+                new GeneratedFinding(
+                    findingText, overview.includeInImpression() ? findingText : "")));
       }
     }
 
     if (ComposerText.hasText(selection.degenerativeDetails())) {
       findings.add(
-          new GeneratedFinding(
-              ComposerText.sentence("Degenerative changes: " + selection.degenerativeDetails()),
-              ""));
+          new KeyedFinding(
+              "degenerative",
+              new GeneratedFinding(
+                  ComposerText.sentence("Degenerative changes: " + selection.degenerativeDetails()),
+                  "")));
     }
 
     selection.levelSelections().stream()
         .filter(LevelSelection::hasFinding)
         .sorted(Comparator.comparingInt(level -> region.levels().indexOf(level.level())))
-        .map(level -> generateLevel(region, level))
+        .map(level -> new KeyedFinding("level:" + level.level(), generateLevel(region, level)))
         .forEach(findings::add);
     return List.copyOf(findings);
   }
@@ -134,7 +148,10 @@ final class SpineFindingBuilder {
       details.add("Disc bulge");
     } else if (selection.hasDiscHerniation()) {
       details.add(capitalize(discHerniationDescription(selection, true)));
-    } else if (selection.migrationDirection() != MigrationDirection.NONE) {
+    }
+    // A herniation carries its migration; otherwise (including a bulge) state it on its own.
+    if (!selection.hasDiscHerniation()
+        && selection.migrationDirection() != MigrationDirection.NONE) {
       details.add(capitalize(migrationDescription(selection)) + " of disc material");
     }
     if (selection.annularFissure()) {

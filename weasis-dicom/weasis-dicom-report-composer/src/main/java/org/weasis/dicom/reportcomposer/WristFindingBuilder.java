@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
+import org.weasis.dicom.reportcomposer.MriFindingCatalog.KeyedFinding;
 
 final class WristFindingBuilder {
   private static final Pattern BARE_NUMBER = Pattern.compile("[0-9]+(?:\\.[0-9]+)?");
@@ -25,40 +26,46 @@ final class WristFindingBuilder {
   private WristFindingBuilder() {}
 
   static List<GeneratedFinding> generate(Selection selection) {
+    return generateKeyed(selection).stream().map(KeyedFinding::finding).toList();
+  }
+
+  static List<KeyedFinding> generateKeyed(Selection selection) {
     Objects.requireNonNull(selection);
-    List<GeneratedFinding> findings = new ArrayList<>();
+    List<KeyedFinding> findings = new ArrayList<>();
 
     if (selection.motionArtifact()) {
-      addFinding(findings, "Multiple sequences are degraded by motion artifact");
+      addFinding(findings, "motion", "Multiple sequences are degraded by motion artifact");
     }
     if (selection.normal() && !selection.hasClinicalPositiveFinding()) {
-      addFinding(findings, "Normal MRI of the wrist");
+      addFinding(findings, "normal", "Normal MRI of the wrist");
     }
     for (Ligament ligament : Ligament.values()) {
       LigamentSelection injury =
           selection.ligaments().getOrDefault(ligament, LigamentSelection.empty());
       if (injury.hasFinding()) {
-        addFinding(findings, ligamentDescription(ligament, injury));
+        addFinding(findings, "ligament:" + ligament.name(), ligamentDescription(ligament, injury));
       }
     }
     if (selection.tfccFinding() != TfccFinding.NONE) {
-      addFinding(findings, selection.tfccFinding().phrase());
+      addFinding(findings, "tfcc", selection.tfccFinding().phrase());
     }
     for (Tendon tendon : Tendon.values()) {
       addTendonFindings(
           findings, tendon, selection.tendons().getOrDefault(tendon, TendonSelection.empty()));
     }
     if (selection.bone().hasFinding()) {
-      addFinding(findings, boneDescription(selection.bone()));
+      addFinding(findings, "bone", boneDescription(selection.bone()));
     }
     if (selection.ganglion().hasFinding()) {
-      addFinding(findings, ganglionDescription(selection.ganglion()));
+      addFinding(findings, "ganglion", ganglionDescription(selection.ganglion()));
     }
     if (selection.fluid().hasFinding()) {
-      addFinding(findings, fluidDescription(selection.fluid()));
+      addFinding(findings, "fluid", fluidDescription(selection.fluid()));
     }
     if (ComposerText.hasText(selection.freeText())) {
-      findings.add(new GeneratedFinding(ComposerText.sentence(selection.freeText()), ""));
+      findings.add(
+          new KeyedFinding(
+              "free-text", new GeneratedFinding(ComposerText.sentence(selection.freeText()), "")));
     }
     return List.copyOf(findings);
   }
@@ -83,7 +90,8 @@ final class WristFindingBuilder {
   }
 
   private static void addTendonFindings(
-      List<GeneratedFinding> findings, Tendon tendon, TendonSelection selection) {
+      List<KeyedFinding> findings, Tendon tendon, TendonSelection selection) {
+    String key = "tendon:" + tendon.name() + ":";
     if (selection.tear() != TendonTear.NONE) {
       StringBuilder tear =
           new StringBuilder(selection.tear().phrase()).append(" of the ").append(tendon.phrase());
@@ -92,14 +100,17 @@ final class WristFindingBuilder {
             .append(selection.tendinosis().lowerPhrase())
             .append(" tendinosis");
       }
-      addFinding(findings, tear.toString());
+      addFinding(findings, key + "tear-or-tendinosis", tear.toString());
     } else if (selection.tendinosis() != Degree.NONE) {
       addFinding(
-          findings, selection.tendinosis().phrase() + " tendinosis of the " + tendon.phrase());
+          findings,
+          key + "tear-or-tendinosis",
+          selection.tendinosis().phrase() + " tendinosis of the " + tendon.phrase());
     }
     if (selection.tenosynovitis() != Degree.NONE) {
       addFinding(
           findings,
+          key + "tenosynovitis",
           selection.tenosynovitis().phrase() + " tenosynovitis of the " + tendon.phrase());
     }
   }
@@ -156,9 +167,9 @@ final class WristFindingBuilder {
     return BARE_NUMBER.matcher(clean).matches() ? clean + " " + defaultUnit : clean;
   }
 
-  private static void addFinding(List<GeneratedFinding> findings, String text) {
+  private static void addFinding(List<KeyedFinding> findings, String key, String text) {
     String sentence = ComposerText.sentence(capitalize(text));
-    findings.add(new GeneratedFinding(sentence, sentence));
+    findings.add(new KeyedFinding(key, new GeneratedFinding(sentence, sentence)));
   }
 
   private static String capitalize(String value) {
