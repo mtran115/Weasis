@@ -34,6 +34,7 @@ import java.awt.MouseInfo;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
+import java.awt.Window;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.AWTEventListener;
 import java.awt.event.KeyEvent;
@@ -60,7 +61,6 @@ import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.ListSelectionModel;
 import javax.swing.Scrollable;
@@ -106,6 +106,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
           + " changed. Nothing was added to the draft; capture it again.";
 
   private static final String OUTPUT_DIRECTORY_KEY = "report.composer.output.directory";
+  private static final String VIEW_LAYOUT_KEY = "report.composer.view.layout";
   private static final int FIELD_COLUMNS = 28;
 
   private final Map<String, ReportDraft> drafts = new LinkedHashMap<>();
@@ -141,7 +142,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final AtomicBoolean studySynchronizationRequested = new AtomicBoolean();
   private final CasePacketExporter packetExporter = new CasePacketExporter();
   private final ReportInstructionHistory instructionHistory = new ReportInstructionHistory();
-  private final JTabbedPane tabs = new JTabbedPane();
+  private ComposerViewLayout views;
   private final JScrollPane composeScrollPane = new JScrollPane();
   private final StudyScrollPosition composeScrollPosition =
       new StudyScrollPosition(composeScrollPane);
@@ -183,14 +184,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JButton openExportButton =
       iconButton(ActionIcon.OPEN_EXTERNAL, "Open exported case folder");
   private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
-  private final ComposerNavigationShortcuts navigationShortcuts =
-      new ComposerNavigationShortcuts(
-          this,
-          tabs,
-          exportButton,
-          this::isNavigationViewerFocus,
-          this::cancelKeyImagePreview,
-          this::activateComposerPreview);
+  private final JButton viewLayoutButton = new JButton();
+  private ComposerNavigationShortcuts navigationShortcuts;
 
   private ReportDraft currentDraft;
   private String editingFindingId;
@@ -344,7 +339,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private void trackCanvasInteraction(AWTEvent event) {
     if (keyImagePreviewTimer != null
         && event.getSource() instanceof Component component
-        && SwingUtilities.isDescendingFrom(component, tabs)
+        && views.contains(component)
         && ((event instanceof MouseEvent mouse
                 && (mouse.getID() == MouseEvent.MOUSE_PRESSED
                     || mouse.getID() == MouseEvent.MOUSE_WHEEL))
@@ -458,7 +453,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (ExtendedMode.MINIMIZED.equals(dockable.getExtendedMode())) {
       dockable.setExtendedMode(ExtendedMode.NORMALIZED);
     }
-    Component focusTarget = exportButton.isEnabled() ? exportButton : tabs;
+    Component focusTarget =
+        exportButton.isEnabled() ? exportButton : views.focusTarget(ComposerViewLayout.PREVIEW);
     dockable.toFront(focusTarget);
     ComposerWindowSupport.activateWindow(SwingUtilities.getWindowAncestor(this), focusTarget);
   }
@@ -472,24 +468,36 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     setLayout(new BorderLayout(0, 6));
     setBorder(GuiUtils.getEmptyBorder(8, 8, 8, 8));
     add(buildCaseHeader(), BorderLayout.NORTH);
-    tabs.addTab("Compose", buildComposeTab());
-    tabs.addTab("Key Images", buildKeyImageTab());
-    tabs.addTab("Preview", buildPreviewTab());
+    views =
+        new ComposerViewLayout(
+            List.of("Compose", "Key Images", "Preview"),
+            List.of(buildComposeTab(), buildKeyImageTab(), buildPreviewTab()));
+    views.setMode(savedViewLayout());
+    updateViewLayoutButton();
+    navigationShortcuts =
+        new ComposerNavigationShortcuts(
+            this,
+            views,
+            exportButton,
+            this::isNavigationViewerFocus,
+            this::cancelKeyImagePreview,
+            this::activateComposerPreview);
     navigationShortcuts.updateTooltips();
-    tabs.addChangeListener(
-        event -> {
+    views.addVisibilityListener(
+        () -> {
           cancelKeyImagePreview();
-          composeScrollPosition.setComposeSelected(tabs.getSelectedIndex() == 0);
+          boolean composeVisible = views.isVisible(ComposerViewLayout.COMPOSE);
+          composeScrollPosition.setComposeSelected(composeVisible);
           shortcutHelp.setVisible(
-              tabs.getSelectedIndex() == 0
+              composeVisible
                   && (shoulderForm.isVisible()
                       || spineForms.values().stream().anyMatch(Component::isVisible)));
           savePendingStructuredFindings();
-          if (tabs.getSelectedIndex() == 1) {
+          if (views.isVisible(ComposerViewLayout.KEY_IMAGES)) {
             refreshCaptureViewports();
           }
         });
-    add(tabs, BorderLayout.CENTER);
+    add(views.component(), BorderLayout.CENTER);
     localSaveLabel.setBorder(GuiUtils.getEmptyBorder(3, 4, 3, 4));
     localSaveLabel.setToolTipText(
         "Drafts and training records stay on this computer. Export completes the annotation pass.");
@@ -527,12 +535,63 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     popOutButton.setVerticalTextPosition(SwingConstants.CENTER);
     popOutButton.setHorizontalTextPosition(SwingConstants.RIGHT);
     popOutButton.addActionListener(event -> togglePopOut());
-    header.add(popOutButton, BorderLayout.EAST);
+    viewLayoutButton.addActionListener(event -> toggleViewLayout());
+    updateViewLayoutButton();
+    JPanel windowControls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+    windowControls.setOpaque(false);
+    windowControls.add(viewLayoutButton);
+    windowControls.add(popOutButton);
+    header.add(windowControls, BorderLayout.EAST);
     header.setBorder(
         BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY),
             GuiUtils.getEmptyBorder(0, 2, 8, 2)));
     return header;
+  }
+
+  private ComposerViewLayout.Mode savedViewLayout() {
+    String saved = GuiUtils.getUICore().getLocalPersistence().getProperty(VIEW_LAYOUT_KEY, "");
+    return ComposerViewLayout.Mode.COLUMNS.name().equals(saved)
+        ? ComposerViewLayout.Mode.COLUMNS
+        : ComposerViewLayout.Mode.TABS;
+  }
+
+  private void toggleViewLayout() {
+    ComposerViewLayout.Mode next =
+        views.mode() == ComposerViewLayout.Mode.TABS
+            ? ComposerViewLayout.Mode.COLUMNS
+            : ComposerViewLayout.Mode.TABS;
+    cancelKeyImagePreview();
+    views.setMode(next);
+    GuiUtils.getUICore().getLocalPersistence().setProperty(VIEW_LAYOUT_KEY, next.name());
+    updateViewLayoutButton();
+    if (next == ComposerViewLayout.Mode.COLUMNS) {
+      widenPopOutForColumns();
+    }
+  }
+
+  private void updateViewLayoutButton() {
+    boolean columns = views != null && views.mode() == ComposerViewLayout.Mode.COLUMNS;
+    viewLayoutButton.setText(columns ? "Tabs" : "Side by Side");
+    viewLayoutButton.setToolTipText(
+        columns
+            ? "Show Compose, Key Images and Preview as tabs"
+            : "Show Compose, Key Images and Preview side by side (best popped out on a wide"
+                + " monitor)");
+  }
+
+  /** A popped-out window sized for one view is widened to fit three columns on its monitor. */
+  private void widenPopOutForColumns() {
+    Window window = SwingUtilities.getWindowAncestor(this);
+    if (!ExtendedMode.EXTERNALIZED.equals(dockable.getExtendedMode()) || window == null) return;
+    Rectangle current = window.getBounds();
+    Rectangle display = window.getGraphicsConfiguration().getBounds();
+    Rectangle wanted = preferredPopOutBounds(display, ComposerViewLayout.Mode.COLUMNS);
+    if (current.width >= wanted.width) return;
+    int x = Math.max(display.x, Math.min(current.x, display.x + display.width - wanted.width));
+    CLocation location = CLocation.external(x, current.y, wanted.width, current.height);
+    dockable.setDefaultLocation(ExtendedMode.EXTERNALIZED, location);
+    dockable.setLocation(location);
   }
 
   private void togglePopOut() {
@@ -543,7 +602,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
 
     installNativePopOutWindow();
-    Rectangle bounds = preferredPopOutBounds(targetDisplayBounds());
+    Rectangle bounds = preferredPopOutBounds(targetDisplayBounds(), views.mode());
     CLocation externalLocation =
         CLocation.external(bounds.x, bounds.y, bounds.width, bounds.height);
     dockable.setDefaultLocation(ExtendedMode.EXTERNALIZED, externalLocation);
@@ -569,11 +628,15 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   static Rectangle preferredPopOutBounds(Rectangle displayBounds) {
+    return preferredPopOutBounds(displayBounds, ComposerViewLayout.Mode.TABS);
+  }
+
+  static Rectangle preferredPopOutBounds(Rectangle displayBounds, ComposerViewLayout.Mode mode) {
     int margin =
         Math.min(24, Math.max(0, Math.min(displayBounds.width, displayBounds.height) / 20));
     int availableWidth = Math.max(1, displayBounds.width - margin * 2);
     int availableHeight = Math.max(1, displayBounds.height - margin * 2);
-    int width = Math.min(600, availableWidth);
+    int width = Math.min(mode == ComposerViewLayout.Mode.COLUMNS ? 1800 : 600, availableWidth);
     int height = Math.min(1100, availableHeight);
     return new Rectangle(displayBounds.x + margin, displayBounds.y + margin, width, height);
   }
@@ -982,7 +1045,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         (region, form) ->
             form.setVisible(showStructuredSpine && region == selectedRegion.orElse(null)));
     shortcutHelp.setVisible(
-        (showStructuredSpine || showStructuredShoulder) && tabs.getSelectedIndex() == 0);
+        (showStructuredSpine || showStructuredShoulder)
+            && views.isVisible(ComposerViewLayout.COMPOSE));
     shoulderForm.setVisible(showStructuredShoulder);
     kneeForm.setVisible(showStructuredKnee);
     brainForm.setVisible(showStructuredBrain);
@@ -1399,7 +1463,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     } else if (suspendedInputs.isEmpty()) {
       spineForms.values().forEach(form -> form.shortcuts().reset());
       shoulderForm.shortcuts().reset();
-      suspendComposerInput(tabs);
+      suspendComposerInput(views.component());
     }
   }
 
@@ -1789,7 +1853,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private void previewCapturedKeyImage() {
     cancelKeyImagePreview();
-    tabs.setSelectedIndex(1);
+    // Side by side, the new key image is already in view; only tabs flash it briefly.
+    if (views.mode() == ComposerViewLayout.Mode.COLUMNS) return;
+    views.show(ComposerViewLayout.KEY_IMAGES);
     Timer timer =
         new Timer(
             2000,
@@ -1797,11 +1863,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
               // A queued callback from an earlier capture must not end a newer preview.
               if (event.getSource() != keyImagePreviewTimer) return;
               cancelKeyImagePreview();
-              if (tabs.isShowing()
-                  && tabs.isEnabled()
-                  && tabs.isEnabledAt(0)
-                  && tabs.getSelectedIndex() == 1) {
-                tabs.setSelectedIndex(0);
+              if (views.component().isShowing()
+                  && views.isEnabledAt(ComposerViewLayout.COMPOSE)
+                  && views.selectedView() == ComposerViewLayout.KEY_IMAGES) {
+                views.show(ComposerViewLayout.COMPOSE);
               }
             });
     timer.setRepeats(false);

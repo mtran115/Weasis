@@ -21,7 +21,6 @@ import java.util.Set;
 import java.util.function.Predicate;
 import javax.swing.JButton;
 import javax.swing.JComponent;
-import javax.swing.JTabbedPane;
 import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
 import javax.swing.text.JTextComponent;
@@ -49,7 +48,7 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
   }
 
   private final JComponent composer;
-  private final JTabbedPane tabs;
+  private final ComposerViewLayout views;
   private final JButton exportButton;
   private final Predicate<Component> viewerFocus;
   private final Runnable beforeNavigation;
@@ -63,13 +62,13 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
 
   ComposerNavigationShortcuts(
       JComponent composer,
-      JTabbedPane tabs,
+      ComposerViewLayout views,
       JButton exportButton,
       Predicate<Component> viewerFocus,
       Runnable beforeNavigation,
       Runnable activateComposer) {
     this.composer = composer;
-    this.tabs = tabs;
+    this.views = views;
     this.exportButton = exportButton;
     this.viewerFocus = viewerFocus;
     this.beforeNavigation = beforeNavigation;
@@ -99,7 +98,7 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
       String tooltip = tooltip(command);
       if (command == Command.PREVIEW) tooltip += " | " + tooltip(Command.FOCUS_PREVIEW);
       if (command == Command.EXPORT) exportButton.setToolTipText(tooltip);
-      else tabs.setToolTipTextAt(command.tabIndex, tooltip);
+      else views.setToolTip(command.tabIndex, tooltip);
     }
   }
 
@@ -118,7 +117,7 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
     Window active = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
     return (composer.isShowing() || (command == Command.FOCUS_PREVIEW && composer.isDisplayable()))
         && composer.isEnabled()
-        && tabs.isEnabled()
+        && views.component().isEnabled()
         && acceptsFocus(focus)
         && active != null
         && active == SwingUtilities.getWindowAncestor(focus)
@@ -159,11 +158,11 @@ final class ComposerNavigationShortcuts implements KeyEventDispatcher {
         heldKeys.add(event.getKeyCode());
         swallowTyped = true;
         consume(event);
-        if (tabs.isEnabledAt(command.tabIndex)
+        if (views.isEnabledAt(command.tabIndex)
             && (command != Command.EXPORT || exportButton.isEnabled())) {
-          // Explicitly opening the already-selected tab also ends a temporary capture preview.
+          // Explicitly opening the already-selected view also ends a temporary capture preview.
           beforeNavigation.run();
-          tabs.setSelectedIndex(command.tabIndex);
+          views.show(command.tabIndex);
           if (command == Command.FOCUS_PREVIEW) activateComposer.run();
           if (command == Command.EXPORT) exportButton.doClick(0);
         }

@@ -16,11 +16,11 @@ import static org.mockito.Mockito.*;
 import java.awt.Component;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.JButton;
 import javax.swing.JPanel;
-import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.AfterEach;
@@ -69,7 +69,7 @@ class ComposerNavigationShortcutsTest {
           assertTrue(shortcuts.matches(ShortcutManager.ID_VIEWER_SCROLL_UP, up));
           assertTrue(f.dispatcher.dispatchKeyEvent(up));
           assertTrue(up.isConsumed());
-          assertEquals(2, f.tabs.getSelectedIndex());
+          assertEquals(2, f.views.selectedView());
           assertEquals(1, f.activations.get());
           assertSame(f.export, f.dispatcher.focusOwner());
           assertEquals(0, f.exports.get());
@@ -101,7 +101,7 @@ class ComposerNavigationShortcutsTest {
           var binding = shortcuts.getEntry(Command.FOCUS_PREVIEW.id);
           binding.setKeyCode(KeyEvent.VK_F8);
           f.dispatcher.updateTooltips();
-          assertTrue(f.tabs.getToolTipTextAt(2).contains("F8"));
+          assertTrue(f.views.toolTip(2).contains("F8"));
           f.focus.set(f.viewer);
           assertFalse(f.dispatcher.dispatchKeyEvent(up));
           f.tap(Command.FOCUS_PREVIEW);
@@ -120,13 +120,13 @@ class ComposerNavigationShortcutsTest {
           Fixture f = new Fixture();
           f.text.setText("Draft shorthand");
           AtomicInteger changes = new AtomicInteger();
-          f.tabs.addChangeListener(event -> changes.incrementAndGet());
+          f.views.addVisibilityListener(changes::incrementAndGet);
           f.tap(Command.KEY_IMAGES);
-          assertEquals(1, f.tabs.getSelectedIndex());
+          assertEquals(1, f.views.selectedView());
           f.tap(Command.PREVIEW);
-          assertEquals(2, f.tabs.getSelectedIndex());
+          assertEquals(2, f.views.selectedView());
           f.tap(Command.COMPOSE);
-          assertEquals(0, f.tabs.getSelectedIndex());
+          assertEquals(0, f.views.selectedView());
           f.tap(Command.COMPOSE);
           assertEquals(3, changes.get());
           assertEquals("Draft shorthand", f.text.getText());
@@ -141,7 +141,7 @@ class ComposerNavigationShortcutsTest {
           Fixture f = new Fixture();
           f.export.addActionListener(
               event -> {
-                assertEquals(2, f.tabs.getSelectedIndex());
+                assertEquals(2, f.views.selectedView());
                 // A modal folder chooser can pump another key press before this action returns.
                 assertTrue(
                     f.dispatcher.dispatchKeyEvent(f.key(Command.EXPORT, KeyEvent.KEY_PRESSED)));
@@ -166,12 +166,12 @@ class ComposerNavigationShortcutsTest {
           f.export.setEnabled(false);
           f.tap(Command.EXPORT);
           assertEquals(0, f.exports.get());
-          assertEquals(0, f.tabs.getSelectedIndex());
-          f.tabs.setEnabledAt(1, false);
+          assertEquals(0, f.views.selectedView());
+          f.views.setEnabledAt(1, false);
           f.tap(Command.KEY_IMAGES);
-          assertEquals(0, f.tabs.getSelectedIndex());
+          assertEquals(0, f.views.selectedView());
           f.focus.set(f.viewer);
-          f.tabs.setEnabledAt(2, false);
+          f.views.setEnabledAt(2, false);
           f.tap(Command.FOCUS_PREVIEW);
           assertEquals(0, f.activations.get());
         });
@@ -232,11 +232,11 @@ class ComposerNavigationShortcutsTest {
           assertFalse(f.dispatcher.acceptsFocus(null));
           doReturn(f.viewer).when(f.dispatcher).focusOwner();
           f.tap(Command.KEY_IMAGES);
-          assertEquals(1, f.tabs.getSelectedIndex());
+          assertEquals(1, f.views.selectedView());
           doReturn(false).when(f.dispatcher).activeContext(any(), any());
           assertFalse(f.dispatcher.dispatchKeyEvent(f.key(Command.PREVIEW, KeyEvent.KEY_PRESSED)));
           assertFalse(f.dispatcher.dispatchKeyEvent(f.key(Command.EXPORT, KeyEvent.KEY_PRESSED)));
-          assertEquals(1, f.tabs.getSelectedIndex());
+          assertEquals(1, f.views.selectedView());
           assertEquals(0, f.exports.get());
         });
   }
@@ -251,15 +251,15 @@ class ComposerNavigationShortcutsTest {
           entry.setKeyCode(KeyEvent.VK_F9);
           entry.setModifier(0);
           f.dispatcher.updateTooltips();
-          assertTrue(f.tabs.getToolTipTextAt(2).contains("F9"));
+          assertTrue(f.views.toolTip(2).contains("F9"));
           assertFalse(f.dispatcher.dispatchKeyEvent(old));
           assertFalse(f.dispatcher.dispatchKeyEvent(f.key(Command.PREVIEW, KeyEvent.KEY_PRESSED)));
           doReturn(f.viewer).when(f.dispatcher).focusOwner();
           f.tap(Command.PREVIEW);
-          assertEquals(2, f.tabs.getSelectedIndex());
+          assertEquals(2, f.views.selectedView());
           entry.setKeyCode(0);
           f.dispatcher.updateTooltips();
-          assertTrue(f.tabs.getToolTipTextAt(2).startsWith("Preview | Activate composer"));
+          assertTrue(f.views.toolTip(2).startsWith("Preview | Activate composer"));
           assertFalse(f.dispatcher.dispatchKeyEvent(old));
           assertTrue(f.export.getToolTipText().contains("Export packet"));
         });
@@ -287,7 +287,7 @@ class ComposerNavigationShortcutsTest {
   private static class Fixture {
     final JPanel composer = new JPanel();
     final JPanel viewer = new JPanel();
-    final JTabbedPane tabs = new JTabbedPane();
+    final ComposerViewLayout views;
     final JTextField text = new JTextField();
     final JButton export = new JButton("Export Instruction Packet");
     final AtomicInteger exports = new AtomicInteger();
@@ -298,23 +298,23 @@ class ComposerNavigationShortcutsTest {
     Fixture() {
       JPanel compose = new JPanel();
       compose.add(text);
-      tabs.addTab("Compose", compose);
-      tabs.addTab("Key Images", new JPanel());
       JPanel preview = new JPanel();
       preview.add(export);
-      tabs.addTab("Preview", preview);
-      composer.add(tabs);
+      views =
+          new ComposerViewLayout(
+              List.of("Compose", "Key Images", "Preview"), List.of(compose, new JPanel(), preview));
+      composer.add(views.component());
       export.addActionListener(event -> exports.incrementAndGet());
       dispatcher =
           spy(
               new ComposerNavigationShortcuts(
                   composer,
-                  tabs,
+                  views,
                   export,
                   component -> component == viewer,
                   () -> {},
                   () -> {
-                    assertEquals(2, tabs.getSelectedIndex());
+                    assertEquals(2, views.selectedView());
                     activations.incrementAndGet();
                     focus.set(export);
                   }));
