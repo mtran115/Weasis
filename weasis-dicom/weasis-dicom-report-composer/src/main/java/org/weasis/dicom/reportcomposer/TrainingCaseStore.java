@@ -57,8 +57,15 @@ public final class TrainingCaseStore {
     this.root = root.toAbsolutePath().normalize();
   }
 
+  /**
+   * @param missingKeyImages saved key images that were missing or damaged and so not restored
+   */
   public record RestoredCase(
-      ReportDraft draft, String exam, JsonNode editorState, boolean annotationComplete) {}
+      ReportDraft draft,
+      String exam,
+      JsonNode editorState,
+      boolean annotationComplete,
+      int missingKeyImages) {}
 
   public synchronized Optional<RestoredCase> load(String studyKey) throws IOException {
     try {
@@ -107,9 +114,16 @@ public final class TrainingCaseStore {
       Path latest = safeChild(directory, "latest.json");
       ObjectNode previous = null;
       if (Files.exists(latest, LinkOption.NOFOLLOW_LINKS)) {
+        // Never replace an unreadable case. A missing or damaged key image does not block saving,
+        // but the record that still references it is kept aside before it is replaced.
         previous = readManifest(latest, snapshot.studyKey());
-        // Never replace an unreadable case, including one with missing or damaged key images.
-        validateSavedImages(previous.get("content"), directory);
+        if (!savedImagesIntact(previous.get("content"), directory)) {
+          atomicWrite(
+              safeChild(
+                  directory,
+                  "damaged-images-backup-" + snapshot.capturedAt().replace(':', '-') + ".json"),
+              Files.readAllBytes(latest));
+        }
       }
 
       ObjectNode content = content(snapshot, directory);
@@ -291,11 +305,12 @@ public final class TrainingCaseStore {
       draft.addFinding(MAPPER.treeToValue(finding, FindingEntry.class));
     }
     draft.setReportInstructions(content.path("reportInstructions").asText());
+    int missingKeyImages = 0;
     for (JsonNode entry : content.get("keyImages")) {
-      Path imagePath = validateImage(entry, directory);
-      BufferedImage image = ImageIO.read(imagePath.toFile());
+      BufferedImage image = readSavedImage(entry, directory).orElse(null);
       if (image == null) {
-        throw storageFailure("A saved key image cannot be decoded.");
+        missingKeyImages++;
+        continue;
       }
       draft.addKeyImage(
           KeyImageCapture.restore(
@@ -316,16 +331,30 @@ public final class TrainingCaseStore {
         draft,
         content.path("exam").asText(),
         content.path("editorState").deepCopy(),
-        manifest.path("annotationComplete").asBoolean());
+        manifest.path("annotationComplete").asBoolean(),
+        missingKeyImages);
   }
 
-  private static void validateSavedImages(JsonNode content, Path directory) throws IOException {
+  private static Optional<BufferedImage> readSavedImage(JsonNode entry, Path directory) {
+    try {
+      return Optional.ofNullable(ImageIO.read(validateImage(entry, directory).toFile()));
+    } catch (IOException error) {
+      return Optional.empty();
+    }
+  }
+
+  private static boolean savedImagesIntact(JsonNode content, Path directory) throws IOException {
     if (!content.path("keyImages").isArray() || !content.path("findings").isArray()) {
       throw storageFailure("The saved local case has inconsistent data.");
     }
     for (JsonNode image : content.get("keyImages")) {
-      validateImage(image, directory);
+      try {
+        validateImage(image, directory);
+      } catch (IOException damaged) {
+        return false;
+      }
     }
+    return true;
   }
 
   private static Path validateImage(JsonNode entry, Path directory) throws IOException {

@@ -70,6 +70,8 @@ import javax.swing.SwingWorker;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.weasis.core.api.gui.Insertable;
 import org.weasis.core.api.gui.util.GuiExecutor;
 import org.weasis.core.api.gui.util.GuiUtils;
@@ -98,6 +100,10 @@ import org.weasis.dicom.reportcomposer.TranscriptionDestination.Destination;
 
 public class ReportComposerTool extends PluginTool implements SeriesViewerListener {
   public static final String BUTTON_NAME = "Report Composer";
+  private static final Logger LOGGER = LoggerFactory.getLogger(ReportComposerTool.class);
+  private static final String CAPTURE_DISCARDED_MESSAGE =
+      "A key image captured while the study was loading was discarded because the active study"
+          + " changed. Nothing was added to the draft; capture it again.";
 
   private static final String OUTPUT_DIRECTORY_KEY = "report.composer.output.directory";
   private static final int FIELD_COLUMNS = 28;
@@ -356,11 +362,24 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       }
       sourceCanvas
           .or(() -> DicomContextReader.canvasAt(mouseEvent.getLocationOnScreen()))
-          .ifPresent(canvas -> lastInteractedCanvas = canvas);
+          .ifPresent(this::noteInteractedCanvas);
     } else if (event instanceof KeyEvent keyEvent
         && keyEvent.getID() == KeyEvent.KEY_RELEASED
         && keyEvent.getSource() instanceof Component component) {
-      DicomContextReader.canvasFor(component).ifPresent(canvas -> lastInteractedCanvas = canvas);
+      DicomContextReader.canvasFor(component).ifPresent(this::noteInteractedCanvas);
+    }
+  }
+
+  /** "Capture Selected View" follows the viewport the reader last worked in. */
+  private void noteInteractedCanvas(DefaultView2d<DicomImageElement> canvas) {
+    lastInteractedCanvas = canvas;
+    for (int index = 0; index < captureViewportCombo.getItemCount(); index++) {
+      if (captureViewportCombo.getItemAt(index).canvas() == canvas) {
+        if (captureViewportCombo.getSelectedIndex() != index) {
+          captureViewportCombo.setSelectedIndex(index);
+        }
+        return;
+      }
     }
   }
 
@@ -1121,6 +1140,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                                 ? "Saved locally"
                                 : "Local save failed — draft remains in memory");
                       }
+                      if (error != null) {
+                        LOGGER.warn("Local draft save failed: {}", diagnostic(error));
+                      }
                     }));
   }
 
@@ -1241,7 +1263,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
     cancelKeyImagePreview();
     persistCurrentDraft();
-    if (pendingCapture != null && !pendingCapture.studyKey().equals(key)) pendingCapture = null;
+    if (pendingCapture != null && !pendingCapture.studyKey().equals(key)) {
+      pendingCapture = null;
+      warnLater(CAPTURE_DISCARDED_MESSAGE);
+    }
     activeStudyKey = key;
     lumbarLevels.clear();
     activeStudyContext = context;
@@ -1289,6 +1314,23 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                               : saved.isPresent()
                                   ? "Local draft restored"
                                   : "Local training capture ready");
+                      if (error != null) {
+                        LOGGER.warn("Local draft could not be restored: {}", diagnostic(error));
+                        showWarning(
+                            "The saved draft for this study could not be restored. It has been"
+                                + " preserved, but changes made now cannot be saved locally until"
+                                + " it is repaired.");
+                      } else if (saved.isPresent() && saved.get().missingKeyImages() > 0) {
+                        int missing = saved.get().missingKeyImages();
+                        localSaveLabel.setText("Local draft restored — key images missing");
+                        showWarning(
+                            missing
+                                + (missing == 1 ? " saved key image" : " saved key images")
+                                + " for this study could not be restored because the image file"
+                                + " is missing or damaged. The rest of the draft was restored and"
+                                + " a backup of the previous record was kept; recapture the image"
+                                + " if it is still needed.");
+                      }
                     }));
   }
 
@@ -1339,7 +1381,11 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       pendingCapture = null;
       SwingUtilities.invokeLater(
           () -> {
-            if (currentDraft == draft) captureKeyImage(queued.capture());
+            if (currentDraft == draft) {
+              captureKeyImage(queued.capture());
+            } else {
+              showWarning(CAPTURE_DISCARDED_MESSAGE);
+            }
           });
     }
   }
@@ -1674,8 +1720,26 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       showWarning(missingSelectionMessage);
       return;
     }
+    CaseContext capturedStudy = selection.get().context();
+    if (activeStudyKey != null && !activeStudyKey.equals(capturedStudy.draftKey())) {
+      // Key images belong to the study being reported; capturing never switches studies.
+      showWarning(
+          "This viewport shows a different study ("
+              + studyLabel(capturedStudy)
+              + ") than the one you are reporting ("
+              + (activeStudyContext == null ? "current study" : studyLabel(activeStudyContext))
+              + ").\nKey images can only be captured from the study being reported."
+              + " Nothing was captured.");
+      return;
+    }
     synchronizeStudy(selection);
-    DicomContextReader.CapturedView capture = selection.get().capture();
+    DicomContextReader.CapturedView capture;
+    try {
+      capture = selection.get().capture();
+    } catch (RuntimeException error) {
+      reportCaptureFailure(error);
+      return;
+    }
     if (currentDraft == null) {
       pendingCapture = new PendingCapture(selection.get().context().draftKey(), capture);
       localSaveLabel.setText("Loading local draft for captured image…");
@@ -1698,11 +1762,17 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (selectedFinding == null) linkSource = "unlinked";
     String findingId = selectedFinding == null ? "" : selectedFinding.id();
     String caption = selectedFinding == null ? "" : selectedFinding.findingText();
-    AnnotationResult annotation = ArrowAnnotationDialog.showDialog(this, capture.image());
-    if (!annotation.accepted()) return;
-    KeyImageCapture keyImage =
-        KeyImageCapture.createWithArrows(
-            capture, annotation.placements(), caption, findingId, linkSource);
+    KeyImageCapture keyImage;
+    try {
+      AnnotationResult annotation = ArrowAnnotationDialog.showDialog(this, capture.image());
+      if (!annotation.accepted()) return;
+      keyImage =
+          KeyImageCapture.createWithArrows(
+              capture, annotation.placements(), caption, findingId, linkSource);
+    } catch (RuntimeException error) {
+      reportCaptureFailure(error);
+      return;
+    }
     capturedDraft.addKeyImage(keyImage);
     if (capturedDraft == currentDraft) {
       refreshAll();
@@ -2090,8 +2160,11 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                   "The transcription folder was unavailable. The case remains a saved draft; reopen it and choose another folder to export.");
             }
           } else {
+            LOGGER.warn("Transcription packet export failed: {}", diagnostic(error));
             showWarning(
-                "The transcription packet could not be exported. The annotation pass remains a draft.");
+                "The transcription packet could not be exported:\n"
+                    + userMessage(error)
+                    + "\nThe annotation pass remains a draft.");
             if (completion.studyKey().equals(activeStudyKey)) statusLabel.setText("Export failed.");
           }
         }
@@ -2253,6 +2326,58 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private void showWarning(String message) {
     ComposerDialogSupport.showMessage(this, message, BUTTON_NAME, JOptionPane.WARNING_MESSAGE);
+  }
+
+  /** Defers a warning so its modal dialog cannot re-enter a study switch that is in progress. */
+  private void warnLater(String message) {
+    SwingUtilities.invokeLater(() -> showWarning(message));
+  }
+
+  private void reportCaptureFailure(RuntimeException error) {
+    LOGGER.warn("Key image capture failed: {}", diagnostic(error));
+    showWarning(
+        "The key image could not be captured:\n"
+            + userMessage(error)
+            + "\nNothing was added to the draft.");
+  }
+
+  private static String studyLabel(CaseContext context) {
+    String date = context.studyDate();
+    String shownDate =
+        date.matches("\\d{8}")
+            ? date.substring(4, 6) + "/" + date.substring(6) + "/" + date.substring(0, 4)
+            : date;
+    return shownDate.isBlank() ? context.examTitle() : context.examTitle() + ", " + shownDate;
+  }
+
+  /** The innermost cause's message, for the reader; it may name files or patients. */
+  static String userMessage(Throwable error) {
+    Throwable cause = error;
+    for (int depth = 0; cause.getCause() != null && depth < 10; depth++) {
+      cause = cause.getCause();
+    }
+    String message = cause.getMessage();
+    return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
+  }
+
+  /**
+   * Exception types and where they were thrown, for the log. Messages are left out because they can
+   * carry paths or names that identify a patient.
+   */
+  static String diagnostic(Throwable error) {
+    StringBuilder text = new StringBuilder();
+    Throwable cause = error;
+    for (int depth = 0; cause != null && depth < 10; depth++, cause = cause.getCause()) {
+      if (!text.isEmpty()) {
+        text.append(" caused by ");
+      }
+      text.append(cause.getClass().getName());
+      StackTraceElement[] trace = cause.getStackTrace();
+      if (trace.length > 0) {
+        text.append(" at ").append(trace[0]);
+      }
+    }
+    return text.toString();
   }
 
   private static JPanel verticalPanel() {

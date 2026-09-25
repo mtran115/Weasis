@@ -9,6 +9,7 @@
  */
 package org.weasis.dicom.reportcomposer;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -183,9 +184,10 @@ class TrainingCaseStoreTest {
   }
 
   @Test
-  void missingSavedImagePreventsDestructiveOverwrite() throws Exception {
+  void missingSavedImageRestoresTheRestOfTheDraftAndKeepsSavingAfterABackup() throws Exception {
     TrainingCaseStore store = store();
     ReportDraft draft = draft("study-one");
+    draft.setReportInstructions("original text");
     draft.addKeyImage(
         KeyImageCapture.create(
             reference("", 0), new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB), null, ""));
@@ -194,13 +196,32 @@ class TrainingCaseStoreTest {
     JsonNode manifest = MAPPER.readTree(original);
     Files.delete(
         latest.getParent().resolve(manifest.at("/content/keyImages/0/baseImagePath").asText()));
-    draft.setReportInstructions("new draft text");
 
-    assertThrows(IOException.class, () -> store.load("study-one"));
-    assertThrows(
-        IOException.class,
-        () -> store.save(TrainingCaseSnapshot.capture(draft, "LUMBAR_SPINE", null)));
-    assertArrayEquals(original, Files.readAllBytes(latest));
+    TrainingCaseStore.RestoredCase restored = store.load("study-one").orElseThrow();
+    ReportDraft reopened = restored.draft();
+    String restoredText = reopened.reportInstructions();
+    boolean restoredWithoutImages = reopened.keyImages().isEmpty();
+    reopened.setReportInstructions("new draft text");
+    store.save(TrainingCaseSnapshot.capture(reopened, "LUMBAR_SPINE", null));
+
+    List<Path> backups;
+    try (var files = Files.list(latest.getParent())) {
+      backups =
+          files
+              .filter(path -> path.getFileName().toString().startsWith("damaged-images-backup-"))
+              .toList();
+    }
+    assertAll(
+        () -> assertEquals(1, restored.missingKeyImages()),
+        () -> assertEquals("original text", restoredText),
+        () -> assertTrue(restoredWithoutImages),
+        () ->
+            assertEquals(
+                "new draft text",
+                store.load("study-one").orElseThrow().draft().reportInstructions()),
+        () -> assertEquals(0, store.load("study-one").orElseThrow().missingKeyImages()),
+        () -> assertEquals(1, backups.size()),
+        () -> assertArrayEquals(original, Files.readAllBytes(backups.getFirst())));
   }
 
   @Test

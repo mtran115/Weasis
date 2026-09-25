@@ -25,6 +25,24 @@ import org.weasis.dicom.reportcomposer.ReportComposerTool.CaptureViewport;
 
 class ReportComposerToolTest {
   @Test
+  void errorDiagnosticsForTheLogOmitMessagesThatCouldIdentifyAPatient() {
+    Exception error =
+        new IllegalStateException(
+            "wrapper", new java.io.IOException("/Transcription/DOE^JANE - MRI LUMBAR/packet.docx"));
+
+    String diagnostic = ReportComposerTool.diagnostic(error);
+
+    assertTrue(diagnostic.startsWith("java.lang.IllegalStateException"));
+    assertTrue(diagnostic.contains("caused by java.io.IOException"));
+    assertFalse(diagnostic.contains("DOE^JANE"));
+    assertEquals(
+        "/Transcription/DOE^JANE - MRI LUMBAR/packet.docx", ReportComposerTool.userMessage(error));
+    assertEquals(
+        "IllegalStateException",
+        ReportComposerTool.userMessage(new IllegalStateException((String) null)));
+  }
+
+  @Test
   void popOutWindowFitsOnASecondaryDisplayWithNegativeCoordinates() {
     Rectangle display = new Rectangle(-1440, 0, 1440, 900);
 
