@@ -17,24 +17,38 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.Point;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.Popup;
+import javax.swing.PopupFactory;
 import javax.swing.SwingUtilities;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.text.BadLocationException;
@@ -49,6 +63,7 @@ import org.weasis.dicom.reportcomposer.ShortcutLibrary.Shortcut;
  */
 final class QuickPhraseBar extends JPanel {
   private static final int VISIBLE_PHRASES = 6;
+  private static final int SEARCH_RESULTS = 8;
   private static final Pattern DETAIL = Pattern.compile("\\[[^\\[\\]\\r\\n]+\\]");
   private final JTextArea target;
   private final ShortcutLibrary library;
@@ -68,6 +83,12 @@ final class QuickPhraseBar extends JPanel {
   private boolean available;
   private Position snippetStart;
   private Position snippetEnd;
+  private final JTextField search = new JTextField();
+  private final DefaultListModel<Shortcut> searchModel = new DefaultListModel<>();
+  private final JList<Shortcut> searchList = new JList<>(searchModel);
+  private final JScrollPane searchScroll = new JScrollPane(searchList);
+  // A Popup, not a JPopupMenu: menus capture arrow, Enter and Esc keys the search field needs.
+  private Popup searchPopup;
 
   QuickPhraseBar(JTextArea target) {
     this(target, ShortcutLibrary.openDefault());
@@ -96,7 +117,12 @@ final class QuickPhraseBar extends JPanel {
       constraints.insets = new Insets(0, 0, 3, index % 3 == 2 ? 0 : 3);
       examRow.add(button, constraints);
     }
-    add(examRow, BorderLayout.NORTH);
+    configureSearch();
+    JPanel top = new JPanel(new BorderLayout(0, 3));
+    top.setOpaque(false);
+    top.add(search, BorderLayout.NORTH);
+    top.add(examRow, BorderLayout.CENTER);
+    add(top, BorderLayout.NORTH);
     JPanel commonRow = new JPanel(new GridLayout(1, 3, 3, 0));
     commonRow.setOpaque(false);
     add = button("Add shortcut");
@@ -175,6 +201,7 @@ final class QuickPhraseBar extends JPanel {
   void setExam(ExamTemplate exam) {
     dismissMenu();
     clearSnippet();
+    clearSearch();
     this.exam = exam;
     contextVersion++;
     phrases = library.ranked(exam);
@@ -198,11 +225,175 @@ final class QuickPhraseBar extends JPanel {
     this.available = available;
     setEnabled(available);
     allButtons.forEach(button -> button.setEnabled(available));
+    search.setEnabled(available);
     updateAddButton();
     if (!available) {
       dismissMenu();
       clearSnippet();
+      clearSearch();
     }
+  }
+
+  private void configureSearch() {
+    search.putClientProperty("JTextField.placeholderText", "Search phrases…");
+    search.putClientProperty("JTextField.showClearButton", true);
+    search.setFont(search.getFont().deriveFont(12f));
+    search.setToolTipText(
+        "Type any part of a phrase (letters in order work too) · ↑↓ choose · Enter insert · Esc"
+            + " clear");
+    search
+        .getDocument()
+        .addDocumentListener(
+            new DocumentListener() {
+              @Override
+              public void insertUpdate(DocumentEvent event) {
+                updateSearchResults();
+              }
+
+              @Override
+              public void removeUpdate(DocumentEvent event) {
+                updateSearchResults();
+              }
+
+              @Override
+              public void changedUpdate(DocumentEvent event) {
+                updateSearchResults();
+              }
+            });
+    search.addKeyListener(
+        new KeyAdapter() {
+          @Override
+          public void keyPressed(KeyEvent event) {
+            switch (event.getKeyCode()) {
+              case KeyEvent.VK_DOWN -> moveSearchSelection(1);
+              case KeyEvent.VK_UP -> moveSearchSelection(-1);
+              case KeyEvent.VK_ENTER -> insertSearchSelection();
+              case KeyEvent.VK_ESCAPE -> {
+                clearSearch();
+                target.requestFocusInWindow();
+              }
+              default -> {
+                return;
+              }
+            }
+            event.consume();
+          }
+        });
+    search.addFocusListener(
+        new FocusAdapter() {
+          @Override
+          public void focusLost(FocusEvent event) {
+            // Deferred so a click on a result is handled before the list closes.
+            SwingUtilities.invokeLater(
+                () -> {
+                  if (!search.isFocusOwner()) hideSearchResults();
+                });
+          }
+        });
+    searchList.setFocusable(false);
+    searchList.setFont(searchList.getFont().deriveFont(12f));
+    searchList.setCellRenderer(
+        new DefaultListCellRenderer() {
+          @Override
+          public Component getListCellRendererComponent(
+              JList<?> list, Object value, int index, boolean selected, boolean focused) {
+            super.getListCellRendererComponent(list, value, index, selected, focused);
+            if (value instanceof Shortcut shortcut) {
+              String text = shortcut.text().replace('\n', ' ');
+              setText(
+                  (shortcut.pinned() ? "★ " : "")
+                      + shortcut.label()
+                      + "  —  "
+                      + (text.length() <= 70 ? text : text.substring(0, 69) + "…"));
+            }
+            return this;
+          }
+        });
+    searchList.addMouseListener(
+        new MouseAdapter() {
+          @Override
+          public void mousePressed(MouseEvent event) {
+            int index = searchList.locationToIndex(event.getPoint());
+            if (index >= 0) {
+              searchList.setSelectedIndex(index);
+              insertSearchSelection();
+            }
+          }
+        });
+    searchScroll.setFocusable(false);
+  }
+
+  private void updateSearchResults() {
+    List<Shortcut> matches =
+        canInsert()
+            ? PhraseSearch.rank(
+                search.getText(), phrases, Shortcut::label, Shortcut::text, SEARCH_RESULTS)
+            : List.of();
+    searchModel.clear();
+    matches.forEach(searchModel::addElement);
+    boolean noMatch = matches.isEmpty() && !search.getText().isBlank();
+    search.putClientProperty("JComponent.outline", noMatch ? "error" : null);
+    if (matches.isEmpty()) {
+      hideSearchResults();
+      return;
+    }
+    searchList.setSelectedIndex(0);
+    showSearchResults();
+  }
+
+  private void showSearchResults() {
+    hideSearchResults();
+    if (!search.isShowing()) return;
+    int rows = Math.min(searchModel.size(), SEARCH_RESULTS);
+    Dimension cell =
+        searchList
+            .getCellRenderer()
+            .getListCellRendererComponent(searchList, searchModel.get(0), 0, false, false)
+            .getPreferredSize();
+    searchScroll.setPreferredSize(
+        new Dimension(Math.max(search.getWidth(), 320), cell.height * rows + 6));
+    Point location = search.getLocationOnScreen();
+    searchPopup =
+        PopupFactory.getSharedInstance()
+            .getPopup(search, searchScroll, location.x, location.y + search.getHeight());
+    searchPopup.show();
+  }
+
+  private void hideSearchResults() {
+    if (searchPopup != null) {
+      searchPopup.hide();
+      searchPopup = null;
+    }
+  }
+
+  private void moveSearchSelection(int delta) {
+    if (searchModel.isEmpty()) return;
+    int next =
+        Math.floorMod(Math.max(searchList.getSelectedIndex(), 0) + delta, searchModel.size());
+    searchList.setSelectedIndex(next);
+    searchList.ensureIndexIsVisible(next);
+  }
+
+  private void insertSearchSelection() {
+    Shortcut chosen = searchList.getSelectedValue();
+    if (chosen == null && !searchModel.isEmpty()) chosen = searchModel.get(0);
+    if (chosen == null) return;
+    clearSearch();
+    insertShortcut(chosen);
+  }
+
+  private void clearSearch() {
+    hideSearchResults();
+    if (!search.getText().isEmpty()) search.setText("");
+    search.putClientProperty("JComponent.outline", null);
+  }
+
+  JTextField searchField() {
+    return search;
+  }
+
+  List<Shortcut> searchResults() {
+    return java.util.Collections.list(searchModel.elements());
   }
 
   private JButton button(String label) {
@@ -308,7 +499,14 @@ final class QuickPhraseBar extends JPanel {
   }
 
   void close() {
+    hideSearchResults();
     library.close();
+  }
+
+  @Override
+  public void removeNotify() {
+    hideSearchResults();
+    super.removeNotify();
   }
 
   void installTextMenus(Component root) {

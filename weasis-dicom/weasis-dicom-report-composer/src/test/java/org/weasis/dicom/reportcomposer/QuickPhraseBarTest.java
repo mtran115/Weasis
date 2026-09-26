@@ -233,6 +233,56 @@ class QuickPhraseBarTest {
         });
   }
 
+  @Test
+  void searchFindsPhrasesFuzzilyAndEnterInsertsTheTopMatchAtTheCaret() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture(ExamTemplate.KNEE);
+          f.text.setText("Before.\nAfter.");
+          f.text.setCaretPosition("Before.".length());
+          f.bar.searchField().setText("quad tend");
+          assertEquals("Quad tendinosis", f.bar.searchResults().getFirst().label());
+          f.bar.searchField().setText("qdtnd");
+          assertEquals("Quad tendinosis", f.bar.searchResults().getFirst().label());
+          assertTrue(f.searchKey(KeyEvent.VK_ENTER).isConsumed());
+          assertEquals("Before.\nMild quadriceps tendinosis.\nAfter.", f.text.getText());
+          assertEquals("", f.bar.searchField().getText());
+          assertTrue(f.bar.searchResults().isEmpty());
+        });
+  }
+
+  @Test
+  void searchArrowKeysChooseAResultAndEscapeClears() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture(ExamTemplate.KNEE);
+          f.bar.searchField().setText("e");
+          var results = f.bar.searchResults();
+          assertTrue(results.size() > 1);
+          f.searchKey(KeyEvent.VK_DOWN);
+          assertTrue(f.searchKey(KeyEvent.VK_ENTER).isConsumed());
+          assertTrue(f.text.getText().contains(results.get(1).text()));
+          f.bar.searchField().setText("zzzz no such phrase");
+          assertTrue(f.bar.searchResults().isEmpty());
+          assertTrue(f.searchKey(KeyEvent.VK_ESCAPE).isConsumed());
+          assertEquals("", f.bar.searchField().getText());
+        });
+  }
+
+  @Test
+  void searchIsDisabledAndClearedWithoutAnActiveStudy() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture(ExamTemplate.KNEE);
+          f.bar.searchField().setText("quad");
+          f.bar.setAvailable(false);
+          assertFalse(f.bar.searchField().isEnabled());
+          assertEquals("", f.bar.searchField().getText());
+          f.bar.searchField().setText("quad");
+          assertTrue(f.bar.searchResults().isEmpty());
+        });
+  }
+
   private static JMenuItem menuItem(QuickPhraseBar bar, String label) {
     for (Component component : bar.createMenu().getComponents()) {
       if (component instanceof JMenuItem item && item.getText().equals(label)) return item;
@@ -259,6 +309,14 @@ class QuickPhraseBarTest {
     Fixture(ExamTemplate exam) {
       bar.setExam(exam);
       bar.setAvailable(true);
+    }
+
+    KeyEvent searchKey(int code) {
+      JTextField field = bar.searchField();
+      KeyEvent event =
+          new KeyEvent(field, KeyEvent.KEY_PRESSED, 0, 0, code, KeyEvent.CHAR_UNDEFINED);
+      for (var listener : field.getKeyListeners()) listener.keyPressed(event);
+      return event;
     }
 
     KeyEvent key(int code, int modifiers) {
