@@ -163,6 +163,28 @@ class TrainingCaseStoreTest {
   }
 
   @Test
+  void exportStatusFollowsDraftExportAndLaterEdits() throws Exception {
+    TrainingCaseStore store = store();
+    ReportDraft draft = draft("study-one");
+    assertEquals(TrainingCaseStore.ExportStatus.NOT_STARTED, store.exportStatus("study-one"));
+
+    store.save(TrainingCaseSnapshot.capture(draft, "KNEE", null));
+    assertEquals(TrainingCaseStore.ExportStatus.DRAFT, store.exportStatus("study-one"));
+
+    store.complete(TrainingCaseSnapshot.capture(draft, "KNEE", null));
+    assertEquals(TrainingCaseStore.ExportStatus.EXPORTED, store.exportStatus("study-one"));
+
+    draft.setReportInstructions("added after export");
+    store.save(TrainingCaseSnapshot.capture(draft, "KNEE", null));
+    assertEquals(
+        TrainingCaseStore.ExportStatus.CHANGED_SINCE_EXPORT, store.exportStatus("study-one"));
+
+    Path latest = store.studyDirectory("study-one").resolve("latest.json");
+    Files.writeString(latest, "{corrupt");
+    assertEquals(TrainingCaseStore.ExportStatus.UNREADABLE, store.exportStatus("study-one"));
+  }
+
+  @Test
   void corruptManifestIsPreservedAndCannotBeSilentlyReplaced() throws Exception {
     TrainingCaseStore store = store();
     ReportDraft draft = draft("study-one");

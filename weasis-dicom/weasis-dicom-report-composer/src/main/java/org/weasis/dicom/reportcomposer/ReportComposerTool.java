@@ -185,6 +185,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       iconButton(ActionIcon.OPEN_EXTERNAL, "Open exported case folder");
   private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
   private final JButton viewLayoutButton = new JButton();
+  private final JButton unexportedButton = new JButton("Not Exported");
   private ComposerNavigationShortcuts navigationShortcuts;
 
   private ReportDraft currentDraft;
@@ -536,9 +537,12 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     popOutButton.setHorizontalTextPosition(SwingConstants.RIGHT);
     popOutButton.addActionListener(event -> togglePopOut());
     viewLayoutButton.addActionListener(event -> toggleViewLayout());
+    unexportedButton.setToolTipText("List the loaded studies whose packet has not been exported");
+    unexportedButton.addActionListener(event -> showUnexportedStudies());
     updateViewLayoutButton();
     JPanel windowControls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
     windowControls.setOpaque(false);
+    windowControls.add(unexportedButton);
     windowControls.add(viewLayoutButton);
     windowControls.add(popOutButton);
     header.add(windowControls, BorderLayout.EAST);
@@ -547,6 +551,42 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY),
             GuiUtils.getEmptyBorder(0, 2, 8, 2)));
     return header;
+  }
+
+  private void showUnexportedStudies() {
+    List<CaseContext> studies = DicomContextReader.loadedStudies();
+    if (studies.isEmpty()) {
+      showWarning("No studies are loaded in Weasis.");
+      return;
+    }
+    // Queue the open draft first; the status read waits for pending saves.
+    persistCurrentDraft();
+    unexportedButton.setEnabled(false);
+    caseRecorder
+        .exportStatuses(studies.stream().map(CaseContext::draftKey).toList())
+        .whenComplete(
+            (statuses, error) ->
+                GuiExecutor.execute(
+                    () -> {
+                      unexportedButton.setEnabled(true);
+                      if (recorderDisposed) return;
+                      if (error != null) {
+                        LOGGER.warn("Export status could not be read: {}", diagnostic(error));
+                        showWarning("Export status could not be read from the local drafts.");
+                        return;
+                      }
+                      UnexportedStudiesDialog.show(
+                          this,
+                          studies.stream()
+                              .map(
+                                  study ->
+                                      new UnexportedStudiesDialog.Row(
+                                          study,
+                                          statuses.getOrDefault(
+                                              study.draftKey(),
+                                              TrainingCaseStore.ExportStatus.UNREADABLE)))
+                              .toList());
+                    }));
   }
 
   private ComposerViewLayout.Mode savedViewLayout() {

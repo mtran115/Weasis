@@ -80,6 +80,38 @@ public final class TrainingCaseStore {
     }
   }
 
+  /** Whether a study's instruction packet has been exported, from its local record. */
+  public enum ExportStatus {
+    NOT_STARTED,
+    DRAFT,
+    CHANGED_SINCE_EXPORT,
+    UNREADABLE,
+    EXPORTED
+  }
+
+  public synchronized ExportStatus exportStatus(String studyKey) {
+    try {
+      Path directory = studyDirectory(studyKey);
+      Path latest = safeChild(directory, "latest.json");
+      if (!Files.exists(latest, LinkOption.NOFOLLOW_LINKS)) {
+        return ExportStatus.NOT_STARTED;
+      }
+      if (readManifest(latest, studyKey).path("annotationComplete").asBoolean()) {
+        return ExportStatus.EXPORTED;
+      }
+      // Each export writes an immutable revision, so any revision means an earlier export.
+      Path revisions = safeChild(directory, "revisions");
+      if (Files.isDirectory(revisions, LinkOption.NOFOLLOW_LINKS)) {
+        try (var files = Files.list(revisions)) {
+          if (files.findAny().isPresent()) return ExportStatus.CHANGED_SINCE_EXPORT;
+        }
+      }
+      return ExportStatus.DRAFT;
+    } catch (Exception error) {
+      return ExportStatus.UNREADABLE;
+    }
+  }
+
   public synchronized Path save(TrainingCaseSnapshot snapshot) throws IOException {
     return write(snapshot, false, null);
   }

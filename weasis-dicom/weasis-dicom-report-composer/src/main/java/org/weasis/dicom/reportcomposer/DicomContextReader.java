@@ -22,8 +22,11 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 import org.dcm4che3.data.Tag;
+import org.weasis.core.api.explorer.DataExplorerView;
+import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
+import org.weasis.core.api.media.data.MediaSeriesGroupNode;
 import org.weasis.core.api.media.data.TagReadable;
 import org.weasis.core.ui.editor.SeriesViewerEvent;
 import org.weasis.core.ui.editor.image.DefaultView2d;
@@ -35,6 +38,7 @@ import org.weasis.core.ui.model.layer.LayerType;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.TagD;
 import org.weasis.dicom.explorer.DicomModel;
+import org.weasis.dicom.explorer.main.DicomExplorer;
 import org.weasis.dicom.viewer2d.EventManager;
 import org.weasis.dicom.viewer2d.InfoLayer;
 
@@ -136,6 +140,30 @@ final class DicomContextReader {
       return Optional.empty();
     }
     return from(view);
+  }
+
+  /** Every study loaded in the DICOM explorer, in explorer order. Called on the Swing thread. */
+  static List<CaseContext> loadedStudies() {
+    DataExplorerView explorer = GuiUtils.getUICore().getExplorerPlugin(DicomExplorer.NAME);
+    if (explorer == null || !(explorer.getDataExplorerModel() instanceof DicomModel model)) {
+      return List.of();
+    }
+    List<CaseContext> studies = new ArrayList<>();
+    for (MediaSeriesGroup patient : List.copyOf(model.getChildren(MediaSeriesGroupNode.rootNode))) {
+      for (MediaSeriesGroup study : List.copyOf(model.getChildren(patient))) {
+        CaseContext context =
+            new CaseContext(
+                value(Tag.StudyInstanceUID, study),
+                value(Tag.PatientName, patient),
+                value(Tag.PatientID, patient),
+                value(Tag.PatientBirthDate, patient),
+                value(Tag.AccessionNumber, study),
+                value(Tag.StudyDate, study),
+                value(Tag.StudyDescription, study));
+        if (context.hasStudy()) studies.add(context);
+      }
+    }
+    return List.copyOf(studies);
   }
 
   static Optional<Selection> from(ViewCanvas<?> view) {

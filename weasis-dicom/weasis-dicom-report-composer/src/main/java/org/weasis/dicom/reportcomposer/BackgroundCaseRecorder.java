@@ -13,6 +13,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -106,6 +108,24 @@ public final class BackgroundCaseRecorder implements AutoCloseable {
     }
     enqueuePending(studyKey);
     return submit(() -> store.load(studyKey));
+  }
+
+  /** Export status for each study, read after any pending local saves have been written. */
+  public synchronized CompletableFuture<Map<String, TrainingCaseStore.ExportStatus>> exportStatuses(
+      List<String> studyKeys) {
+    if (closed) {
+      return CompletableFuture.failedFuture(new IllegalStateException("Local recorder is closed."));
+    }
+    for (String key : pending.keySet().toArray(String[]::new)) {
+      enqueuePending(key);
+    }
+    List<String> keys = List.copyOf(studyKeys);
+    return submit(
+        () -> {
+          var statuses = new LinkedHashMap<String, TrainingCaseStore.ExportStatus>();
+          for (String key : keys) statuses.put(key, store.exportStatus(key));
+          return statuses;
+        });
   }
 
   public synchronized CompletableFuture<Void> flush() {
