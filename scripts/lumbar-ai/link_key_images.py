@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import sys
+import time
 from pathlib import Path
 
 from prepare_pilot import build_request
@@ -211,16 +212,19 @@ def level_map(root, request, run_model):
         proposal = json.loads(output.read_text())
     elif run_model:
         proposal = process(request, root)
+        proposal = {**proposal, "computedNow": True}
     else:
         return {"source": "not_computed", "points": []}
     if proposal.get("numberingUncertain"):
-        return {"source": "model_numbering_uncertain", "points": []}
-    return {"source": "model_provisional",
+        return {"source": "model_numbering_uncertain",
+                "computedNow": proposal.get("computedNow", False), "points": []}
+    return {"source": "model_provisional", "computedNow": proposal.get("computedNow", False),
             "frameOfReferenceUid": proposal.get("frameOfReferenceUid", ""),
             "points": proposal.get("points") or []}
 
 
 def link_study(directory, manifest, root, run_model):
+    """Link file content, and whether the segmentation model ran for it."""
     content = manifest["content"]
     try:
         levels = level_map(root, build_request(directory, manifest), run_model)
@@ -237,7 +241,7 @@ def link_study(directory, manifest, root, run_model):
               "sourceRevision": digest(content), "levelMapSource": levels["source"], "links": links}
     if "detail" in levels:
         result["levelMapDetail"] = levels["detail"]
-    return result
+    return result, levels.get("computedNow", False)
 
 
 def eligible(manifest):
@@ -246,7 +250,8 @@ def eligible(manifest):
             and manifest.get("sourceArchive", {}).get("availableSourcesArchived"))
 
 
-def run(archive, root, run_model=True, limit=None, progress=None):
+def run(archive, root, run_model=True, limit=None, progress=None, pause_seconds=0.0):
+    """pause_seconds follows each model run so long passes keep the GPU cooler."""
     output_dir = root / "keyimage-links"
     summary = {"studies": 0, "keyImages": 0, "byMethod": {}, "byLevelMap": {}}
     index = []
@@ -256,7 +261,7 @@ def run(archive, root, run_model=True, limit=None, progress=None):
             continue
         if limit is not None and summary["studies"] >= limit:
             break
-        result = link_study(file.parent, manifest, root, run_model)
+        result, computed = link_study(file.parent, manifest, root, run_model)
         name = digest(result["studyKey"]) + ".json"
         write_json(output_dir / name, result)
         index.append({"linkPath": name, "sourceRevision": result["sourceRevision"],
@@ -269,6 +274,8 @@ def run(archive, root, run_model=True, limit=None, progress=None):
             summary["byMethod"][link["method"]] = summary["byMethod"].get(link["method"], 0) + 1
         if progress:
             progress(summary["studies"])
+        if computed and pause_seconds > 0:
+            time.sleep(pause_seconds)
     # Consumers use this index, not a directory glob, so outdated link files never count.
     write_json(output_dir / "index.json", {"schemaVersion": SCHEMA_VERSION, "studies": index})
     return summary
@@ -281,7 +288,10 @@ if __name__ == "__main__":
     parser.add_argument("--cached-only", action="store_true",
                         help="Use existing level maps only; never run the segmentation model")
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--pause-seconds", type=float, default=0.0,
+                        help="Cooldown after each study that ran the model (e.g. 60 halves GPU duty)")
     args = parser.parse_args()
     result = run(args.archive, args.root.resolve(), run_model=not args.cached_only, limit=args.limit,
-                 progress=lambda n: print(f"linked {n} studies", file=sys.stderr, flush=True))
+                 progress=lambda n: print(f"linked {n} studies", file=sys.stderr, flush=True),
+                 pause_seconds=args.pause_seconds)
     print(json.dumps(result, indent=2))

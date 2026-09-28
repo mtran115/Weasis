@@ -115,3 +115,22 @@ def test_reader_reviewed_maps_are_used_only_when_accepted_or_corrected(tmp_path)
     unassigned = [{**DISCS[0], "level": "Unassigned"}]
     (folder / "latest.json").write_text(json.dumps({**saved, "points": unassigned}))
     assert linker.feedback_map(tmp_path, key) is None
+
+
+def test_cooldown_follows_only_studies_that_ran_the_model(tmp_path, monkeypatch):
+    archive = tmp_path / "archive"
+    for name in ("a", "b"):
+        folder = archive / name
+        folder.mkdir(parents=True)
+        (folder / "latest.json").write_text(json.dumps({
+            "annotationComplete": True, "sourceArchive": {"availableSourcesArchived": True},
+            "content": {"exam": "LUMBAR_SPINE", "studyKey": name, "keyImages": []}}))
+    computed = {"a": True, "b": False}
+    monkeypatch.setattr(linker, "link_study", lambda directory, manifest, root, run_model: (
+        {"studyKey": manifest["content"]["studyKey"], "sourceRevision": "r",
+         "levelMapSource": "model_provisional", "links": []}, computed[manifest["content"]["studyKey"]]))
+    pauses = []
+    monkeypatch.setattr(linker.time, "sleep", pauses.append)
+    summary = linker.run(archive, tmp_path / "root", pause_seconds=60)
+    assert summary["studies"] == 2
+    assert pauses == [60]
