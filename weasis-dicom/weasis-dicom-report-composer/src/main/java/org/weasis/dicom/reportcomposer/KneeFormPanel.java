@@ -108,18 +108,53 @@ final class KneeFormPanel extends JPanel {
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");
 
+  private final SectionJumpBar jumpBar;
+
   KneeFormPanel() {
     setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
     setBorder(BorderFactory.createTitledBorder("Structured knee findings"));
-    add(stretch(buildNormalPanel()));
-    add(stretch(buildMenisciPanel()));
-    add(stretch(buildLigamentsPanel()));
-    add(stretch(buildExtensorPanel()));
-    add(stretch(buildOsteoarthrosisPanel()));
-    add(stretch(buildMarrowPanel()));
-    add(stretch(buildJointAndSoftTissuePanel()));
-    add(stretch(buildFreeTextPanel()));
+    JPanel normalPanel = buildNormalPanel();
+    JPanel menisci = buildMenisciPanel();
+    JPanel ligaments = buildLigamentsPanel();
+    JPanel extensor = buildExtensorPanel();
+    JPanel osteoarthrosis = buildOsteoarthrosisPanel();
+    JPanel marrow = buildMarrowPanel();
+    JPanel jointAndSoftTissue = buildJointAndSoftTissuePanel();
+    JPanel freeTextPanel = buildFreeTextPanel();
+    for (JPanel section :
+        List.of(
+            normalPanel,
+            menisci,
+            ligaments,
+            extensor,
+            osteoarthrosis,
+            marrow,
+            jointAndSoftTissue,
+            freeTextPanel)) {
+      add(stretch(section));
+    }
     add(stretch(buildActions()));
+    jumpBar =
+        new SectionJumpBar(
+            List.of(
+                new SectionJumpBar.Section("Normal", normalPanel, List.of("normal")),
+                new SectionJumpBar.Section("Menisci", menisci, List.of("meniscus:")),
+                new SectionJumpBar.Section("Ligaments", ligaments, List.of("ligament:")),
+                new SectionJumpBar.Section("Extensor", extensor, List.of("extensor:")),
+                new SectionJumpBar.Section(
+                    "Osteoarthrosis", osteoarthrosis, List.of("osteoarthrosis:")),
+                new SectionJumpBar.Section("Marrow", marrow, List.of("marrow")),
+                new SectionJumpBar.Section(
+                    "Joint/soft tissue",
+                    jointAndSoftTissue,
+                    List.of(
+                        "effusion",
+                        "synovitis",
+                        "popliteal-cyst",
+                        "prepatellar-bursitis",
+                        "soft-tissue-edema")),
+                new SectionJumpBar.Section("Free text", freeTextPanel, List.of("free-text"))),
+            () -> SectionJumpBar.keys(KneeFindingBuilder.generateKeyed(selection())));
     setAlignmentX(LEFT_ALIGNMENT);
     Dimension preferred = getPreferredSize();
     setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
@@ -141,6 +176,10 @@ final class KneeFormPanel extends JPanel {
 
   void addOtherFindingListener(ActionListener listener) {
     otherFindingButton.addActionListener(listener);
+  }
+
+  SectionJumpBar jumpBar() {
+    return jumpBar;
   }
 
   Selection selection() {

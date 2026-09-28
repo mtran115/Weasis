@@ -1089,6 +1089,18 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             && views.isVisible(ComposerViewLayout.COMPOSE));
     shoulderForm.setVisible(showStructuredShoulder);
     kneeForm.setVisible(showStructuredKnee);
+    SectionJumpBar jumpBar =
+        showStructuredSpine
+            ? spineForms.get(selectedRegion.get()).jumpBar()
+            : showStructuredShoulder
+                ? shoulderForm.jumpBar()
+                : showStructuredKnee ? kneeForm.jumpBar() : null;
+    // As the scroll pane's column header, the bar stays put while the form scrolls.
+    if (composeScrollPane.getColumnHeader() == null
+        || composeScrollPane.getColumnHeader().getView() != jumpBar) {
+      composeScrollPane.setColumnHeaderView(jumpBar);
+    }
+    refreshJumpBar();
     brainForm.setVisible(showStructuredBrain);
     wristForm.setVisible(showStructuredWrist);
     genericFindingBuilder.setVisible(
@@ -1203,7 +1215,15 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         });
   }
 
+  private void refreshJumpBar() {
+    if (composeScrollPane.getColumnHeader() != null
+        && composeScrollPane.getColumnHeader().getView() instanceof SectionJumpBar bar) {
+      bar.refresh();
+    }
+  }
+
   private void scheduleDraftSave() {
+    refreshJumpBar();
     if (currentDraft == null || updatingTrainingState || recordingDraft || recorderDisposed) return;
     draftChangeGeneration++;
     localSaveLabel.setText("Saving locally…");

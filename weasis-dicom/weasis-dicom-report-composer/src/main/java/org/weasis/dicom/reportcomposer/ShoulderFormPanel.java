@@ -75,16 +75,33 @@ final class ShoulderFormPanel extends JPanel {
   private final List<ShortcutTarget> shortcutTargets = new ArrayList<>();
   private final ShoulderFormShortcuts shortcuts;
   private ShortcutTarget keyboardHovered;
+  private final SectionJumpBar jumpBar;
 
   ShoulderFormPanel() {
     setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
     setBorder(BorderFactory.createTitledBorder("Structured shoulder findings"));
-    add(stretch(buildBursaeAndJointPanel()));
-    add(stretch(buildRotatorCuffPanel()));
-    add(stretch(buildLabrumPanel()));
-    add(stretch(buildBicepsPanel()));
-    add(stretch(buildFreeTextPanel()));
+    JPanel bursae = buildBursaeAndJointPanel();
+    JPanel cuff = buildRotatorCuffPanel();
+    JPanel labrum = buildLabrumPanel();
+    JPanel biceps = buildBicepsPanel();
+    JPanel freeTextPanel = buildFreeTextPanel();
+    for (JPanel section : List.of(bursae, cuff, labrum, biceps, freeTextPanel)) {
+      add(stretch(section));
+    }
     add(stretch(buildActions()));
+    jumpBar =
+        new SectionJumpBar(
+            List.of(
+                new SectionJumpBar.Section(
+                    "Bursae/AC",
+                    bursae,
+                    List.of("subcoracoid-bursitis", "sasd-bursitis", "ac-joint")),
+                new SectionJumpBar.Section(
+                    "Rotator cuff", cuff, List.of("tendinosis:", "cuff-tear:")),
+                new SectionJumpBar.Section("Labrum", labrum, List.of("labrum")),
+                new SectionJumpBar.Section("Biceps", biceps, List.of("biceps-tenosynovitis")),
+                new SectionJumpBar.Section("Free text", freeTextPanel, List.of("free-text"))),
+            () -> SectionJumpBar.keys(ShoulderFindingBuilder.generateKeyed(selection())));
     setAlignmentX(LEFT_ALIGNMENT);
     Dimension preferred = getPreferredSize();
     setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
@@ -156,6 +173,10 @@ final class ShoulderFormPanel extends JPanel {
 
   void addOtherFindingListener(ActionListener listener) {
     otherFindingButton.addActionListener(listener);
+  }
+
+  SectionJumpBar jumpBar() {
+    return jumpBar;
   }
 
   Selection selection() {

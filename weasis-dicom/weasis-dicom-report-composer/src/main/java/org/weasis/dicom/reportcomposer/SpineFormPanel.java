@@ -71,16 +71,31 @@ final class SpineFormPanel extends JPanel {
   private SectionControls alignmentSection;
   private SectionControls degenerativeSection;
   private ShortcutTarget keyboardHovered;
+  private final SectionJumpBar jumpBar;
 
   SpineFormPanel(SpineRegion region) {
     this.region = region;
     resetButton = iconButton(ActionIcon.RESET, "Clear " + region.formLabel() + " form");
     setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
     setBorder(BorderFactory.createTitledBorder("Structured " + region.formLabel() + " findings"));
-    add(stretch(buildAlignmentPanel()));
-    add(stretch(buildOverviewPanel()));
+    JPanel alignment = buildAlignmentPanel();
+    JPanel overview = buildOverviewPanel();
+    add(stretch(alignment));
+    add(stretch(overview));
     add(stretch(buildLevelPanel()));
     add(stretch(buildActions()));
+    List<SectionJumpBar.Section> sections = new ArrayList<>();
+    sections.add(new SectionJumpBar.Section("Alignment", alignment, List.of("alignment:")));
+    sections.add(
+        new SectionJumpBar.Section("Degenerative", overview, List.of("overview:", "degenerative")));
+    levelControls.forEach(
+        (level, controls) ->
+            sections.add(
+                new SectionJumpBar.Section(
+                    level, controls.panel(), List.of("level:" + level, "listhesis:" + level))));
+    jumpBar =
+        new SectionJumpBar(
+            sections, () -> SectionJumpBar.keys(SpineFindingBuilder.generateKeyed(selection())));
     setAlignmentX(LEFT_ALIGNMENT);
     Dimension preferred = getPreferredSize();
     setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
@@ -175,6 +190,10 @@ final class SpineFormPanel extends JPanel {
 
   void addOtherFindingListener(ActionListener listener) {
     otherFindingButton.addActionListener(listener);
+  }
+
+  SectionJumpBar jumpBar() {
+    return jumpBar;
   }
 
   Selection selection() {
