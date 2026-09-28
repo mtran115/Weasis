@@ -118,6 +118,39 @@ resolve every transitional variant. Keep original model guesses, reader correcti
 and the numbering basis distinct when building a future training dataset. Validate numbering
 and localization on a fixed patient-level holdout before adding finding suggestion cards.
 
+## Key-image links
+
+Key-image `findingId` links stored by the composer are **not** reliable training labels. A key
+image captured before its findings are written is either unlinked or auto-linked to whatever
+finding was last in the draft (`last_finding_suggestion`); links to regenerated findings become
+`removed_finding`. Only `selected_finding` reflects an explicit reader choice.
+
+`link_key_images.py` re-derives links offline from geometry, per exported lumbar case with
+archived sources, and never modifies the archive:
+
+```bash
+~/.weasis/ai/lumbar/venv/bin/python scripts/lumbar-ai/link_key_images.py \
+  --archive ~/.weasis/data/report-composer/training-v1 \
+  --root ~/.weasis/ai/lumbar            # add --cached-only to skip running the model
+```
+
+- Level map: a reader-reviewed map (accepted or corrected) when present, otherwise the model
+  proposal. Uncertain model numbering produces no level links. Studies without a cached proposal
+  run the segmentation model on MPS, so run the full pass outside reading hours.
+- Arrow tip (converted from source pixels to patient LPS): nearest disc by position **along the
+  spine's disc polyline**, tolerating the lateral/posterior offset of foraminal findings. Arrows
+  whose nearest disc is not clearly closer than the next (ratio > 0.75) are `arrow_between_levels`.
+- Axial slice: the disc its plane crosses (within 10 mm).
+- Sagittal slice without an arrow: midline links canal findings, a parasagittal slice links that
+  side's foraminal/subarticular findings, and only when exactly one level has such a finding.
+- Only reported (asserted) labels are linked; omitted levels are normal by the reporting
+  convention and are never link targets. Each link records its method and confidence, plus the
+  untrusted stored link for audit.
+
+Output: `keyimage-links/<study-hash>.json` and `keyimage-links/index.json`; use the index, not a
+directory glob. Link files contain study UIDs and label values, so they stay local like the rest
+of the runtime root.
+
 ## Verification
 
 ```bash

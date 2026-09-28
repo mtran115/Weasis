@@ -5,6 +5,21 @@ import json
 from pathlib import Path
 from worker import digest, write_json
 
+def build_request(directory, manifest):
+    """Worker request for an archived case, pointing at its archived source DICOM copies."""
+    images = []
+    for source in manifest["sourceArchive"]["instances"]:
+        file = directory / source["archivedPath"]
+        if not file.is_file():
+            raise ValueError("An archived source is unavailable")
+        reference = dict(source["reference"])
+        reference["sourceUri"] = file.resolve().as_uri()
+        images.append({"studyInstanceUid": source["studyInstanceUid"], "reference": reference})
+    content = manifest["content"]
+    return {"schemaVersion": 1, "studyKey": content["studyKey"],
+            "studyInstanceUid": content["context"]["studyInstanceUid"], "images": images}
+
+
 def prepare(archive, root):
     cases = []
     for file in sorted(archive.glob("*/latest.json")):
@@ -31,16 +46,7 @@ def prepare(archive, root):
     for directory, d, group in cases:
         label = split["groups"].setdefault(group, "holdout" if int(group[:8], 16) % 5 == 0 else "development")
         c = d["content"]
-        images = []
-        for source in d["sourceArchive"]["instances"]:
-            file = directory / source["archivedPath"]
-            if not file.is_file():
-                raise ValueError("An archived source is unavailable")
-            reference = dict(source["reference"])
-            reference["sourceUri"] = file.resolve().as_uri()
-            images.append({"studyInstanceUid": source["studyInstanceUid"], "reference": reference})
-        request = {"schemaVersion": 1, "studyKey": c["studyKey"],
-                   "studyInstanceUid": c["context"]["studyInstanceUid"], "images": images}
+        request = build_request(directory, d)
         request_path = Path(label) / (digest(c["studyKey"])+".json")
         write_json(root / "pilot" / request_path, request)
         active.append({"patientGroup": group, "partition": label,

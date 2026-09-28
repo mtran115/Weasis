@@ -210,14 +210,8 @@ def reviewed_numbering_proposal(model_points, unexpected_vertebrae=False):
     return points, reasons, uncertain
 
 
-def process(request, root):
-    global PIPELINE
-    import numpy as np
-    from PIL import Image
-    if request.get("schemaVersion") != 1 or not request.get("studyInstanceUid") or not request.get("studyKey"):
-        raise ValueError("Invalid study request")
-    if not 1 <= len(request.get("images", [])) <= 20000:
-        raise ValueError("Unsupported study size")
+def proposal_location(request, root):
+    """Selected series and cache location for a request, without running the model."""
     items = select_series(request)
     # Stable across file relocation, but not changed source pixels/headers or model versions.
     identities = []
@@ -226,7 +220,18 @@ def process(request, root):
             identities.append((str(header.SOPInstanceUID), hashlib.file_digest(stream, "sha256").hexdigest()))
     key = digest([MODEL_ID, request["studyInstanceUid"], sorted(identities)])
     directory = root / "proposals" / digest(request["studyKey"]) / key
-    output = directory / "proposal.json"
+    return items, key, directory, directory / "proposal.json"
+
+
+def process(request, root):
+    global PIPELINE
+    import numpy as np
+    from PIL import Image
+    if request.get("schemaVersion") != 1 or not request.get("studyInstanceUid") or not request.get("studyKey"):
+        raise ValueError("Invalid study request")
+    if not 1 <= len(request.get("images", [])) <= 20000:
+        raise ValueError("Unsupported study size")
+    items, key, directory, output = proposal_location(request, root)
     if output.is_file():
         saved = json.loads(output.read_text())
         if Path(saved.get("previewPath", "")).is_file():
