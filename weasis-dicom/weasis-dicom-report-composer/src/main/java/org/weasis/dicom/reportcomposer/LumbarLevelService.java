@@ -24,9 +24,13 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -34,6 +38,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 import org.weasis.core.api.gui.util.AppProperties;
 
@@ -202,6 +207,86 @@ final class LumbarLevelService implements AutoCloseable {
     output =
         new BufferedWriter(
             new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+  }
+
+  /** A past proposal awaiting a reader decision, with the numbering to show first. */
+  record ReviewItem(
+      LumbarLevelMap map, BufferedImage preview, List<LumbarLevelMap.Landmark> initialPoints) {}
+
+  /**
+   * The latest proposal of each study without a saved decision. Uncertain numbering comes first,
+   * pre-numbered upward from L5-S1 when safe; the rest follow in a shuffled order so a session also
+   * samples the model's confident maps.
+   */
+  CompletableFuture<List<ReviewItem>> reviewQueue(int limit, String excludedStudyKey, long seed) {
+    return CompletableFuture.supplyAsync(
+        () -> {
+          try {
+            return loadReviewQueue(limit, excludedStudyKey, seed);
+          } catch (IOException error) {
+            throw new java.util.concurrent.CompletionException(error);
+          }
+        },
+        writer);
+  }
+
+  private List<ReviewItem> loadReviewQueue(int limit, String excludedStudyKey, long seed)
+      throws IOException {
+    Path proposals = root.resolve("proposals");
+    if (!Files.isDirectory(proposals)) return List.of();
+    var uncertain = new ArrayList<ReviewItem>();
+    var confident = new ArrayList<ReviewItem>();
+    try (var studies = Files.list(proposals)) {
+      for (Path study : studies.filter(Files::isDirectory).toList()) {
+        ReviewItem item = latestUnreviewed(study, excludedStudyKey);
+        if (item != null) (item.map().numberingUncertain() ? uncertain : confident).add(item);
+      }
+    }
+    Collections.shuffle(confident, new Random(seed));
+    return Stream.concat(uncertain.stream(), confident.stream()).limit(limit).toList();
+  }
+
+  private ReviewItem latestUnreviewed(Path study, String excludedStudyKey) throws IOException {
+    LumbarLevelMap latest = null;
+    String latestCreated = "";
+    try (var versions = Files.list(study)) {
+      for (Path file :
+          versions.map(dir -> dir.resolve("proposal.json")).filter(Files::isRegularFile).toList()) {
+        try {
+          var node = JSON.readTree(file.toFile());
+          String created = node.path("createdAt").asText();
+          if (latest == null || created.compareTo(latestCreated) > 0) {
+            latest = JSON.treeToValue(node, LumbarLevelMap.class);
+            latestCreated = created;
+          }
+        } catch (IOException | IllegalArgumentException unreadable) {
+          // Older or damaged proposals are simply not offered for review.
+        }
+      }
+    }
+    if (latest == null
+        || latest.studyKey().equals(excludedStudyKey)
+        || readFeedback(latest) != null) return null;
+    Path preview = Path.of(latest.previewPath()).toAbsolutePath().normalize();
+    if (!preview.startsWith(root.resolve("proposals")) || !Files.isRegularFile(preview))
+      return null;
+    BufferedImage image = ImageIO.read(preview.toFile());
+    if (image == null) return null;
+    return new ReviewItem(latest, image, initialNumbering(latest));
+  }
+
+  /** Mirrors the offline linker: number upward from L5-S1 only if the model found that disc. */
+  static List<LumbarLevelMap.Landmark> initialNumbering(LumbarLevelMap map) {
+    if (!map.numberingUncertain() || map.modelPoints() == null) return map.points();
+    var model =
+        map.modelPoints().stream()
+            .sorted(Comparator.comparingDouble(p -> -p.lps().get(2)))
+            .toList();
+    boolean safe =
+        model.size() >= 5
+            && model.size() <= 7
+            && List.of("L5-S1", "L6-S1").contains(model.getLast().level());
+    return safe ? LumbarLevelReview.numberUpward(map.points(), "L5-S1") : map.points();
   }
 
   Feedback readFeedback(LumbarLevelMap map) throws IOException {

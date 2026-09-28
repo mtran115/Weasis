@@ -12,15 +12,19 @@ package org.weasis.dicom.reportcomposer;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.prefs.Preferences;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -28,6 +32,7 @@ import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
 
 /** A quiet, optional pilot: asynchronous results never focus, scroll, or change the report. */
 final class LumbarLevelPanel extends JPanel implements AutoCloseable {
+  static final int REVIEW_QUEUE_SIZE = 20;
   private final LumbarLevelService service;
   private final Supplier<Optional<DicomContextReader.Selection>> selection;
   private final LumbarLevelNavigation navigation = new LumbarLevelNavigation();
@@ -39,6 +44,7 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
   private final JButton confirm = new JButton("Confirm");
   private final JButton skip = new JButton("Skip");
   private final JButton retry = new JButton("Retry");
+  private final JButton reviewQueue = new JButton("Review queue…");
   private final JButton[] levels = new JButton[LumbarLevelMap.MAX_POINTS];
   private final Timer debounce;
   private String studyKey;
@@ -48,6 +54,7 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
   private LumbarLevelService.Feedback feedback;
   private boolean saving;
   private boolean closed;
+  private boolean queueRunning;
 
   LumbarLevelPanel(Supplier<Optional<DicomContextReader.Selection>> selection) {
     this(selection, new LumbarLevelService());
@@ -68,7 +75,13 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
     top.add(status);
     add(top, BorderLayout.NORTH);
     var actions = new JPanel(new FlowLayout(FlowLayout.LEADING, 3, 0));
-    for (var button : List.of(review, confirm, skip, retry)) {
+    reviewQueue.setToolTipText(
+        "Review up to "
+            + REVIEW_QUEUE_SIZE
+            + " earlier level maps without a decision; confirmed"
+            + " numbering becomes trusted training labels");
+    reviewQueue.addActionListener(event -> startReviewQueue());
+    for (var button : List.of(review, confirm, skip, retry, reviewQueue)) {
       button.setFocusable(false);
       actions.add(button);
     }
@@ -260,7 +273,90 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
     else navigation.clear();
   }
 
+  private void startReviewQueue() {
+    if (queueRunning || closed) return;
+    if (!service.installed()) {
+      status.setText("Local model setup is required.");
+      return;
+    }
+    queueRunning = true;
+    updateControls();
+    service
+        .reviewQueue(REVIEW_QUEUE_SIZE, studyKey, LocalDate.now().toEpochDay())
+        .whenComplete(
+            (items, error) ->
+                SwingUtilities.invokeLater(
+                    () -> {
+                      if (closed) return;
+                      if (error != null || items.isEmpty()) {
+                        finishReviewQueue(Map.of());
+                        JOptionPane.showMessageDialog(
+                            this,
+                            error != null
+                                ? "The review queue could not be loaded."
+                                : "No earlier level maps are waiting for review.\nThe overnight"
+                                    + " linking pass creates more.",
+                            "Level map review",
+                            JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                      }
+                      reviewNext(items, 0, new TreeMap<>());
+                    }));
+  }
+
+  /** One study at a time; each decision is saved before the next map opens. */
+  private void reviewNext(
+      List<LumbarLevelService.ReviewItem> items, int index, Map<String, Integer> counts) {
+    if (closed) return;
+    if (index >= items.size()) {
+      finishReviewQueue(counts);
+      return;
+    }
+    var item = items.get(index);
+    var decision =
+        LumbarLevelReview.show(
+            this,
+            item.map(),
+            item.preview(),
+            item.initialPoints(),
+            "reporting_convention",
+            "Review lumbar numbering · " + (index + 1) + " of " + items.size());
+    if (decision == null) {
+      finishReviewQueue(counts);
+      return;
+    }
+    try {
+      service
+          .save(item.map(), decision.points(), decision.decision(), decision.basis())
+          .whenComplete(
+              (saved, error) ->
+                  SwingUtilities.invokeLater(
+                      () -> {
+                        counts.merge(
+                            error == null ? decision.decision() : "not saved", 1, Integer::sum);
+                        reviewNext(items, index + 1, counts);
+                      }));
+    } catch (IllegalArgumentException invalid) {
+      counts.merge("not saved", 1, Integer::sum);
+      reviewNext(items, index + 1, counts);
+    }
+  }
+
+  private void finishReviewQueue(Map<String, Integer> counts) {
+    queueRunning = false;
+    updateControls();
+    if (counts.isEmpty()) return;
+    int total = counts.values().stream().mapToInt(Integer::intValue).sum();
+    StringBuilder summary = new StringBuilder("Reviewed " + total + ":");
+    counts.forEach(
+        (decision, count) -> summary.append("\n  ").append(decision).append(": ").append(count));
+    summary.append("\nThe next linking run uses these decisions.");
+    JOptionPane.showMessageDialog(
+        this, summary.toString(), "Level map review", JOptionPane.INFORMATION_MESSAGE);
+  }
+
   private void updateControls() {
+    reviewQueue.setEnabled(!queueRunning);
     boolean ready = result != null && !saving;
     review.setEnabled(ready);
     skip.setEnabled(ready);

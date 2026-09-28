@@ -44,6 +44,16 @@ final class LumbarLevelReview {
       BufferedImage image,
       List<LumbarLevelMap.Landmark> initial,
       String previousBasis) {
+    return show(owner, map, image, initial, previousBasis, "Review lumbar numbering · pilot");
+  }
+
+  static Decision show(
+      Component owner,
+      LumbarLevelMap map,
+      BufferedImage image,
+      List<LumbarLevelMap.Landmark> initial,
+      String previousBasis,
+      String title) {
     var points = new ArrayList<>(initial);
     JPanel content = new JPanel(new BorderLayout(8, 8));
     var labels = new JPanel(new GridLayout(0, 1, 3, 3));
@@ -147,7 +157,7 @@ final class LumbarLevelReview {
           JOptionPane.showOptionDialog(
               owner,
               content,
-              "Review lumbar numbering · pilot",
+              title,
               JOptionPane.DEFAULT_OPTION,
               JOptionPane.PLAIN_MESSAGE,
               null,

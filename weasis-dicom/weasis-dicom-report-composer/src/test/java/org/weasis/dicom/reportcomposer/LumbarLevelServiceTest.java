@@ -162,6 +162,83 @@ class LumbarLevelServiceTest {
   }
 
   @Test
+  void reviewQueueOffersEachStudysLatestUndecidedMapWithUncertainNumberingFirst() throws Exception {
+    Path preview = root.resolve("proposals/preview.png");
+    Files.createDirectories(preview.getParent());
+    javax.imageio.ImageIO.write(
+        new java.awt.image.BufferedImage(256, 256, java.awt.image.BufferedImage.TYPE_BYTE_GRAY),
+        "png",
+        preview.toFile());
+    writeProposal(
+        LumbarLevelMapTest.map("confident", "a".repeat(64)), "2026-09-01T00:00:00Z", preview);
+    writeProposal(
+        LumbarLevelMapTest.map("confident", "b".repeat(64)), "2026-09-02T00:00:00Z", preview);
+    writeProposal(uncertainMap("transitional"), "2026-09-01T00:00:00Z", preview);
+    var reviewed = LumbarLevelMapTest.map("reviewed", "c".repeat(64));
+    writeProposal(reviewed, "2026-09-01T00:00:00Z", preview);
+    writeProposal(
+        LumbarLevelMapTest.map("open-now", "d".repeat(64)), "2026-09-01T00:00:00Z", preview);
+    try (var service = new LumbarLevelService(root)) {
+      service
+          .save(reviewed, reviewed.points(), "accepted", "reporting_convention")
+          .get(5, TimeUnit.SECONDS);
+
+      var queue = service.reviewQueue(20, "open-now", 1).get(5, TimeUnit.SECONDS);
+
+      assertEquals(
+          List.of("transitional", "confident"),
+          queue.stream().map(item -> item.map().studyKey()).toList());
+      assertEquals("b".repeat(64), queue.get(1).map().proposalId());
+      assertEquals(
+          List.of("T11-T12", "T12-L1", "L1-L2", "L2-L3", "L3-L4", "L4-L5", "L5-S1"),
+          queue.get(0).initialPoints().stream().map(LumbarLevelMap.Landmark::level).toList());
+      assertEquals(queue.get(1).map().points(), queue.get(1).initialPoints());
+      assertEquals(1, service.reviewQueue(1, null, 1).get(5, TimeUnit.SECONDS).size());
+    }
+  }
+
+  private static LumbarLevelMap uncertainMap(String key) {
+    var geometry = LumbarLevelMapTest.geometry();
+    var labels = List.of("T12-L1", "L1-L2", "L2-L3", "L3-L4", "L4-L5", "L5-L6", "L6-S1");
+    var model = new java.util.ArrayList<LumbarLevelMap.Landmark>();
+    for (int i = 0; i < labels.size(); i++) {
+      model.add(
+          new LumbarLevelMap.Landmark(
+              "d" + i, labels.get(i), geometry.patientPosition(60, 20 + 12 * i)));
+    }
+    var base = LumbarLevelMapTest.map(key, "e".repeat(64));
+    return new LumbarLevelMap(
+        base.schemaVersion(),
+        key,
+        base.studyInstanceUid(),
+        base.proposalId(),
+        base.modelId(),
+        base.frameOfReferenceUid(),
+        base.reference(),
+        model,
+        base.reviewReasons(),
+        base.previewPath(),
+        base.status(),
+        model,
+        List.of(),
+        true);
+  }
+
+  private void writeProposal(LumbarLevelMap map, String createdAt, Path preview) throws Exception {
+    var node =
+        (com.fasterxml.jackson.databind.node.ObjectNode) LumbarLevelService.JSON.valueToTree(map);
+    node.put("previewPath", preview.toString());
+    node.put("createdAt", createdAt);
+    Path file =
+        root.resolve("proposals")
+            .resolve(LumbarLevelService.hash(map.studyKey()))
+            .resolve(map.proposalId())
+            .resolve("proposal.json");
+    Files.createDirectories(file.getParent());
+    LumbarLevelService.JSON.writeValue(file.toFile(), node);
+  }
+
+  @Test
   void failedWriteIsReportedAndNeverAppearsConfirmed() throws Exception {
     Files.writeString(root.resolve("feedback"), "blocked destination");
     try (var service = new LumbarLevelService(root)) {

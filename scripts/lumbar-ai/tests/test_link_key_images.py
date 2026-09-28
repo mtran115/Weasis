@@ -134,3 +134,23 @@ def test_cooldown_follows_only_studies_that_ran_the_model(tmp_path, monkeypatch)
     summary = linker.run(archive, tmp_path / "root", pause_seconds=60)
     assert summary["studies"] == 2
     assert pauses == [60]
+
+
+def test_uncertain_model_numbering_is_renumbered_upward_from_l5_s1_when_safe():
+    # Six lumbar levels: the model's lowest disc is L6-S1, so every level shifts up by one.
+    model = [{"id": f"d{i}", "level": level, "lps": [0.0, -50.0, 100.0 - 30 * i]}
+             for i, level in enumerate(["T12-L1", "L1-L2", "L2-L3", "L3-L4", "L4-L5", "L5-L6", "L6-S1"])]
+    renumbered = linker.number_by_reporting_convention(model)
+    assert [p["level"] for p in renumbered] == list(linker.CONVENTION_SEQUENCE)
+    assert [p["id"] for p in renumbered] == [p["id"] for p in model]
+    missing_lumbosacral = [{**p} for p in model[:-1]]
+    assert linker.number_by_reporting_convention(missing_lumbosacral) is None
+    assert linker.number_by_reporting_convention(model[-4:]) is None
+
+
+def test_an_explicit_reader_uncertain_is_never_renumbered(tmp_path):
+    key = "1.2.840.study"
+    folder = tmp_path / "feedback" / hashlib.sha256(key.encode()).hexdigest()
+    folder.mkdir(parents=True)
+    (folder / "latest.json").write_text(json.dumps({"decision": "uncertain", "points": DISCS}))
+    assert linker.feedback_map(tmp_path, key) == {"source": "reader_marked_uncertain", "points": []}

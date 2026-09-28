@@ -36,6 +36,9 @@ SIDE_TASKS = {
     "left": {"neural_foraminal_stenosis", "subarticular_stenosis"},
     "right": {"neural_foraminal_stenosis", "subarticular_stenosis"},
 }
+# The reader's convention: the lowest disc above the sacrum is L5-S1 (Review dialog's
+# "Lowest disc -> Number upward").
+CONVENTION_SEQUENCE = ("T11-T12", "T12-L1", "L1-L2", "L2-L3", "L3-L4", "L4-L5", "L5-S1")
 CONFIDENCE = {
     "arrow": "high",
     "axial_plane": "high",
@@ -189,12 +192,26 @@ def _level_link(base, method, level, side, distance, reported):
     return link
 
 
+def number_by_reporting_convention(model_points):
+    """Levels numbered upward from L5-S1, or None when that would not be safe."""
+    ordered = sorted(model_points or [], key=lambda p: -p["lps"][2])
+    if not 5 <= len(ordered) <= len(CONVENTION_SEQUENCE):
+        return None
+    # If the model missed the lumbosacral disc, numbering upward would shift every level.
+    if ordered[-1].get("level") not in ("L5-S1", "L6-S1"):
+        return None
+    offset = len(CONVENTION_SEQUENCE) - len(ordered)
+    return [{**p, "level": CONVENTION_SEQUENCE[offset + i]} for i, p in enumerate(ordered)]
+
+
 def feedback_map(root, study_key):
-    """Reader-reviewed disc levels, when the reader accepted or corrected the map."""
+    """Reader-reviewed disc levels when accepted or corrected; an explicit uncertain is kept."""
     path = root / "feedback" / hashlib.sha256(study_key.encode()).hexdigest() / "latest.json"
     if not path.is_file():
         return None
     saved = json.loads(path.read_text())
+    if saved.get("decision") == "uncertain":
+        return {"source": "reader_marked_uncertain", "points": []}
     points = saved.get("points") or []
     if saved.get("decision") not in {"accepted", "corrected"} or any(
             p.get("level") == UNASSIGNED for p in points):
@@ -216,8 +233,11 @@ def level_map(root, request, run_model):
     else:
         return {"source": "not_computed", "points": []}
     if proposal.get("numberingUncertain"):
-        return {"source": "model_numbering_uncertain",
-                "computedNow": proposal.get("computedNow", False), "points": []}
+        numbered = number_by_reporting_convention(proposal.get("modelPoints"))
+        return {"source": "model_numbering_uncertain" if numbered is None else "model_reporting_convention",
+                "computedNow": proposal.get("computedNow", False),
+                "frameOfReferenceUid": proposal.get("frameOfReferenceUid", ""),
+                "points": numbered or []}
     return {"source": "model_provisional", "computedNow": proposal.get("computedNow", False),
             "frameOfReferenceUid": proposal.get("frameOfReferenceUid", ""),
             "points": proposal.get("points") or []}
