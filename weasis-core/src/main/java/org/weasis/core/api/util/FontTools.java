@@ -9,13 +9,8 @@
  */
 package org.weasis.core.api.util;
 
-import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.Shape;
-import java.awt.font.TextLayout;
-import java.awt.geom.AffineTransform;
 import org.weasis.core.util.StringUtil;
 
 public class FontTools {
@@ -24,33 +19,20 @@ public class FontTools {
 
   public static void paintColorFontOutline(
       Graphics2D g2, String str, float x, float y, Color color) {
-
     if (StringUtil.hasText(str)) {
+      // A one-pixel halo from eight offset copies uses the glyph cache. Stroking the text outline
+      // as a shape went through the antialiased path renderer on every viewer repaint (~7x
+      // slower) and delayed other UI work, such as scrolling, on the event thread.
       g2.setPaint(Color.BLACK);
-
-      if (RenderingHints.VALUE_TEXT_ANTIALIAS_ON.equals(
-          g2.getRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING))) {
-        TextLayout layout = new TextLayout(str, g2.getFont(), g2.getFontRenderContext());
-        AffineTransform textAt = new AffineTransform();
-        textAt.translate(x, y);
-        Shape outline = layout.getOutline(textAt);
-        g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
-        g2.draw(outline);
-        g2.setPaint(color);
-        g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
-        g2.fill(outline);
-      } else {
-        g2.drawString(str, x - 1f, y - 1f);
-        g2.drawString(str, x - 1f, y);
-        g2.drawString(str, x - 1f, y + 1f);
-        g2.drawString(str, x, y - 1f);
-        g2.drawString(str, x, y + 1f);
-        g2.drawString(str, x + 1f, y - 1f);
-        g2.drawString(str, x + 1f, y);
-        g2.drawString(str, x + 1f, y + 1f);
-        g2.setPaint(color);
-        g2.drawString(str, x, y);
+      for (float dx = -1f; dx <= 1f; dx++) {
+        for (float dy = -1f; dy <= 1f; dy++) {
+          if (dx != 0f || dy != 0f) {
+            g2.drawString(str, x + dx, y + dy);
+          }
+        }
       }
+      g2.setPaint(color);
+      g2.drawString(str, x, y);
     }
   }
 
