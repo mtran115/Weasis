@@ -763,6 +763,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     content.add(fillWidth(buildFindingList()));
     ComposerSectionStyle.apply(content);
     composeScrollPane.setViewportView(content);
+    NestedWheelScrolling.install(content);
     composeScrollPane.setBorder(BorderFactory.createEmptyBorder());
     composeScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
     composeScrollPane.getVerticalScrollBar().setUnitIncrement(16);
