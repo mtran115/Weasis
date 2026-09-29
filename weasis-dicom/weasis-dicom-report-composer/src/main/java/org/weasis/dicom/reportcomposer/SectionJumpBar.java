@@ -11,11 +11,14 @@ package org.weasis.dicom.reportcomposer;
 
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Rectangle;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -26,15 +29,18 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JPanel;
 import javax.swing.JViewport;
+import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.KeyedFinding;
 
 /**
  * Section buttons for a structured form, mounted as the Compose scroll pane's fixed header so they
- * stay visible while the form scrolls. A dot marks sections whose generated findings are present.
+ * stay visible while the form scrolls. The buttons wrap into more rows as the pane narrows. A dot
+ * marks sections whose generated findings are present.
  */
-final class SectionJumpBar extends JPanel {
+final class SectionJumpBar extends JPanel implements Scrollable {
   private static final int MAX_COLUMNS = 8;
+  private static final int GAP = 3;
 
   /** A form section and the finding-key prefixes generated from its controls. */
   record Section(String label, Component target, List<String> keyPrefixes) {
@@ -46,9 +52,11 @@ final class SectionJumpBar extends JPanel {
   private final List<Section> sections;
   private final Supplier<Set<String>> findingKeys;
   private final List<JButton> buttons = new ArrayList<>();
+  private final GridLayout grid;
 
   SectionJumpBar(List<Section> sections, Supplier<Set<String>> findingKeys) {
-    super(new GridLayout(0, Math.min(sections.size(), MAX_COLUMNS), 3, 3));
+    super(new GridLayout(0, Math.min(sections.size(), MAX_COLUMNS), GAP, GAP));
+    this.grid = (GridLayout) getLayout();
     this.sections = List.copyOf(sections);
     this.findingKeys = findingKeys;
     setBorder(
@@ -66,6 +74,62 @@ final class SectionJumpBar extends JPanel {
       buttons.add(button);
       add(button);
     }
+    // The header's height depends on its width, so a width that changes the column count needs
+    // another layout pass.
+    addComponentListener(
+        new ComponentAdapter() {
+          @Override
+          public void componentResized(ComponentEvent event) {
+            if (grid.getColumns() != columnsFor(getWidth())) revalidate();
+          }
+        });
+  }
+
+  /** The most columns that fit {@code width}, spread so the last row is not left nearly empty. */
+  int columnsFor(int width) {
+    int max = Math.min(buttons.size(), MAX_COLUMNS);
+    if (max <= 1 || width <= 0) return Math.max(1, max);
+    Insets insets = getInsets();
+    int cell = buttons.stream().mapToInt(button -> button.getPreferredSize().width).max().orElse(1);
+    int fit = Math.clamp((width - insets.left - insets.right + GAP) / (cell + GAP), 1, max);
+    return Math.ceilDiv(buttons.size(), Math.ceilDiv(buttons.size(), fit));
+  }
+
+  @Override
+  public Dimension getPreferredSize() {
+    grid.setColumns(columnsFor(getWidth()));
+    return super.getPreferredSize();
+  }
+
+  @Override
+  public void doLayout() {
+    grid.setColumns(columnsFor(getWidth()));
+    super.doLayout();
+  }
+
+  @Override
+  public Dimension getPreferredScrollableViewportSize() {
+    return getPreferredSize();
+  }
+
+  @Override
+  public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+    return 16;
+  }
+
+  @Override
+  public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+    return 16;
+  }
+
+  @Override
+  public boolean getScrollableTracksViewportWidth() {
+    return true;
+  }
+
+  @Override
+  public boolean getScrollableTracksViewportHeight() {
+    return false;
   }
 
   static Set<String> keys(Collection<KeyedFinding> findings) {
