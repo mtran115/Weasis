@@ -113,9 +113,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final Map<String, ExamTemplate> draftExamTemplates = new LinkedHashMap<>();
   private final Map<String, JsonNode> draftEditorStates = new LinkedHashMap<>();
   private final Map<Component, Boolean> suspendedInputs = new java.util.IdentityHashMap<>();
-  private final BackgroundCaseRecorder caseRecorder = new BackgroundCaseRecorder();
+  private final LocalArchiveSetting localArchive =
+      LocalArchiveSetting.load(TrainingCaseStore.defaultRoot());
+  private final BackgroundCaseRecorder caseRecorder =
+      new BackgroundCaseRecorder(
+          new TrainingCaseStore(TrainingCaseStore.defaultRoot(), localArchive));
   private final Timer draftSaveTimer = new Timer(500, event -> persistCurrentDraft());
-  private final JLabel localSaveLabel = new JLabel("Local training capture ready");
+  private final JLabel localSaveLabel = new JLabel(idleSaveText());
+  private final JCheckBox localArchiveBox = new JCheckBox("Keep local archive");
   private final JTextArea shortcutHelp = new JTextArea(SpineFormShortcuts.IDLE_HELP, 4, 0);
   private final StructuredFindingDraftTracker<SpineRegion, SpineFindingBuilder.Selection>
       spineFindingTracker =
@@ -231,7 +236,30 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     updateOutputFolderLabel();
     initializeCatalogControls();
     installDraftRecording();
+    purgeExpiredDrafts();
     GuiExecutor.execute(this::synchronizeStudy);
+  }
+
+  private String idleSaveText() {
+    return localArchive.getAsBoolean()
+        ? "Local training capture ready"
+        : "Drafts stay on this computer for "
+            + TrainingCaseStore.UNARCHIVED_RETENTION.toDays()
+            + " days";
+  }
+
+  private void purgeExpiredDrafts() {
+    if (localArchive.getAsBoolean()) return;
+    caseRecorder
+        .purgeUnarchived()
+        .whenComplete(
+            (removed, error) -> {
+              if (error != null) {
+                LOGGER.warn("Expired local drafts were not removed: {}", diagnostic(error));
+              } else if (removed > 0) {
+                LOGGER.info("Removed {} expired local drafts", removed);
+              }
+            });
   }
 
   @Override
@@ -513,7 +541,23 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         new Dimension(0, shortcutHelp.getFontMetrics(shortcutHelp.getFont()).getHeight() * 4 + 6));
     shortcutHelp.setVisible(false);
     footer.add(shortcutHelp, BorderLayout.CENTER);
-    footer.add(localSaveLabel, BorderLayout.SOUTH);
+    localArchiveBox.setSelected(localArchive.getAsBoolean());
+    localArchiveBox.setFocusable(false);
+    localArchiveBox.setToolTipText(
+        "<html>On: exported cases are kept on this computer, with report text, key images, study"
+            + " identifiers, and DICOM copies for lumbar spines.<br>Off: no archive is kept, and"
+            + " drafts are deleted "
+            + TrainingCaseStore.UNARCHIVED_RETENTION.toDays()
+            + " days after their last save.</html>");
+    localArchiveBox.addActionListener(
+        event -> {
+          localArchive.set(localArchiveBox.isSelected());
+          if (currentDraft == null) localSaveLabel.setText(idleSaveText());
+        });
+    JPanel saveStatus = new JPanel(new BorderLayout(6, 0));
+    saveStatus.add(localSaveLabel, BorderLayout.CENTER);
+    saveStatus.add(localArchiveBox, BorderLayout.EAST);
+    footer.add(saveStatus, BorderLayout.SOUTH);
     add(footer, BorderLayout.SOUTH);
   }
 
@@ -1402,7 +1446,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     refreshAll();
     setComposerInputEnabled(false);
     if (context == null) {
-      localSaveLabel.setText("Local training capture ready");
+      localSaveLabel.setText(idleSaveText());
       composeScrollPosition.restorePosition();
       return;
     }

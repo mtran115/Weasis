@@ -18,6 +18,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -30,8 +31,10 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
@@ -39,22 +42,102 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.WeakHashMap;
+import java.util.function.BooleanSupplier;
+import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
 import org.weasis.core.api.gui.util.AppProperties;
 
-/** Local identifiable training records. This directory is never a clinical export destination. */
+/**
+ * Local identifiable training records. This directory is never a clinical export destination.
+ *
+ * <p>Without the local archive, exports keep no revision history or source copies, and a study's
+ * record is deleted {@link #UNARCHIVED_RETENTION} after its last save.
+ */
 public final class TrainingCaseStore {
   static final int SCHEMA_VERSION = 1;
+  static final Duration UNARCHIVED_RETENTION = Duration.ofDays(5);
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final Pattern STUDY_DIRECTORY = Pattern.compile("[0-9a-f]{64}");
   private final Path root;
+  private final BooleanSupplier archiveEnabled;
   private final Map<Object, EncodedImage> imageCache = new WeakHashMap<>();
 
   public TrainingCaseStore() {
-    this(AppProperties.WEASIS_PATH.resolve("data/report-composer/training-v1"));
+    this(defaultRoot());
   }
 
   public TrainingCaseStore(Path root) {
+    this(root, () -> true);
+  }
+
+  TrainingCaseStore(Path root, BooleanSupplier archiveEnabled) {
     this.root = root.toAbsolutePath().normalize();
+    this.archiveEnabled = archiveEnabled;
+  }
+
+  static Path defaultRoot() {
+    return AppProperties.WEASIS_PATH.resolve("data/report-composer/training-v1");
+  }
+
+  /** Whether any study already has an archived export, which makes archiving the default. */
+  static boolean hasArchivedCases(Path root) {
+    try (var studies = Files.list(root)) {
+      return studies.anyMatch(TrainingCaseStore::isArchived);
+    } catch (IOException | SecurityException error) {
+      return false;
+    }
+  }
+
+  /**
+   * Deletes study records last saved before the cutoff, skipping any with archived exports.
+   *
+   * @return the number of records deleted
+   */
+  synchronized int purgeUnarchived(Instant cutoff) throws IOException {
+    if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) return 0;
+    int removed = 0;
+    try (var studies = Files.list(root)) {
+      for (Path directory : studies.toList()) {
+        if (STUDY_DIRECTORY.matcher(directory.getFileName().toString()).matches()
+            && Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
+            && !isArchived(directory)
+            && lastSaved(directory).isBefore(cutoff)) {
+          deleteRecursively(directory);
+          removed++;
+        }
+      }
+    } catch (IOException | UncheckedIOException error) {
+      throw storageFailure("Expired local drafts could not be removed.");
+    }
+    return removed;
+  }
+
+  private static boolean isArchived(Path directory) {
+    return hasEntries(directory.resolve("revisions")) || hasEntries(directory.resolve("dicom"));
+  }
+
+  private static boolean hasEntries(Path directory) {
+    if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) return false;
+    try (var entries = Files.list(directory)) {
+      return entries.findAny().isPresent();
+    } catch (IOException error) {
+      // Unreadable means it cannot be shown to be unarchived, so it is kept.
+      return true;
+    }
+  }
+
+  private static Instant lastSaved(Path directory) throws IOException {
+    Path latest = directory.resolve("latest.json");
+    Path marker = Files.exists(latest, LinkOption.NOFOLLOW_LINKS) ? latest : directory;
+    return Files.getLastModifiedTime(marker, LinkOption.NOFOLLOW_LINKS).toInstant();
+  }
+
+  private static void deleteRecursively(Path directory) throws IOException {
+    try (var paths = Files.walk(directory)) {
+      for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+        Files.deleteIfExists(path);
+      }
+    }
   }
 
   /**
@@ -96,10 +179,14 @@ public final class TrainingCaseStore {
       if (!Files.exists(latest, LinkOption.NOFOLLOW_LINKS)) {
         return ExportStatus.NOT_STARTED;
       }
-      if (readManifest(latest, studyKey).path("annotationComplete").asBoolean()) {
+      ObjectNode manifest = readManifest(latest, studyKey);
+      if (manifest.path("annotationComplete").asBoolean()) {
         return ExportStatus.EXPORTED;
       }
-      // Each export writes an immutable revision, so any revision means an earlier export.
+      if (manifest.path("exported").asBoolean()) {
+        return ExportStatus.CHANGED_SINCE_EXPORT;
+      }
+      // Records saved before the "exported" flag: each archived export wrote a revision.
       Path revisions = safeChild(directory, "revisions");
       if (Files.isDirectory(revisions, LinkOption.NOFOLLOW_LINKS)) {
         try (var files = Files.list(revisions)) {
@@ -113,12 +200,13 @@ public final class TrainingCaseStore {
   }
 
   public synchronized Path save(TrainingCaseSnapshot snapshot) throws IOException {
-    return write(snapshot, false, null);
+    return write(snapshot, false, null, false);
   }
 
   public Path complete(TrainingCaseSnapshot snapshot) throws IOException {
+    boolean archive = archiveEnabled.getAsBoolean();
     ObjectNode sourceArchive = null;
-    if ("LUMBAR_SPINE".equals(snapshot.exam())) {
+    if (archive && "LUMBAR_SPINE".equals(snapshot.exam())) {
       try {
         Path directory = studyDirectory(snapshot.studyKey());
         privateDirectory(root);
@@ -131,11 +219,18 @@ public final class TrainingCaseStore {
       }
     }
     synchronized (this) {
-      return write(snapshot, true, sourceArchive);
+      return write(snapshot, true, sourceArchive, archive);
     }
   }
 
-  private Path write(TrainingCaseSnapshot snapshot, boolean completed, ObjectNode sourceArchive)
+  /**
+   * @param keepRevision whether a completed export also keeps an immutable revision (archive only)
+   */
+  private Path write(
+      TrainingCaseSnapshot snapshot,
+      boolean completed,
+      ObjectNode sourceArchive,
+      boolean keepRevision)
       throws IOException {
     try {
       UUID.fromString(snapshot.revisionId());
@@ -186,6 +281,12 @@ public final class TrainingCaseStore {
       manifest.put("capturedAt", snapshot.capturedAt());
       manifest.put("savedAt", Instant.now().toString());
       manifest.put("annotationComplete", annotationComplete);
+      manifest.put(
+          "exported",
+          completed
+              || previous != null
+                  && (previous.path("exported").asBoolean()
+                      || previous.path("annotationComplete").asBoolean()));
       manifest.put("status", annotationComplete ? "annotation_complete" : "draft");
       manifest.put("dataClassification", "local_identifiable_clinical_data");
       manifest.put("clinicalValidation", "not_validated_for_ai_diagnosis");
@@ -211,19 +312,22 @@ public final class TrainingCaseStore {
 
       byte[] bytes = MAPPER.writerWithDefaultPrettyPrinter().writeValueAsBytes(manifest);
       if (completed) {
-        Path revisions = safeChild(directory, "revisions");
-        privateDirectory(revisions);
-        Path revision = safeChild(revisions, snapshot.revisionId() + ".json");
-        // A retry of this snapshot must not change its immutable completed revision.
-        if (Files.exists(revision, LinkOption.NOFOLLOW_LINKS)) {
-          ObjectNode existing = readManifest(revision, snapshot.studyKey());
-          if (!fingerprint.equals(existing.path("contentFingerprint").asText())
-              || !existing.path("annotationComplete").asBoolean()) {
-            throw storageFailure("A local revision already exists with different content.");
+        Path revision = latest;
+        if (keepRevision) {
+          Path revisions = safeChild(directory, "revisions");
+          privateDirectory(revisions);
+          revision = safeChild(revisions, snapshot.revisionId() + ".json");
+          // A retry of this snapshot must not change its immutable completed revision.
+          if (Files.exists(revision, LinkOption.NOFOLLOW_LINKS)) {
+            ObjectNode existing = readManifest(revision, snapshot.studyKey());
+            if (!fingerprint.equals(existing.path("contentFingerprint").asText())
+                || !existing.path("annotationComplete").asBoolean()) {
+              throw storageFailure("A local revision already exists with different content.");
+            }
+            bytes = Files.readAllBytes(revision);
+          } else {
+            atomicWrite(revision, bytes);
           }
-          bytes = Files.readAllBytes(revision);
-        } else {
-          atomicWrite(revision, bytes);
         }
         if (!newerDraftExists) {
           atomicWrite(latest, bytes);
@@ -232,12 +336,19 @@ public final class TrainingCaseStore {
           ObjectNode latestState = previous.deepCopy();
           JsonNode completion = MAPPER.readTree(bytes);
           latestState.put("annotationComplete", true);
+          latestState.put("exported", true);
           latestState.put("status", "annotation_complete");
           latestState.put("completionRevisionId", snapshot.revisionId());
           latestState.set("trainingLabels", completion.get("trainingLabels"));
           if (completion.has("sourceArchive")) {
             latestState.set("sourceArchive", completion.get("sourceArchive"));
           }
+          atomicWrite(
+              latest, MAPPER.writerWithDefaultPrettyPrinter().writeValueAsBytes(latestState));
+        } else if (!previous.path("exported").asBoolean()) {
+          // The newer, edited draft stays current but must still show this export happened.
+          ObjectNode latestState = previous.deepCopy();
+          latestState.put("exported", true);
           atomicWrite(
               latest, MAPPER.writerWithDefaultPrettyPrinter().writeValueAsBytes(latestState));
         }

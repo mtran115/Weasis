@@ -115,6 +115,22 @@ class LumbarLevelPanelTest {
         });
   }
 
+  @Test
+  void panelIsHiddenWithoutTheLocalModel() throws Exception {
+    var service = mock(LumbarLevelService.class);
+    SwingUtilities.invokeAndWait(
+        () -> {
+          var panel = new LumbarLevelPanel(Optional::empty, service);
+          when(service.installed()).thenReturn(false);
+          panel.setContext(ExamTemplate.LUMBAR_SPINE, "case", "study");
+          assertFalse(panel.isVisible());
+          when(service.installed()).thenReturn(true);
+          panel.setContext(ExamTemplate.LUMBAR_SPINE, "next", "study");
+          assertTrue(panel.isVisible());
+          panel.close();
+        });
+  }
+
   private static LumbarLevelService.Result result(String key) {
     return new LumbarLevelService.Result(
         LumbarLevelMapTest.map(key, "a".repeat(64)),

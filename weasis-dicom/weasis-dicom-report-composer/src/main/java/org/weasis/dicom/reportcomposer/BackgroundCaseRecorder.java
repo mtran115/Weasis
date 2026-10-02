@@ -35,7 +35,11 @@ public final class BackgroundCaseRecorder implements AutoCloseable {
   private boolean closed;
 
   public BackgroundCaseRecorder() {
-    this(new TrainingCaseStore(), Duration.ofMillis(600));
+    this(new TrainingCaseStore());
+  }
+
+  BackgroundCaseRecorder(TrainingCaseStore store) {
+    this(store, Duration.ofMillis(600));
   }
 
   BackgroundCaseRecorder(TrainingCaseStore store, Duration debounce) {
@@ -108,6 +112,15 @@ public final class BackgroundCaseRecorder implements AutoCloseable {
     }
     enqueuePending(studyKey);
     return submit(() -> store.load(studyKey));
+  }
+
+  /** Deletes unarchived study records older than the retention period; returns how many. */
+  public synchronized CompletableFuture<Integer> purgeUnarchived() {
+    if (closed) {
+      return CompletableFuture.failedFuture(new IllegalStateException("Local recorder is closed."));
+    }
+    Instant cutoff = Instant.now().minus(TrainingCaseStore.UNARCHIVED_RETENTION);
+    return submit(() -> store.purgeUnarchived(cutoff));
   }
 
   /** Export status for each study, read after any pending local saves have been written. */

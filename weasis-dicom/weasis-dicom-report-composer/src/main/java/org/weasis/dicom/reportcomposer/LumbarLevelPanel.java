@@ -154,7 +154,8 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
   void setContext(ExamTemplate exam, String key, String uid) {
     boolean lumbar =
         exam == ExamTemplate.LUMBAR_SPINE && key != null && uid != null && !uid.isBlank();
-    setVisible(lumbar);
+    // Readers without the local model have nothing to act on here.
+    setVisible(lumbar && service.installed());
     String next = lumbar ? key : null;
     if (Objects.equals(studyKey, next) && Objects.equals(studyUid, lumbar ? uid : null)) return;
     clear();

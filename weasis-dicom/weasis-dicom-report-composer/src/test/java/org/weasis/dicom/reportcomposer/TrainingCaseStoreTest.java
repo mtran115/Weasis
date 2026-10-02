@@ -25,11 +25,15 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.weasis.core.api.service.WProperties;
 
 class TrainingCaseStoreTest {
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -324,6 +328,79 @@ class TrainingCaseStoreTest {
     assertThrows(
         IOException.class,
         () -> store.save(TrainingCaseSnapshot.capture(draft("other-study"), "LUMBAR_SPINE", null)));
+  }
+
+  @Test
+  void withoutTheArchiveExportsKeepNoRevisionsOrSourcesButStillTrackStatus() throws Exception {
+    TrainingCaseStore store = new TrainingCaseStore(temporary.resolve("store"), () -> false);
+    ReportDraft draft = draft("study-one");
+    TrainingCaseSnapshot snapshot = TrainingCaseSnapshot.capture(draft, "LUMBAR_SPINE", null);
+
+    Path written = store.complete(snapshot);
+
+    Path directory = store.studyDirectory(snapshot.studyKey());
+    assertEquals(directory.resolve("latest.json"), written);
+    assertFalse(Files.exists(directory.resolve("revisions")));
+    assertFalse(Files.exists(directory.resolve("dicom")));
+    assertTrue(store.load("study-one").orElseThrow().annotationComplete());
+    assertEquals(TrainingCaseStore.ExportStatus.EXPORTED, store.exportStatus("study-one"));
+    draft.setReportInstructions("Edited after export");
+    store.save(TrainingCaseSnapshot.capture(draft, "LUMBAR_SPINE", null));
+    assertEquals(
+        TrainingCaseStore.ExportStatus.CHANGED_SINCE_EXPORT, store.exportStatus("study-one"));
+  }
+
+  @Test
+  void purgeDeletesOnlyExpiredRecordsWithoutAnArchive() throws Exception {
+    Path root = temporary.resolve("store");
+    TrainingCaseStore archived = new TrainingCaseStore(root, () -> true);
+    TrainingCaseStore unarchived = new TrainingCaseStore(root, () -> false);
+    TrainingCaseSnapshot kept =
+        TrainingCaseSnapshot.capture(draft("archived"), "LUMBAR_SPINE", null);
+    TrainingCaseSnapshot old = TrainingCaseSnapshot.capture(draft("old"), "KNEE", null);
+    TrainingCaseSnapshot recent = TrainingCaseSnapshot.capture(draft("recent"), "KNEE", null);
+    archived.complete(kept);
+    unarchived.complete(old);
+    unarchived.save(recent);
+    Files.writeString(root.resolve("notes.txt"), "not a study record");
+    FileTime sixDaysAgo = FileTime.from(Instant.now().minus(Duration.ofDays(6)));
+    for (TrainingCaseSnapshot snapshot : List.of(kept, old)) {
+      Files.setLastModifiedTime(
+          unarchived.studyDirectory(snapshot.studyKey()).resolve("latest.json"), sixDaysAgo);
+    }
+
+    int removed =
+        unarchived.purgeUnarchived(Instant.now().minus(TrainingCaseStore.UNARCHIVED_RETENTION));
+
+    assertEquals(1, removed);
+    assertFalse(Files.exists(unarchived.studyDirectory(old.studyKey())));
+    assertTrue(Files.exists(unarchived.studyDirectory(recent.studyKey())));
+    assertTrue(Files.exists(unarchived.studyDirectory(kept.studyKey())));
+    assertTrue(Files.exists(root.resolve("notes.txt")));
+    assertEquals(
+        0, new TrainingCaseStore(temporary.resolve("missing")).purgeUnarchived(Instant.now()));
+  }
+
+  @Test
+  void archivingIsOnByDefaultOnlyWhereAnArchiveAlreadyExists() throws Exception {
+    Path root = temporary.resolve("store");
+    assertFalse(TrainingCaseStore.hasArchivedCases(root));
+    new TrainingCaseStore(root, () -> false)
+        .complete(TrainingCaseSnapshot.capture(draft("unarchived"), "KNEE", null));
+    assertFalse(TrainingCaseStore.hasArchivedCases(root));
+    new TrainingCaseStore(root, () -> true)
+        .complete(TrainingCaseSnapshot.capture(draft("archived"), "KNEE", null));
+    assertTrue(TrainingCaseStore.hasArchivedCases(root));
+
+    WProperties persistence = new WProperties();
+    LocalArchiveSetting newInstall = new LocalArchiveSetting(persistence, false);
+    assertFalse(newInstall.getAsBoolean());
+    newInstall.set(true);
+    assertTrue(newInstall.getAsBoolean());
+    LocalArchiveSetting existingArchive = new LocalArchiveSetting(new WProperties(), true);
+    assertTrue(existingArchive.getAsBoolean());
+    existingArchive.set(false);
+    assertFalse(existingArchive.getAsBoolean());
   }
 
   private TrainingCaseStore store() {
