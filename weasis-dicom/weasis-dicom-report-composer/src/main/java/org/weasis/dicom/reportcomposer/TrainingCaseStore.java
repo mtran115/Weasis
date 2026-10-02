@@ -79,12 +79,16 @@ public final class TrainingCaseStore {
     return AppProperties.WEASIS_PATH.resolve("data/report-composer/training-v1");
   }
 
-  /** Whether any study already has an archived export, which makes archiving the default. */
+  /**
+   * Whether any study already has an archived export, which makes archiving the default. A store
+   * that exists but cannot be read counts as archived, so an existing archive is never purged.
+   */
   static boolean hasArchivedCases(Path root) {
+    if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) return false;
     try (var studies = Files.list(root)) {
       return studies.anyMatch(TrainingCaseStore::isArchived);
-    } catch (IOException | SecurityException error) {
-      return false;
+    } catch (IOException | UncheckedIOException | SecurityException error) {
+      return true;
     }
   }
 

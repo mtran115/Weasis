@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -401,6 +402,18 @@ class TrainingCaseStoreTest {
     assertTrue(existingArchive.getAsBoolean());
     existingArchive.set(false);
     assertFalse(existingArchive.getAsBoolean());
+  }
+
+  @Test
+  void anUnreadableStoreKeepsArchivingOn() throws Exception {
+    Path root = Files.createDirectories(temporary.resolve("store"));
+    Files.setPosixFilePermissions(root, PosixFilePermissions.fromString("---------"));
+    try {
+      assumeFalse(Files.isReadable(root), "Permissions are not enforced for this user.");
+      assertTrue(TrainingCaseStore.hasArchivedCases(root));
+    } finally {
+      Files.setPosixFilePermissions(root, PosixFilePermissions.fromString("rwx------"));
+    }
   }
 
   private TrainingCaseStore store() {
