@@ -12,8 +12,10 @@ PACKAGE=YES
 # jdk.jdwp.agent => package for debugging agent
 # Base modules for all platforms
 JDK_MODULES_BASE="java.base,java.compiler,java.datatransfer,java.net.http,java.desktop,java.logging,java.management,jdk.management,java.prefs,java.xml,jdk.localedata,jdk.charsets,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jdwp.agent,java.sql"
-NAME="Weasis"
-IDENTIFIER="org.weasis.launcher"
+# A derived app (e.g. package-report-composer.sh) can override its name, bundle identifier,
+# macOS resource folder, and shell port so it installs beside a regular Weasis.
+NAME="${WEASIS_APP_NAME:-Weasis}"
+IDENTIFIER="${WEASIS_APP_IDENTIFIER:-org.weasis.launcher}"
 
 # Aux functions:
 die ( ) {
@@ -135,7 +137,7 @@ if [ "$machine" = "windows" ] ; then
 else
   INPUT_PATH_UNIX="$INPUT_PATH"
   OUTPUT_PATH_UNIX="$OUTPUT_PATH"
-  RES="${curPath}/resources/$machine"
+  RES="${WEASIS_RESOURCE_DIR:-${curPath}/resources/$machine}"
 fi
 
 # Set custom JDK path (>= JDK 11)
@@ -265,7 +267,7 @@ else
   "--java-options" "-Dsun.awt.disablegrab=true" )
   declare -a signArgs=()
 fi
-declare -a commonOptions=("--java-options" "-Dgosh.port=17179" \
+declare -a commonOptions=("--java-options" "-Dgosh.port=${WEASIS_GOSH_PORT:-17179}" \
 "--java-options" "--enable-native-access=ALL-UNNAMED" \
 "--java-options" "-XX:MaxRAMPercentage=25" \
 "--java-options" "-XX:+UseStringDeduplication" \

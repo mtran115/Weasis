@@ -23,7 +23,7 @@
     },
     {
       "code": "org.osgi.framework.storage",
-      "value": "${dollar}{felix.cache.rootdir}/.weasis/cache",
+      "value": "${dollar}{felix.cache.rootdir}/.weasis-report-composer/cache",
       "description": "Location of the bundle cache (if not absolute concatenate with felix.cache.rootdir)",
       "type": "A",
       "category": "FELIX_CONFIG"
@@ -283,7 +283,7 @@
     },
     {
       "code": "weasis.name",
-      "value": "Weasis",
+      "value": "Weasis Report Composer",
       "description": "Change the name of the application everywhere in UI",
       "type": "AP",
       "category": "LAUNCH"
