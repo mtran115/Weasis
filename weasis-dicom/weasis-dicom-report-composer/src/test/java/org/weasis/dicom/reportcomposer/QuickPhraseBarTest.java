@@ -14,6 +14,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.event.KeyEvent;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.JButton;
 import javax.swing.JMenuItem;
@@ -100,7 +102,7 @@ class QuickPhraseBarTest {
         () -> {
           Fixture f = new Fixture(ExamTemplate.KNEE);
           f.text.setText("Existing study text.");
-          JMenuItem extra = (JMenuItem) f.bar.createMenu().getComponent(0);
+          JMenuItem extra = menuItem(f.bar, "Prepatellar bursitis");
           extra.doClick(0);
           assertTrue(f.text.getText().contains("Mild prepatellar bursitis."));
           String before = f.text.getText();
@@ -120,7 +122,7 @@ class QuickPhraseBarTest {
           Fixture f = new Fixture(ExamTemplate.LUMBAR_SPINE);
           button(f.bar, "Hemangioma").doClick(0);
           assertEquals("[level]", f.text.getSelectedText());
-          JMenuItem old = (JMenuItem) f.bar.createMenu().getComponent(0);
+          JMenuItem old = menuItem(f.bar, "Posterior fusion");
           f.bar.setAvailable(false);
           f.text.setEnabled(false);
           f.bar.insert(ReportQuickPhrases.MOTION);
@@ -167,6 +169,39 @@ class QuickPhraseBarTest {
           button(f.bar, "★ Custom").doClick(0);
           assertEquals("[side]", f.text.getSelectedText());
           assertEquals(1, f.library.find(pinned.id()).orElseThrow().usesFor(ExamTemplate.KNEE));
+        });
+  }
+
+  @Test
+  void moreGroupsTheRemainingShortcutsUnderCategoryHeadingsWithUnsortedLast() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture(ExamTemplate.KNEE);
+          f.library.save(
+              null, ExamTemplate.KNEE.name(), "Zz custom", "custom wording to file", false);
+          f.bar.setExam(ExamTemplate.KNEE);
+          List<JMenuItem> items =
+              Arrays.stream(f.bar.createMenu().getComponents())
+                  .filter(JMenuItem.class::isInstance)
+                  .map(JMenuItem.class::cast)
+                  .toList();
+          List<String> headings =
+              items.stream().filter(item -> !item.isEnabled()).map(JMenuItem::getText).toList();
+          assertEquals("Unsorted", headings.getLast());
+          assertEquals(
+              Arrays.stream(ShortcutCategory.values())
+                  .map(ShortcutCategory::label)
+                  .filter(headings::contains)
+                  .toList(),
+              headings.subList(0, headings.size() - 1),
+              "Categories appear in their fixed order.");
+          List<String> texts = items.stream().map(JMenuItem::getText).toList();
+          assertTrue(texts.indexOf("Zz custom") > texts.indexOf("Unsorted"));
+          assertTrue(
+              texts.indexOf("Prepatellar bursitis")
+                  > texts.indexOf(ShortcutCategory.SOFT_TISSUE_INCIDENTAL.label()));
+          menuItem(f.bar, "Zz custom").doClick(0);
+          assertEquals("custom wording to file", f.text.getText().strip());
         });
   }
 

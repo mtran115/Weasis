@@ -16,6 +16,8 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.GraphicsEnvironment;
 import java.awt.Window;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javax.swing.JButton;
@@ -146,6 +148,49 @@ class ShortcutDialogsTest {
     assertNull(failure.get(), () -> String.valueOf(failure.get()));
   }
 
+  @Test
+  void managerFiltersByCategoryAndSortsUnsortedShortcutsBySuggestion() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    SwingUtilities.invokeAndWait(
+        () -> {
+          try (var library = new ShortcutLibrary(null)) {
+            var tendon =
+                library.save(
+                    null, ExamTemplate.KNEE.name(), "Patellar", "mild patellar tendinosis", false);
+            var unclear =
+                library.save(
+                    null, ExamTemplate.KNEE.name(), "Unclear", "custom wording to file", false);
+            whenDialog(
+                "Manage shortcuts",
+                failure,
+                dialog -> {
+                  JTable table = child(dialog, JTable.class);
+                  JComboBox<?> categoryFilter = children(dialog, JComboBox.class).get(1);
+                  categoryFilter.setSelectedItem("Unsorted");
+                  assertEquals(2, table.getRowCount());
+                  button(dialog, "Sort 1 unsorted by suggestion").doClick(0);
+                  assertEquals(1, table.getRowCount());
+                  assertEquals("Unclear", table.getValueAt(0, 0));
+                  categoryFilter.setSelectedItem(ShortcutCategory.TENDONS_LIGAMENTS);
+                  List<Object> labels = new ArrayList<>();
+                  for (int row = 0; row < table.getRowCount(); row++) {
+                    labels.add(table.getValueAt(row, 0));
+                    assertEquals(
+                        ShortcutCategory.TENDONS_LIGAMENTS.label(), table.getValueAt(row, 2));
+                  }
+                  assertTrue(labels.contains("Patellar"));
+                  button(dialog, "Close").doClick(0);
+                });
+            ShortcutDialogs.manage(new JPanel(), library, ExamTemplate.KNEE, () -> {});
+            assertEquals("TENDONS_LIGAMENTS", library.find(tendon.id()).orElseThrow().category());
+            assertEquals(
+                ShortcutCategory.NONE, library.find(unclear.id()).orElseThrow().category());
+          }
+        });
+    assertNull(failure.get(), () -> String.valueOf(failure.get()));
+  }
+
   private static void whenDialog(
       String title, AtomicReference<Throwable> failure, Consumer<JDialog> action) {
     int[] attempts = {0};
@@ -181,6 +226,15 @@ class ShortcutDialogsTest {
       }
     }
     return null;
+  }
+
+  private static <T> List<T> children(Container root, Class<T> type) {
+    List<T> found = new ArrayList<>();
+    for (Component component : root.getComponents()) {
+      if (type.isInstance(component)) found.add(type.cast(component));
+      if (component instanceof Container child) found.addAll(children(child, type));
+    }
+    return found;
   }
 
   private static <T> T child(Container root, Class<T> type) {

@@ -13,6 +13,7 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
@@ -25,7 +26,9 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
@@ -407,12 +410,27 @@ final class QuickPhraseBar extends JPanel {
     return button;
   }
 
+  /** The shortcuts not shown as buttons, under their category headings, unsorted ones last. */
   JPopupMenu createMenu() {
     dismissMenu();
     JPopupMenu menu = new JPopupMenu();
-    for (Shortcut phrase : phrases.stream().skip(VISIBLE_PHRASES).toList()) {
-      addMenuPhrase(menu, phrase);
+    Map<String, List<Shortcut>> groups = new LinkedHashMap<>();
+    for (ShortcutCategory category : ShortcutCategory.values()) {
+      groups.put(category.name(), new ArrayList<>());
     }
+    groups.put(ShortcutCategory.NONE, new ArrayList<>());
+    phrases.stream()
+        .skip(VISIBLE_PHRASES)
+        .forEach(phrase -> groups.get(phrase.category()).add(phrase));
+    groups.forEach(
+        (category, members) -> {
+          if (members.isEmpty()) return;
+          if (menu.getComponentCount() > 0) menu.addSeparator();
+          menu.add(
+              heading(
+                  ShortcutCategory.of(category).map(ShortcutCategory::label).orElse("Unsorted")));
+          members.forEach(phrase -> addMenuPhrase(menu, phrase));
+        });
     if (menu.getComponentCount() == 0) {
       JMenuItem empty = new JMenuItem("All shortcuts are shown above");
       empty.setEnabled(false);
@@ -420,6 +438,13 @@ final class QuickPhraseBar extends JPanel {
     }
     popup = menu;
     return menu;
+  }
+
+  private static JMenuItem heading(String text) {
+    JMenuItem heading = new JMenuItem(text);
+    heading.setEnabled(false);
+    heading.setFont(heading.getFont().deriveFont(Font.BOLD));
+    return heading;
   }
 
   private void addMenuPhrase(JPopupMenu menu, Shortcut phrase) {

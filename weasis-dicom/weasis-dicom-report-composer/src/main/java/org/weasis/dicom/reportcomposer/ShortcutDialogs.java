@@ -20,8 +20,10 @@ import java.awt.event.MouseEvent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -48,6 +50,8 @@ import org.weasis.dicom.reportcomposer.ShortcutLibrary.Shortcut;
 final class ShortcutDialogs {
   private static final String ALL_EXAMS = "All exams";
   private static final String ALL_PARTS = "All body parts";
+  private static final String UNSORTED = "Unsorted";
+  private static final String ALL_CATEGORIES = "All categories";
 
   private ShortcutDialogs() {}
 
@@ -64,6 +68,7 @@ final class ShortcutDialogs {
     text.setLineWrap(true);
     text.setWrapStyleWord(true);
     JComboBox<Object> scope = scopes(false);
+    JComboBox<Object> category = categories(false);
     JCheckBox pinned = new JCheckBox("Pin near the top");
     String[] editingId = {existing == null ? null : existing.id()};
     if (existing == null) {
@@ -73,14 +78,34 @@ final class ShortcutDialogs {
       label.setText(suggestion.substring(0, Math.min(30, suggestion.length())));
       scope.setSelectedItem(exam);
       pinned.setSelected(true);
+      // Until the reader picks a category, it follows the wording as it is typed.
+      boolean[] categoryChosen = {false};
+      boolean[] suggesting = {false};
+      Runnable suggest =
+          () -> {
+            if (categoryChosen[0]) return;
+            suggesting[0] = true;
+            category.setSelectedItem(
+                categoryItem(suggestedCategory(label.getText(), text.getText())));
+            suggesting[0] = false;
+          };
+      suggest.run();
+      category.addActionListener(
+          event -> {
+            if (!suggesting[0]) categoryChosen[0] = true;
+          });
+      ComposerFormState.watch(text, suggest);
+      ComposerFormState.watch(label, suggest);
     } else {
-      fill(existing, label, text, scope, pinned);
+      fill(existing, label, text, scope, category, pinned);
     }
     JPanel fields = new JPanel(new GridLayout(0, 1, 0, 4));
     fields.add(new JLabel("Button label"));
     fields.add(label);
     fields.add(new JLabel("MRI body part"));
     fields.add(scope);
+    fields.add(new JLabel("Category"));
+    fields.add(category);
     fields.add(pinned);
     JPanel center = new JPanel(new BorderLayout(0, 5));
     center.add(
@@ -102,7 +127,7 @@ final class ShortcutDialogs {
                 "Existing shortcut")) {
               Shortcut match = duplicate.get();
               editingId[0] = match.id();
-              fill(match, label, text, scope, pinned);
+              fill(match, label, text, scope, category, pinned);
               dialog.setTitle("Edit shortcut");
               feedback.setText("Editing the existing shortcut; its usage counts are retained.");
             }
@@ -110,7 +135,12 @@ final class ShortcutDialogs {
           }
           try {
             library.save(
-                editingId[0], selectedScope, label.getText(), text.getText(), pinned.isSelected());
+                editingId[0],
+                selectedScope,
+                label.getText(),
+                text.getText(),
+                pinned.isSelected(),
+                categoryKey(category.getSelectedItem()));
             changed.run();
             dialog.dispose();
           } catch (IllegalArgumentException | IllegalStateException error) {
@@ -142,16 +172,22 @@ final class ShortcutDialogs {
     search.putClientProperty("JTextField.placeholderText", "Search labels and text");
     JComboBox<Object> filter = scopes(true);
     filter.setSelectedItem(exam);
+    JComboBox<Object> categoryFilter = categories(true);
+    JButton sort = new JButton();
+    sort.setToolTipText(
+        "File every unsorted shortcut, for all body parts, under the category its wording suggests."
+            + " Ones without a clear suggestion stay unsorted.");
     ShortcutTable model = new ShortcutTable();
     JTable table = new JTable(model);
     table.setAutoCreateRowSorter(true);
     table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     table.setRowHeight(Math.max(24, table.getRowHeight()));
     table.getColumnModel().getColumn(0).setPreferredWidth(155);
-    table.getColumnModel().getColumn(1).setPreferredWidth(130);
-    table.getColumnModel().getColumn(2).setPreferredWidth(50);
+    table.getColumnModel().getColumn(1).setPreferredWidth(110);
+    table.getColumnModel().getColumn(2).setPreferredWidth(150);
     table.getColumnModel().getColumn(3).setPreferredWidth(50);
-    table.getColumnModel().getColumn(4).setPreferredWidth(320);
+    table.getColumnModel().getColumn(4).setPreferredWidth(45);
+    table.getColumnModel().getColumn(5).setPreferredWidth(300);
     JTextArea preview = new JTextArea(4, 40);
     preview.setEditable(false);
     preview.setLineWrap(true);
@@ -164,21 +200,26 @@ final class ShortcutDialogs {
     JButton export = new JButton("Export…");
     JButton imports = new JButton("Import…");
     JButton close = new JButton("Close");
-    List<JButton> actions = List.of(edit, remove, add, export, imports, close);
+    List<JButton> actions = List.of(edit, remove, add, export, imports, close, sort);
     Runnable reload =
         () -> {
           String selectedId = selected(table, model) == null ? null : selected(table, model).id();
-          Object category = filter.getSelectedItem();
-          model.exam = category instanceof ExamTemplate e ? e : null;
+          Object bodyPart = filter.getSelectedItem();
+          Object shownCategory = categoryFilter.getSelectedItem();
+          model.exam = bodyPart instanceof ExamTemplate e ? e : null;
           String query = search.getText().strip().toLowerCase(Locale.ROOT);
           model.rows =
               library.all().stream()
                   .filter(
                       entry ->
-                          ALL_PARTS.equals(category)
-                              || (ALL_EXAMS.equals(category)
+                          ALL_PARTS.equals(bodyPart)
+                              || (ALL_EXAMS.equals(bodyPart)
                                   ? ShortcutLibrary.ALL.equals(entry.scope())
-                                  : entry.appliesTo((ExamTemplate) category)))
+                                  : entry.appliesTo((ExamTemplate) bodyPart)))
+                  .filter(
+                      entry ->
+                          ALL_CATEGORIES.equals(shownCategory)
+                              || entry.category().equals(categoryKey(shownCategory)))
                   .filter(
                       entry ->
                           (entry.label() + " " + entry.text())
@@ -186,6 +227,9 @@ final class ShortcutDialogs {
                               .contains(query))
                   .toList();
           model.fireTableDataChanged();
+          int sortable = suggestions(library).size();
+          sort.setText("Sort " + sortable + " unsorted by suggestion");
+          sort.setEnabled(sortable > 0 && table.isEnabled());
           for (int i = 0; i < model.rows.size(); i++) {
             if (model.rows.get(i).id().equals(selectedId)) {
               int view = table.convertRowIndexToView(i);
@@ -247,6 +291,20 @@ final class ShortcutDialogs {
           }
         });
     filter.addActionListener(event -> reload.run());
+    categoryFilter.addActionListener(event -> reload.run());
+    sort.addActionListener(
+        event -> {
+          int filed = library.categorize(suggestions(library));
+          refresh.run();
+          long left = library.all().stream().filter(entry -> entry.category().isEmpty()).count();
+          status.setText(
+              "Filed "
+                  + filed
+                  + (filed == 1 ? " shortcut" : " shortcuts")
+                  + "; "
+                  + left
+                  + " unsorted without a clear suggestion. Use Edit… to file those.");
+        });
     ComposerFormState.watch(search, reload);
     close.addActionListener(event -> dialog.dispose());
     for (boolean importing : List.of(true, false)) {
@@ -273,6 +331,7 @@ final class ShortcutDialogs {
                 actions.forEach(button -> button.setEnabled(false));
                 table.setEnabled(false);
                 filter.setEnabled(false);
+                categoryFilter.setEnabled(false);
                 search.setEnabled(false);
                 dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
                 status.setText(importing ? "Importing…" : "Exporting…");
@@ -297,6 +356,7 @@ final class ShortcutDialogs {
                     actions.forEach(button -> button.setEnabled(true));
                     table.setEnabled(true);
                     filter.setEnabled(true);
+                    categoryFilter.setEnabled(true);
                     search.setEnabled(true);
                     dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
                     refresh.run();
@@ -322,9 +382,13 @@ final class ShortcutDialogs {
                 }.execute();
               });
     }
+    JPanel filters = new JPanel(new GridLayout(1, 2, 6, 0));
+    filters.add(filter);
+    filters.add(categoryFilter);
     JPanel top = new JPanel(new BorderLayout(8, 4));
-    top.add(filter, BorderLayout.WEST);
+    top.add(filters, BorderLayout.WEST);
     top.add(search, BorderLayout.CENTER);
+    top.add(sort, BorderLayout.EAST);
     JPanel lower = new JPanel(new BorderLayout(0, 5));
     lower.add(new JScrollPane(preview), BorderLayout.CENTER);
     JPanel footer = new JPanel(new BorderLayout());
@@ -353,7 +417,12 @@ final class ShortcutDialogs {
   }
 
   private static void fill(
-      Shortcut entry, JTextField label, JTextArea text, JComboBox<Object> scope, JCheckBox pinned) {
+      Shortcut entry,
+      JTextField label,
+      JTextArea text,
+      JComboBox<Object> scope,
+      JComboBox<Object> category,
+      JCheckBox pinned) {
     label.setText(entry.label());
     text.setText(entry.text());
     text.setCaretPosition(0);
@@ -361,7 +430,41 @@ final class ShortcutDialogs {
         ShortcutLibrary.ALL.equals(entry.scope())
             ? ALL_EXAMS
             : ExamTemplate.valueOf(entry.scope()));
+    category.setSelectedItem(categoryItem(entry.category()));
     pinned.setSelected(entry.pinned());
+  }
+
+  private static JComboBox<Object> categories(boolean includeAll) {
+    List<Object> options = new ArrayList<>();
+    if (includeAll) options.add(ALL_CATEGORIES);
+    options.addAll(List.of(ShortcutCategory.values()));
+    options.add(UNSORTED);
+    return new JComboBox<>(options.toArray());
+  }
+
+  private static Object categoryItem(String stored) {
+    return ShortcutCategory.of(stored).<Object>map(category -> category).orElse(UNSORTED);
+  }
+
+  private static String categoryKey(Object selected) {
+    return selected instanceof ShortcutCategory category ? category.name() : ShortcutCategory.NONE;
+  }
+
+  private static String suggestedCategory(String label, String text) {
+    return ShortcutCategory.suggest(label, text)
+        .map(ShortcutCategory::name)
+        .orElse(ShortcutCategory.NONE);
+  }
+
+  /** Unsorted shortcuts whose wording suggests a category, by id. */
+  static Map<String, String> suggestions(ShortcutLibrary library) {
+    Map<String, String> result = new LinkedHashMap<>();
+    for (Shortcut entry : library.all()) {
+      if (!entry.category().isEmpty()) continue;
+      String suggestion = suggestedCategory(entry.label(), entry.text());
+      if (!suggestion.isEmpty()) result.put(entry.id(), suggestion);
+    }
+    return result;
   }
 
   private static JComboBox<Object> scopes(boolean includeAllParts) {
@@ -417,7 +520,9 @@ final class ShortcutDialogs {
   private static final class ShortcutTable extends AbstractTableModel {
     private List<Shortcut> rows = List.of();
     private ExamTemplate exam;
-    private static final String[] COLUMNS = {"Label", "Body part", "Pinned", "Uses", "Text"};
+    private static final String[] COLUMNS = {
+      "Label", "Body part", "Category", "Pinned", "Uses", "Text"
+    };
 
     @Override
     public int getRowCount() {
@@ -436,7 +541,7 @@ final class ShortcutDialogs {
 
     @Override
     public Class<?> getColumnClass(int column) {
-      return column == 2 ? Boolean.class : column == 3 ? Long.class : String.class;
+      return column == 3 ? Boolean.class : column == 4 ? Long.class : String.class;
     }
 
     @Override
@@ -448,8 +553,9 @@ final class ShortcutDialogs {
             ShortcutLibrary.ALL.equals(entry.scope())
                 ? ALL_EXAMS
                 : ExamTemplate.valueOf(entry.scope()).toString();
-        case 2 -> entry.pinned();
-        case 3 -> exam == null ? entry.totalUses() : entry.usesFor(exam);
+        case 2 -> categoryItem(entry.category()).toString();
+        case 3 -> entry.pinned();
+        case 4 -> exam == null ? entry.totalUses() : entry.usesFor(exam);
         default -> entry.text();
       };
     }

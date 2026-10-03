@@ -38,6 +38,8 @@ final class ShortcutLibrary implements AutoCloseable {
   static final String ALL = "ALL";
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final int MAX_SHORTCUTS = 5000;
+  // Version 2 adds categories; version 1 files load with every shortcut unsorted.
+  private static final int VERSION = 2;
   private final Path path;
   private final ExecutorService writer =
       Executors.newSingleThreadExecutor(
@@ -52,10 +54,28 @@ final class ShortcutLibrary implements AutoCloseable {
   private final Thread shutdownHook;
   private boolean closed;
 
+  /**
+   * @param category a {@link ShortcutCategory} name, or {@link ShortcutCategory#NONE} when unsorted
+   */
   record Shortcut(
-      String id, String scope, String label, String text, boolean pinned, Map<String, Long> uses) {
+      String id,
+      String scope,
+      String label,
+      String text,
+      boolean pinned,
+      Map<String, Long> uses,
+      String category) {
     Shortcut {
       uses = uses == null ? Map.of() : Map.copyOf(uses);
+      category = category == null ? ShortcutCategory.NONE : category;
+    }
+
+    Shortcut withUses(Map<String, Long> counts) {
+      return new Shortcut(id, scope, label, text, pinned, counts, category);
+    }
+
+    Shortcut withCategory(String value) {
+      return new Shortcut(id, scope, label, text, pinned, uses, value);
     }
 
     long usesFor(ExamTemplate exam) {
@@ -140,7 +160,17 @@ final class ShortcutLibrary implements AutoCloseable {
         .findFirst();
   }
 
+  /** Saves without changing the category of an existing shortcut; a new one starts unsorted. */
   synchronized Shortcut save(String id, String scope, String label, String text, boolean pinned) {
+    return save(id, scope, label, text, pinned, null);
+  }
+
+  /**
+   * @param category a {@link ShortcutCategory} name, {@link ShortcutCategory#NONE}, or {@code null}
+   *     to keep the existing shortcut's category
+   */
+  synchronized Shortcut save(
+      String id, String scope, String label, String text, boolean pinned, String category) {
     ensureWritable();
     Shortcut previous = id == null ? null : entries.get(id);
     if (id != null && previous == null)
@@ -152,7 +182,10 @@ final class ShortcutLibrary implements AutoCloseable {
             label.strip(),
             text,
             pinned,
-            previous == null ? Map.of() : previous.uses());
+            previous == null ? Map.of() : previous.uses(),
+            category != null
+                ? category
+                : previous == null ? ShortcutCategory.NONE : previous.category());
     validate(entry);
     if (duplicate(scope, text, id).isPresent()) {
       throw new IllegalArgumentException("This text already has a shortcut for this body part.");
@@ -162,6 +195,28 @@ final class ShortcutLibrary implements AutoCloseable {
     entries.put(entry.id(), entry);
     queueSave();
     return entry;
+  }
+
+  /**
+   * Files shortcuts under categories in one save, skipping ids that no longer exist.
+   *
+   * @param categories shortcut id to a {@link ShortcutCategory} name or {@link
+   *     ShortcutCategory#NONE}
+   * @return how many shortcuts changed
+   */
+  synchronized int categorize(Map<String, String> categories) {
+    ensureWritable();
+    categories.values().forEach(ShortcutCategory::of);
+    int changed = 0;
+    for (var assignment : categories.entrySet()) {
+      Shortcut entry = entries.get(assignment.getKey());
+      if (entry != null && !entry.category().equals(assignment.getValue())) {
+        entries.put(entry.id(), entry.withCategory(assignment.getValue()));
+        changed++;
+      }
+    }
+    if (changed > 0) queueSave();
+    return changed;
   }
 
   synchronized void remove(String id) {
@@ -174,8 +229,7 @@ final class ShortcutLibrary implements AutoCloseable {
     if (closed || entry == null || !entry.appliesTo(exam) || loadProblem != null) return;
     Map<String, Long> counts = new HashMap<>(entry.uses());
     counts.put(exam.name(), addCount(entry.usesFor(exam), 1));
-    entries.put(
-        id, new Shortcut(id, entry.scope(), entry.label(), entry.text(), entry.pinned(), counts));
+    entries.put(id, entry.withUses(counts));
     queueSave();
   }
 
@@ -225,6 +279,8 @@ final class ShortcutLibrary implements AutoCloseable {
               existing.id().equals(candidate.id()) && unchangedPreset(existing, presets)
                   ? candidate
                   : existing;
+          // The category follows the wording kept; an unsorted one takes the other's category.
+          Shortcut other = wording == candidate ? existing : candidate;
           merged.put(
               existing.id(),
               new Shortcut(
@@ -233,7 +289,8 @@ final class ShortcutLibrary implements AutoCloseable {
                   wording.label(),
                   wording.text(),
                   wording.pinned(),
-                  counts));
+                  counts,
+                  wording.category().isEmpty() ? other.category() : wording.category()));
           matched++;
         } else {
           Shortcut sameId = merged.get(candidate.id());
@@ -243,6 +300,10 @@ final class ShortcutLibrary implements AutoCloseable {
           Map<String, Long> counts = new HashMap<>(candidate.uses());
           if (replacePreset)
             sameId.uses().forEach((exam, count) -> counts.merge(exam, count, Math::max));
+          String category =
+              replacePreset && candidate.category().isEmpty()
+                  ? sameId.category()
+                  : candidate.category();
           merged.put(
               id,
               new Shortcut(
@@ -251,7 +312,8 @@ final class ShortcutLibrary implements AutoCloseable {
                   candidate.label(),
                   candidate.text(),
                   candidate.pinned(),
-                  counts));
+                  counts,
+                  category));
           if (replacePreset) matched++;
           else added++;
         }
@@ -280,7 +342,7 @@ final class ShortcutLibrary implements AutoCloseable {
   }
 
   private Archive archive() {
-    return new Archive("weasis-report-shortcuts", 1, List.copyOf(entries.values()));
+    return new Archive("weasis-report-shortcuts", VERSION, List.copyOf(entries.values()));
   }
 
   private void queueSave() {
@@ -304,7 +366,8 @@ final class ShortcutLibrary implements AutoCloseable {
       Archive archive = MAPPER.readValue(source.toFile(), Archive.class);
       if (archive == null
           || !"weasis-report-shortcuts".equals(archive.format())
-          || archive.version() != 1
+          || archive.version() < 1
+          || archive.version() > VERSION
           || archive.shortcuts() == null
           || archive.shortcuts().size() > MAX_SHORTCUTS) {
         throw new IllegalArgumentException("Unsupported shortcut file.");
@@ -337,6 +400,7 @@ final class ShortcutLibrary implements AutoCloseable {
           "Enter a label (up to 60 characters) and nonblank shortcut text (up to 20,000 characters).");
     }
     if (!ALL.equals(entry.scope())) ExamTemplate.valueOf(entry.scope());
+    ShortcutCategory.of(entry.category());
     entry
         .uses()
         .forEach(
@@ -385,7 +449,8 @@ final class ShortcutLibrary implements AutoCloseable {
                 phrase.label(),
                 phrase.text(),
                 false,
-                Map.of()));
+                Map.of(),
+                suggestedCategory(phrase)));
       }
     }
     List<ReportQuickPhrases.Phrase> common =
@@ -394,9 +459,22 @@ final class ShortcutLibrary implements AutoCloseable {
     for (int i = 0; i < common.size(); i++) {
       var phrase = common.get(i);
       result.add(
-          new Shortcut("default-ALL-" + i, ALL, phrase.label(), phrase.text(), false, Map.of()));
+          new Shortcut(
+              "default-ALL-" + i,
+              ALL,
+              phrase.label(),
+              phrase.text(),
+              false,
+              Map.of(),
+              suggestedCategory(phrase)));
     }
     return result;
+  }
+
+  private static String suggestedCategory(ReportQuickPhrases.Phrase phrase) {
+    return ShortcutCategory.suggest(phrase.label(), phrase.text())
+        .map(ShortcutCategory::name)
+        .orElse(ShortcutCategory.NONE);
   }
 
   @Override

@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -49,6 +50,107 @@ class ShortcutLibraryTest {
       assertTrue(restored.find("default-ALL-0").isEmpty());
       assertEquals(id, restored.ranked(ExamTemplate.LUMBAR_SPINE).getFirst().id());
       assertFalse(restored.ranked(ExamTemplate.KNEE).contains(entry));
+    }
+  }
+
+  @Test
+  void builtInShortcutsStartFiledAndOtherSavesKeepTheCategory() {
+    try (var library = new ShortcutLibrary(null)) {
+      assertTrue(library.all().stream().noneMatch(entry -> entry.category().isEmpty()));
+      assertEquals(
+          ShortcutCategory.POSTOP_HARDWARE.name(),
+          library.all().stream()
+              .filter(entry -> entry.label().equals("ACL reconstruction"))
+              .findFirst()
+              .orElseThrow()
+              .category());
+      var custom = library.save(null, ExamTemplate.KNEE.name(), "Custom", "custom wording", false);
+      assertEquals(ShortcutCategory.NONE, custom.category());
+      var filed =
+          library.save(custom.id(), custom.scope(), "Custom", custom.text(), false, "BONE_MARROW");
+      assertEquals("BONE_MARROW", filed.category());
+      assertEquals(
+          "BONE_MARROW",
+          library.save(custom.id(), custom.scope(), "Renamed", custom.text(), true).category(),
+          "Saving without a category keeps the existing one.");
+      library.recordUse(custom.id(), ExamTemplate.KNEE);
+      assertEquals("BONE_MARROW", library.find(custom.id()).orElseThrow().category());
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> library.save(null, ExamTemplate.KNEE.name(), "Bad", "bad", false, "ORGANS"));
+    }
+  }
+
+  @Test
+  void categorizingFilesShortcutsInOneSaveAndChangesNothingOnABadCategory() throws Exception {
+    Path file = temporary.resolve("library.json");
+    try (var library = new ShortcutLibrary(file)) {
+      var first = library.save(null, ExamTemplate.KNEE.name(), "First", "first wording", false);
+      var second = library.save(null, ExamTemplate.KNEE.name(), "Second", "second wording", false);
+      var before = library.all();
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> library.categorize(Map.of(first.id(), "LIMITATIONS", second.id(), "ORGANS")));
+      assertEquals(before, library.all());
+      assertEquals(
+          2,
+          library.categorize(
+              Map.of(
+                  first.id(), "LIMITATIONS", second.id(), "BONE_MARROW", "gone", "LIMITATIONS")));
+      assertEquals(0, library.categorize(Map.of(first.id(), "LIMITATIONS")));
+      library.pendingSave().get();
+    }
+    try (var restored = new ShortcutLibrary(file)) {
+      assertEquals(
+          "BONE_MARROW",
+          restored.all().stream()
+              .filter(entry -> entry.label().equals("Second"))
+              .findFirst()
+              .orElseThrow()
+              .category());
+    }
+  }
+
+  @Test
+  void versionOneLibrariesLoadUnsortedAndAreSavedAsVersionTwo() throws Exception {
+    Path file = temporary.resolve("library.json");
+    Files.writeString(
+        file,
+        """
+        {"format": "weasis-report-shortcuts", "version": 1, "shortcuts": [
+          {"id": "mine", "scope": "KNEE", "label": "Mine", "text": "my wording",
+           "pinned": false, "uses": {"KNEE": 3}}]}
+        """);
+    try (var library = new ShortcutLibrary(file)) {
+      assertNull(library.loadProblem());
+      var mine = library.find("mine").orElseThrow();
+      assertEquals(ShortcutCategory.NONE, mine.category());
+      assertEquals(3, mine.usesFor(ExamTemplate.KNEE));
+      library.categorize(Map.of("mine", "JOINT_DEGENERATIVE"));
+      library.pendingSave().get();
+    }
+    var saved = new ObjectMapper().readTree(file.toFile());
+    assertEquals(2, saved.path("version").asInt());
+    assertEquals("JOINT_DEGENERATIVE", saved.path("shortcuts").get(0).path("category").asText());
+  }
+
+  @Test
+  void importsCarryCategoriesAndOnlyFillUnsortedLocalShortcuts() throws Exception {
+    Path backup = temporary.resolve("backup.json");
+    try (var source = new ShortcutLibrary(null);
+        var target = new ShortcutLibrary(null)) {
+      String knee = ExamTemplate.KNEE.name();
+      source.save(null, knee, "Shared", "shared wording", false, "BONE_MARROW");
+      source.save(null, knee, "Also shared", "also shared wording", false, "LIMITATIONS");
+      var added = source.save(null, knee, "New", "only in the backup", false, "JOINT_DEGENERATIVE");
+      source.exportTo(backup);
+      var unsorted = target.save(null, knee, "Local", "shared wording", false);
+      var filed =
+          target.save(null, knee, "Filed", "also shared wording", false, "SOFT_TISSUE_INCIDENTAL");
+      target.importFrom(backup);
+      assertEquals("BONE_MARROW", target.find(unsorted.id()).orElseThrow().category());
+      assertEquals("SOFT_TISSUE_INCIDENTAL", target.find(filed.id()).orElseThrow().category());
+      assertEquals("JOINT_DEGENERATIVE", target.find(added.id()).orElseThrow().category());
     }
   }
 
@@ -150,7 +252,8 @@ class ShortcutLibraryTest {
       library.pendingSave().get();
       String saved = Files.readString(file);
       var before = library.all();
-      Files.writeString(invalid, saved.replace("\"version\" : 1", "\"version\" : 999"));
+      assertTrue(saved.contains("\"version\" : 2"));
+      Files.writeString(invalid, saved.replace("\"version\" : 2", "\"version\" : 999"));
       assertThrows(IOException.class, () -> library.importFrom(invalid));
       assertEquals(before, library.all());
       var tree = new ObjectMapper().readTree(saved);
