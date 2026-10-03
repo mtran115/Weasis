@@ -17,6 +17,8 @@ import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -24,15 +26,22 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Supplier;
 import javax.swing.BorderFactory;
+import javax.swing.DefaultCellEditor;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
@@ -180,30 +189,38 @@ final class ShortcutDialogs {
     ShortcutTable model = new ShortcutTable();
     JTable table = new JTable(model);
     table.setAutoCreateRowSorter(true);
-    table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+    table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
     table.setRowHeight(Math.max(24, table.getRowHeight()));
+    table.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
     table.getColumnModel().getColumn(0).setPreferredWidth(155);
     table.getColumnModel().getColumn(1).setPreferredWidth(110);
     table.getColumnModel().getColumn(2).setPreferredWidth(150);
     table.getColumnModel().getColumn(3).setPreferredWidth(50);
     table.getColumnModel().getColumn(4).setPreferredWidth(45);
     table.getColumnModel().getColumn(5).setPreferredWidth(300);
+    table.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(scopes(false)));
+    table.getColumnModel().getColumn(2).setCellEditor(new DefaultCellEditor(categories(false)));
     JTextArea preview = new JTextArea(4, 40);
-    preview.setEditable(false);
     preview.setLineWrap(true);
     preview.setWrapStyleWord(true);
+    JButton saveText = new JButton("Save text");
+    JButton revertText = new JButton("Revert");
+    Shortcut[] previewed = {null};
     JLabel status =
-        new JLabel("Counts are for the selected body part; broader filters show totals.");
+        new JLabel(
+            "Click a body part, category, or pin to change it; double-click a label to rename it.");
     JButton edit = new JButton("Edit…");
     JButton remove = new JButton("Delete");
+    JButton change = new JButton("Change selected…");
+    change.setToolTipText("Move, pin, or delete the selected shortcuts");
     JButton add = new JButton("New…");
     JButton export = new JButton("Export…");
     JButton imports = new JButton("Import…");
     JButton close = new JButton("Close");
-    List<JButton> actions = List.of(edit, remove, add, export, imports, close, sort);
+    List<JButton> actions = List.of(edit, remove, change, add, export, imports, close, sort);
     Runnable reload =
         () -> {
-          String selectedId = selected(table, model) == null ? null : selected(table, model).id();
+          List<String> selectedIds = selectedAll(table, model).stream().map(Shortcut::id).toList();
           Object bodyPart = filter.getSelectedItem();
           Object shownCategory = categoryFilter.getSelectedItem();
           model.exam = bodyPart instanceof ExamTemplate e ? e : null;
@@ -231,10 +248,9 @@ final class ShortcutDialogs {
           sort.setText("Sort " + sortable + " unsorted by suggestion");
           sort.setEnabled(sortable > 0 && table.isEnabled());
           for (int i = 0; i < model.rows.size(); i++) {
-            if (model.rows.get(i).id().equals(selectedId)) {
+            if (selectedIds.contains(model.rows.get(i).id())) {
               int view = table.convertRowIndexToView(i);
-              table.setRowSelectionInterval(view, view);
-              break;
+              table.addRowSelectionInterval(view, view);
             }
           }
         };
@@ -243,31 +259,236 @@ final class ShortcutDialogs {
           changed.run();
           reload.run();
         };
+    Runnable updatePreviewButtons =
+        () -> {
+          boolean dirty = previewed[0] != null && !preview.getText().equals(previewed[0].text());
+          saveText.setEnabled(dirty);
+          revertText.setEnabled(dirty);
+        };
+    // Unsaved wording in the preview is offered for saving before it is replaced or closed.
+    Runnable settlePreview =
+        () -> {
+          Shortcut entry = previewed[0];
+          if (entry == null || preview.getText().equals(entry.text())) return;
+          if (confirm(
+              dialog, "Save your text changes to “" + entry.label() + "”?", "Shortcut text")) {
+            saveTextChange(dialog, library, entry, preview.getText(), status);
+          }
+          previewed[0] = null;
+        };
+    Runnable showSelection =
+        () -> {
+          settlePreview.run();
+          List<Shortcut> chosen = selectedAll(table, model);
+          edit.setEnabled(chosen.size() == 1);
+          remove.setEnabled(!chosen.isEmpty());
+          change.setEnabled(!chosen.isEmpty());
+          previewed[0] = chosen.size() == 1 ? chosen.getFirst() : null;
+          preview.setEditable(previewed[0] != null);
+          preview.setText(
+              switch (chosen.size()) {
+                case 0 -> "Select a shortcut to see and edit its full text.";
+                case 1 -> chosen.getFirst().text();
+                default ->
+                    chosen.size()
+                        + " shortcuts selected. Use Change selected… or right-click to move, pin,"
+                        + " or delete them together.";
+              });
+          preview.setCaretPosition(0);
+          updatePreviewButtons.run();
+        };
     Runnable editSelected =
         () -> {
-          Shortcut entry = selected(table, model);
-          if (entry != null) edit(dialog, library, exam, entry, null, refresh);
+          List<Shortcut> chosen = selectedAll(table, model);
+          if (chosen.size() == 1) edit(dialog, library, exam, chosen.getFirst(), null, refresh);
+        };
+    Runnable deleteSelected =
+        () -> {
+          List<Shortcut> chosen = selectedAll(table, model);
+          if (chosen.isEmpty()) return;
+          boolean single = chosen.size() == 1;
+          String message =
+              single
+                  ? "Delete “" + chosen.getFirst().label() + "”? Existing study text will be kept."
+                  : "Delete " + chosen.size() + " shortcuts? Existing study text will be kept.";
+          if (confirm(dialog, message, single ? "Delete shortcut" : "Delete shortcuts")) {
+            previewed[0] = null;
+            chosen.forEach(entry -> library.remove(entry.id()));
+            refresh.run();
+            status.setText(single ? "Shortcut deleted." : chosen.size() + " shortcuts deleted.");
+          }
+        };
+    model.onEdit =
+        (row, column, value) -> {
+          // Rows refresh after each change, so start from the library's latest copy.
+          Shortcut entry = library.find(row.id()).orElse(null);
+          if (entry == null) return;
+          try {
+            switch (column) {
+              case 0 ->
+                  library.save(
+                      entry.id(),
+                      entry.scope(),
+                      String.valueOf(value),
+                      entry.text(),
+                      entry.pinned());
+              case 1 ->
+                  library.save(
+                      entry.id(), scopeKey(value), entry.label(), entry.text(), entry.pinned());
+              case 2 -> library.categorize(Map.of(entry.id(), categoryKey(value)));
+              case 3 ->
+                  library.save(
+                      entry.id(),
+                      entry.scope(),
+                      entry.label(),
+                      entry.text(),
+                      Boolean.TRUE.equals(value));
+              default -> {
+                return;
+              }
+            }
+            status.setText("Saved “" + entry.label() + "”.");
+          } catch (IllegalArgumentException | IllegalStateException error) {
+            ComposerDialogSupport.showMessage(
+                dialog,
+                error.getMessage(),
+                "Shortcut could not be saved",
+                JOptionPane.WARNING_MESSAGE);
+          }
+          // A cell editor is still closing while it commits; rebuild the rows once it has.
+          if (table.isEditing()) SwingUtilities.invokeLater(refresh);
+          else refresh.run();
+        };
+    Supplier<JPopupMenu> selectionMenu =
+        () -> {
+          List<Shortcut> chosen =
+              selectedAll(table, model).stream()
+                  .map(entry -> library.find(entry.id()))
+                  .flatMap(Optional::stream)
+                  .toList();
+          JPopupMenu menu = new JPopupMenu();
+          JMenu toCategory = new JMenu("Move to category");
+          for (Object option : categoryOptions()) {
+            JMenuItem item = new JMenuItem(option.toString());
+            item.addActionListener(
+                event -> {
+                  Map<String, String> assignments = new LinkedHashMap<>();
+                  chosen.forEach(entry -> assignments.put(entry.id(), categoryKey(option)));
+                  int filed = library.categorize(assignments);
+                  refresh.run();
+                  status.setText(
+                      "Moved "
+                          + filed
+                          + (filed == 1 ? " shortcut" : " shortcuts")
+                          + " to "
+                          + option
+                          + ".");
+                });
+            toCategory.add(item);
+          }
+          menu.add(toCategory);
+          JMenu toBodyPart = new JMenu("Move to body part");
+          for (Object option : scopeOptions()) {
+            JMenuItem item = new JMenuItem(option.toString());
+            item.addActionListener(
+                event -> {
+                  String scope = scopeKey(option);
+                  int moved = 0;
+                  int skipped = 0;
+                  for (Shortcut entry : chosen) {
+                    if (entry.scope().equals(scope)) continue;
+                    try {
+                      library.save(entry.id(), scope, entry.label(), entry.text(), entry.pinned());
+                      moved++;
+                    } catch (IllegalArgumentException duplicate) {
+                      skipped++;
+                    }
+                  }
+                  refresh.run();
+                  status.setText(
+                      "Moved "
+                          + moved
+                          + (moved == 1 ? " shortcut" : " shortcuts")
+                          + " to "
+                          + option
+                          + (skipped > 0
+                              ? "; "
+                                  + skipped
+                                  + " skipped because that body part already has the same text."
+                              : "."));
+                });
+            toBodyPart.add(item);
+          }
+          menu.add(toBodyPart);
+          boolean allPinned = chosen.stream().allMatch(Shortcut::pinned);
+          JMenuItem pin = new JMenuItem(allPinned ? "Unpin" : "Pin near the top");
+          pin.addActionListener(
+              event -> {
+                chosen.forEach(
+                    entry ->
+                        library.save(
+                            entry.id(), entry.scope(), entry.label(), entry.text(), !allPinned));
+                refresh.run();
+                status.setText((allPinned ? "Unpinned " : "Pinned ") + chosen.size() + ".");
+              });
+          menu.add(pin);
+          menu.addSeparator();
+          JMenuItem delete =
+              new JMenuItem(chosen.size() == 1 ? "Delete…" : "Delete " + chosen.size() + "…");
+          delete.addActionListener(event -> deleteSelected.run());
+          menu.add(delete);
+          return menu;
         };
     table
         .getSelectionModel()
         .addListSelectionListener(
             event -> {
-              Shortcut entry = selected(table, model);
-              edit.setEnabled(entry != null);
-              remove.setEnabled(entry != null);
-              preview.setText(
-                  entry == null ? "Select a shortcut to see its full text." : entry.text());
-              preview.setCaretPosition(0);
+              if (!event.getValueIsAdjusting()) showSelection.run();
             });
+    ComposerFormState.watch(preview, updatePreviewButtons);
+    saveText.addActionListener(
+        event -> {
+          Shortcut entry = previewed[0];
+          if (entry != null && saveTextChange(dialog, library, entry, preview.getText(), status)) {
+            previewed[0] = null;
+            refresh.run();
+          }
+        });
+    revertText.addActionListener(
+        event -> {
+          if (previewed[0] != null) preview.setText(previewed[0].text());
+        });
     table.addMouseListener(
         new MouseAdapter() {
           @Override
+          public void mousePressed(MouseEvent event) {
+            showMenu(event);
+          }
+
+          @Override
+          public void mouseReleased(MouseEvent event) {
+            showMenu(event);
+          }
+
+          @Override
           public void mouseClicked(MouseEvent event) {
+            int column = table.convertColumnIndexToModel(table.columnAtPoint(event.getPoint()));
+            // Editable cells handle their own clicks; the uses and text columns open the editor.
             if (table.isEnabled()
                 && event.getClickCount() == 2
-                && SwingUtilities.isLeftMouseButton(event)) editSelected.run();
+                && SwingUtilities.isLeftMouseButton(event)
+                && !model.isCellEditable(0, column)) editSelected.run();
+          }
+
+          private void showMenu(MouseEvent event) {
+            if (!event.isPopupTrigger() || !table.isEnabled()) return;
+            int row = table.rowAtPoint(event.getPoint());
+            if (row < 0) return;
+            if (!table.isRowSelected(row)) table.setRowSelectionInterval(row, row);
+            selectionMenu.get().show(table, event.getX(), event.getY());
           }
         });
+    change.addActionListener(event -> selectionMenu.get().show(change, 0, change.getHeight()));
     edit.addActionListener(event -> editSelected.run());
     add.addActionListener(
         event ->
@@ -278,18 +499,7 @@ final class ShortcutDialogs {
                 null,
                 "",
                 refresh));
-    remove.addActionListener(
-        event -> {
-          Shortcut entry = selected(table, model);
-          if (entry != null
-              && confirm(
-                  dialog,
-                  "Delete “" + entry.label() + "”? Existing study text will be kept.",
-                  "Delete shortcut")) {
-            library.remove(entry.id());
-            refresh.run();
-          }
-        });
+    remove.addActionListener(event -> deleteSelected.run());
     filter.addActionListener(event -> reload.run());
     categoryFilter.addActionListener(event -> reload.run());
     sort.addActionListener(
@@ -303,10 +513,23 @@ final class ShortcutDialogs {
                   + (filed == 1 ? " shortcut" : " shortcuts")
                   + "; "
                   + left
-                  + " unsorted without a clear suggestion. Use Edit… to file those.");
+                  + " unsorted without a clear suggestion. Click their category to file them.");
         });
     ComposerFormState.watch(search, reload);
-    close.addActionListener(event -> dialog.dispose());
+    close.addActionListener(
+        event -> {
+          settlePreview.run();
+          dialog.dispose();
+        });
+    dialog.addWindowListener(
+        new WindowAdapter() {
+          @Override
+          public void windowClosing(WindowEvent event) {
+            if (dialog.getDefaultCloseOperation() == WindowConstants.DISPOSE_ON_CLOSE) {
+              settlePreview.run();
+            }
+          }
+        });
     for (boolean importing : List.of(true, false)) {
       (importing ? imports : export)
           .addActionListener(
@@ -360,8 +583,7 @@ final class ShortcutDialogs {
                     search.setEnabled(true);
                     dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
                     refresh.run();
-                    edit.setEnabled(selected(table, model) != null);
-                    remove.setEnabled(selected(table, model) != null);
+                    showSelection.run();
                     try {
                       status.setText(get());
                     } catch (Exception error) {
@@ -391,8 +613,9 @@ final class ShortcutDialogs {
     top.add(sort, BorderLayout.EAST);
     JPanel lower = new JPanel(new BorderLayout(0, 5));
     lower.add(new JScrollPane(preview), BorderLayout.CENTER);
+    lower.add(row(revertText, saveText), BorderLayout.EAST);
     JPanel footer = new JPanel(new BorderLayout());
-    footer.add(row(add, edit, remove, imports, export, close), BorderLayout.NORTH);
+    footer.add(row(add, edit, change, remove, imports, export, close), BorderLayout.NORTH);
     footer.add(status, BorderLayout.SOUTH);
     lower.add(footer, BorderLayout.SOUTH);
     JPanel content = content();
@@ -403,17 +626,31 @@ final class ShortcutDialogs {
     content.add(lower, BorderLayout.SOUTH);
     dialog.setContentPane(content);
     reload.run();
-    edit.setEnabled(false);
-    remove.setEnabled(false);
-    preview.setText("Select a shortcut to see its full text.");
+    showSelection.run();
     show(dialog, parent);
   }
 
-  private static Shortcut selected(JTable table, ShortcutTable model) {
-    int selected = table.getSelectedRow();
-    if (selected < 0 || selected >= table.getRowCount()) return null;
-    int row = table.convertRowIndexToModel(selected);
-    return row < model.rows.size() ? model.rows.get(row) : null;
+  private static List<Shortcut> selectedAll(JTable table, ShortcutTable model) {
+    List<Shortcut> result = new ArrayList<>();
+    for (int view : table.getSelectedRows()) {
+      int row = table.convertRowIndexToModel(view);
+      if (row < model.rows.size()) result.add(model.rows.get(row));
+    }
+    return result;
+  }
+
+  /** Saves edited wording, explaining why when it cannot be saved (for example a duplicate). */
+  private static boolean saveTextChange(
+      Component parent, ShortcutLibrary library, Shortcut entry, String text, JLabel status) {
+    try {
+      library.save(entry.id(), entry.scope(), entry.label(), text, entry.pinned());
+      status.setText("Saved the text of “" + entry.label() + "”.");
+      return true;
+    } catch (IllegalArgumentException | IllegalStateException error) {
+      ComposerDialogSupport.showMessage(
+          parent, error.getMessage(), "Shortcut could not be saved", JOptionPane.WARNING_MESSAGE);
+      return false;
+    }
   }
 
   private static void fill(
@@ -437,8 +674,7 @@ final class ShortcutDialogs {
   private static JComboBox<Object> categories(boolean includeAll) {
     List<Object> options = new ArrayList<>();
     if (includeAll) options.add(ALL_CATEGORIES);
-    options.addAll(List.of(ShortcutCategory.values()));
-    options.add(UNSORTED);
+    options.addAll(categoryOptions());
     return new JComboBox<>(options.toArray());
   }
 
@@ -470,9 +706,21 @@ final class ShortcutDialogs {
   private static JComboBox<Object> scopes(boolean includeAllParts) {
     List<Object> options = new ArrayList<>();
     if (includeAllParts) options.add(ALL_PARTS);
+    options.addAll(scopeOptions());
+    return new JComboBox<>(options.toArray());
+  }
+
+  private static List<Object> scopeOptions() {
+    List<Object> options = new ArrayList<>();
     options.add(ALL_EXAMS);
     options.addAll(List.of(ExamTemplate.values()));
-    return new JComboBox<>(options.toArray());
+    return options;
+  }
+
+  private static List<Object> categoryOptions() {
+    List<Object> options = new ArrayList<>(List.of(ShortcutCategory.values()));
+    options.add(UNSORTED);
+    return options;
   }
 
   private static String scopeKey(Object selected) {
@@ -518,8 +766,15 @@ final class ShortcutDialogs {
   }
 
   private static final class ShortcutTable extends AbstractTableModel {
+    /** Applies an in-place change to a shortcut: its label, body part, category, or pin. */
+    @FunctionalInterface
+    interface CellEdit {
+      void apply(Shortcut entry, int column, Object value);
+    }
+
     private List<Shortcut> rows = List.of();
     private ExamTemplate exam;
+    private CellEdit onEdit;
     private static final String[] COLUMNS = {
       "Label", "Body part", "Category", "Pinned", "Uses", "Text"
     };
@@ -541,7 +796,24 @@ final class ShortcutDialogs {
 
     @Override
     public Class<?> getColumnClass(int column) {
-      return column == 3 ? Boolean.class : column == 4 ? Long.class : String.class;
+      return switch (column) {
+        case 1, 2 -> Object.class;
+        case 3 -> Boolean.class;
+        case 4 -> Long.class;
+        default -> String.class;
+      };
+    }
+
+    @Override
+    public boolean isCellEditable(int row, int column) {
+      return column <= 3;
+    }
+
+    @Override
+    public void setValueAt(Object value, int row, int column) {
+      if (onEdit != null && row < rows.size() && !Objects.equals(value, getValueAt(row, column))) {
+        onEdit.apply(rows.get(row), column, value);
+      }
     }
 
     @Override
@@ -552,8 +824,8 @@ final class ShortcutDialogs {
         case 1 ->
             ShortcutLibrary.ALL.equals(entry.scope())
                 ? ALL_EXAMS
-                : ExamTemplate.valueOf(entry.scope()).toString();
-        case 2 -> categoryItem(entry.category()).toString();
+                : ExamTemplate.valueOf(entry.scope());
+        case 2 -> categoryItem(entry.category());
         case 3 -> entry.pinned();
         case 4 -> exam == null ? entry.totalUses() : entry.usesFor(exam);
         default -> entry.text();

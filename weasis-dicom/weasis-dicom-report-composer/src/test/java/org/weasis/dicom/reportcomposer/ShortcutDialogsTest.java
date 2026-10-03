@@ -24,10 +24,15 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
+import javax.swing.JMenu;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.MenuElement;
+import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import org.junit.jupiter.api.Test;
@@ -177,7 +182,8 @@ class ShortcutDialogsTest {
                   for (int row = 0; row < table.getRowCount(); row++) {
                     labels.add(table.getValueAt(row, 0));
                     assertEquals(
-                        ShortcutCategory.TENDONS_LIGAMENTS.label(), table.getValueAt(row, 2));
+                        ShortcutCategory.TENDONS_LIGAMENTS.label(),
+                        String.valueOf(table.getValueAt(row, 2)));
                   }
                   assertTrue(labels.contains("Patellar"));
                   button(dialog, "Close").doClick(0);
@@ -189,6 +195,102 @@ class ShortcutDialogsTest {
           }
         });
     assertNull(failure.get(), () -> String.valueOf(failure.get()));
+  }
+
+  @Test
+  void managerEditsCellsInPlaceAndChangesSelectedRowsTogether() throws Exception {
+    assumeFalse(GraphicsEnvironment.isHeadless());
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    SwingUtilities.invokeAndWait(
+        () -> {
+          try (var library = new ShortcutLibrary(null)) {
+            String knee = ExamTemplate.KNEE.name();
+            var first = library.save(null, knee, "First", "first wording", false);
+            var second = library.save(null, knee, "Second", "second wording", false);
+            var third = library.save(null, knee, "Third", "third wording", false);
+            library.save(null, ExamTemplate.SHOULDER.name(), "Taken", "third wording", false);
+            whenDialog(
+                "Manage shortcuts",
+                failure,
+                dialog -> {
+                  JTable table = child(dialog, JTable.class);
+                  child(dialog, JTextField.class).setText("wording");
+                  table.setValueAt(ShortcutCategory.BONE_MARROW, row(table, "First"), 2);
+                  table.setValueAt(true, row(table, "First"), 3);
+                  table.setValueAt("Renamed", row(table, "First"), 0);
+                  var edited = library.find(first.id()).orElseThrow();
+                  assertEquals("BONE_MARROW", edited.category());
+                  assertTrue(edited.pinned());
+                  assertEquals("Renamed", edited.label());
+
+                  int renamed = row(table, "Renamed");
+                  table.setRowSelectionInterval(renamed, renamed);
+                  JTextArea preview = children(dialog, JTextArea.class).getLast();
+                  assertTrue(preview.isEditable());
+                  preview.setText("first wording, edited");
+                  button(dialog, "Save text").doClick(0);
+                  assertEquals(
+                      "first wording, edited", library.find(first.id()).orElseThrow().text());
+
+                  table.clearSelection();
+                  table.addRowSelectionInterval(row(table, "Second"), row(table, "Second"));
+                  table.addRowSelectionInterval(row(table, "Third"), row(table, "Third"));
+                  assertFalse(preview.isEditable());
+                  choose("Move to category", ShortcutCategory.JOINT_DEGENERATIVE.label(), dialog);
+                  assertEquals(
+                      "JOINT_DEGENERATIVE", library.find(second.id()).orElseThrow().category());
+                  assertEquals(
+                      "JOINT_DEGENERATIVE", library.find(third.id()).orElseThrow().category());
+                  choose("Move to body part", ExamTemplate.SHOULDER.toString(), dialog);
+                  assertEquals(
+                      ExamTemplate.SHOULDER.name(),
+                      library.find(second.id()).orElseThrow().scope());
+                  assertEquals(
+                      knee, library.find(third.id()).orElseThrow().scope(), "Duplicate text.");
+
+                  table.clearSelection();
+                  table.addRowSelectionInterval(row(table, "Renamed"), row(table, "Renamed"));
+                  table.addRowSelectionInterval(row(table, "Third"), row(table, "Third"));
+                  whenDialog(
+                      "Delete shortcuts",
+                      failure,
+                      confirmation -> button(confirmation, "Yes").doClick(0));
+                  button(dialog, "Delete").doClick(0);
+                  assertTrue(library.find(first.id()).isEmpty());
+                  assertTrue(library.find(third.id()).isEmpty());
+                  button(dialog, "Close").doClick(0);
+                });
+            ShortcutDialogs.manage(new JPanel(), library, ExamTemplate.KNEE, () -> {});
+            assertTrue(library.find(second.id()).isPresent());
+          }
+        });
+    assertNull(failure.get(), () -> String.valueOf(failure.get()));
+  }
+
+  /** Opens Change selected… and clicks {@code item} in its {@code submenu}. */
+  private static void choose(String submenu, String item, JDialog dialog) {
+    button(dialog, "Change selected…").doClick(0);
+    MenuElement[] path = MenuSelectionManager.defaultManager().getSelectedPath();
+    JPopupMenu menu = (JPopupMenu) path[0];
+    MenuSelectionManager.defaultManager().clearSelectedPath();
+    for (Component component : menu.getComponents()) {
+      if (component instanceof JMenu group && group.getText().equals(submenu)) {
+        for (Component option : group.getMenuComponents()) {
+          if (option instanceof JMenuItem choice && choice.getText().equals(item)) {
+            choice.doClick(0);
+            return;
+          }
+        }
+      }
+    }
+    throw new AssertionError("Missing menu item: " + submenu + " › " + item);
+  }
+
+  private static int row(JTable table, String label) {
+    for (int row = 0; row < table.getRowCount(); row++) {
+      if (label.equals(table.getValueAt(row, 0))) return row;
+    }
+    throw new AssertionError("Missing row: " + label);
   }
 
   private static void whenDialog(
