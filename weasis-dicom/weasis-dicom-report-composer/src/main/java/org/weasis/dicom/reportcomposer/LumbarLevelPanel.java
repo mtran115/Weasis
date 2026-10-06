@@ -264,6 +264,27 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
     return feedback != null && feedback.confirmed();
   }
 
+  /** The current map's disc levels for {@code uid}, unless its numbering is uncertain. */
+  Optional<AiPacketPlan.DiscLevels> discLevels(String uid) {
+    if (result == null
+        || uid == null
+        || !uid.equals(studyUid)
+        || result.map().numberingUncertain()) {
+      return Optional.empty();
+    }
+    List<AiPacketPlan.Disc> discs =
+        points().stream()
+            .filter(point -> LumbarLevelMap.LEVELS.contains(point.level()))
+            .map(
+                point ->
+                    new AiPacketPlan.Disc(LumbarLevelMap.formLevel(point.level()), point.lps()))
+            .toList();
+    return discs.isEmpty()
+        ? Optional.empty()
+        : Optional.of(
+            new AiPacketPlan.DiscLevels(result.map().frameOfReferenceUid(), discs, isConfirmed()));
+  }
+
   private List<LumbarLevelMap.Landmark> points() {
     return feedback == null ? result.map().points() : feedback.points();
   }

@@ -164,6 +164,11 @@ record LumbarLevelMap(
     }
   }
 
+  /** The spine form's name for a map level: "L4-L5" becomes "L4-5"; "L5-S1" is unchanged. */
+  static String formLevel(String level) {
+    return level.replaceFirst("^([A-Z])(\\d+)-\\1(\\d+)$", "$1$2-$3");
+  }
+
   static Point2D pixel(ImageGeometry geometry, List<Double> lps) {
     if (!validGeometry(geometry) || lps == null || lps.size() != 3) return null;
     double column = 0, row = 0;

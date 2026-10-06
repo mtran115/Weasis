@@ -42,12 +42,15 @@ import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
@@ -62,6 +65,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
@@ -73,6 +77,7 @@ import javax.swing.event.DocumentListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.weasis.core.api.gui.Insertable;
+import org.weasis.core.api.gui.util.AppProperties;
 import org.weasis.core.api.gui.util.GuiExecutor;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.gui.util.ShortcutManager;
@@ -186,6 +191,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JLabel outputFolderLabel = new JLabel("No transcription folder selected");
   private final JLabel statusLabel = new JLabel(" ");
   private final JButton exportButton = new JButton("Export Instruction Packet");
+  private final JButton aiPacketButton = new JButton("AI Packet (Dry Run)");
   private final JButton openExportButton =
       iconButton(ActionIcon.OPEN_EXTERNAL, "Open exported case folder");
   private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
@@ -1019,6 +1025,11 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     controls.add(GuiUtils.getFlowLayoutPanel(FlowLayout.TRAILING, 4, 3, copy));
     controls.add(
         GuiUtils.getFlowLayoutPanel(FlowLayout.TRAILING, 4, 3, exportButton, openExportButton));
+    aiPacketButton.setToolTipText(
+        "Write the labelled images and request a vision model would receive to a local folder."
+            + " Nothing is sent.");
+    aiPacketButton.addActionListener(event -> exportAiPacket());
+    controls.add(GuiUtils.getFlowLayoutPanel(FlowLayout.TRAILING, 4, 3, aiPacketButton));
     controls.add(statusLabel);
     content.add(controls, BorderLayout.SOUTH);
     return content;
@@ -2343,6 +2354,206 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private record ExportCompletion(ExportResult exported, boolean recorded) {}
+
+  private void exportAiPacket() {
+    Optional<Selection> selection = activeSelection();
+    if (selection.isEmpty()) {
+      showWarning("Open a study before building an AI packet.");
+      return;
+    }
+    CaseContext context = selection.get().context();
+    String examTitle =
+        context.studyDescription().isBlank()
+            ? selectedExamTemplate().toString()
+            : context.studyDescription();
+    Optional<AiPacketSources.Collected> collected =
+        AiPacketSources.collect(
+            selection.get().canvas().getSeries(), selectedExamTemplate(), examTitle);
+    if (collected.isEmpty() || collected.get().series().isEmpty()) {
+      showWarning("This study has no loaded images to package.");
+      return;
+    }
+    AiPacketPlan plan =
+        AiPacketPlan.build(
+            collected.get().study(),
+            collected.get().series(),
+            lumbarLevels.discLevels(context.studyInstanceUid()));
+    if (plan.series().isEmpty()) {
+      showWarning(
+          "None of the loaded series can go in an AI packet (all were localizers or captures).");
+      return;
+    }
+    Path root = AppProperties.WEASIS_PATH.resolve("data/report-composer/ai-packets");
+    aiPacketButton.setEnabled(false);
+    statusLabel.setText("Building AI packet (" + plan.imageCount() + " images)…");
+    new SwingWorker<AiPacketExporter.Result, Void>() {
+      @Override
+      protected AiPacketExporter.Result doInBackground() throws IOException {
+        return AiPacketExporter.export(plan, root, Clock.systemDefaultZone());
+      }
+
+      @Override
+      protected void done() {
+        aiPacketButton.setEnabled(true);
+        try {
+          showAiPacketResult(get());
+        } catch (InterruptedException error) {
+          Thread.currentThread().interrupt();
+        } catch (ExecutionException error) {
+          statusLabel.setText("The AI packet could not be written.");
+          showWarning("The AI packet could not be written: " + error.getCause().getMessage());
+        }
+      }
+    }.execute();
+  }
+
+  private void showAiPacketResult(AiPacketExporter.Result result) {
+    statusLabel.setText("AI packet written locally; nothing was sent.");
+    String message =
+        String.format(
+            Locale.ROOT,
+            "Wrote %d images and the request a vision model would receive. Nothing was sent.%n"
+                + "Estimated input: about %,d tokens.%s%n%n%s",
+            result.imageCount(),
+            result.imageTokens() + result.textTokens(),
+            result.skipped().isEmpty()
+                ? ""
+                : " " + result.skipped().size() + " images could not be rendered.",
+            result.directory());
+    Object[] options = {"Send to OpenAI…", "Send to Claude…", "Open Folder", "Close"};
+    int choice =
+        JOptionPane.showOptionDialog(
+            this,
+            message,
+            "AI Packet (Dry Run)",
+            JOptionPane.DEFAULT_OPTION,
+            JOptionPane.INFORMATION_MESSAGE,
+            null,
+            options,
+            options[2]);
+    switch (choice) {
+      case 0 -> sendAiPacket(result.directory(), AiProvider.OPENAI, result.imageCount());
+      case 1 -> sendAiPacket(result.directory(), AiProvider.ANTHROPIC, result.imageCount());
+      case 2 -> openAiPacketFolder(result.directory());
+      default -> {
+        // Closed.
+      }
+    }
+  }
+
+  private void sendAiPacket(Path packet, AiProvider provider, int imageCount) {
+    Optional<String> key = provider.apiKey();
+    if (key.isEmpty()) {
+      JTextArea help =
+          new JTextArea(
+              "No "
+                  + provider.label()
+                  + " API key was found. To add one, paste this into Terminal and press Return:\n\n"
+                  + provider.keychainCommand()
+                  + "\n\nWhen it asks, paste your key (nothing appears) and press Return. Then"
+                  + " clear the clipboard with: pbcopy < /dev/null\nThen send again.");
+      help.setEditable(false);
+      help.setLineWrap(true);
+      help.setWrapStyleWord(true);
+      help.setColumns(60);
+      ComposerDialogSupport.showMessage(
+          this, help, "Send to " + provider.label(), JOptionPane.INFORMATION_MESSAGE);
+      return;
+    }
+    WProperties persistence = GuiUtils.getUICore().getLocalPersistence();
+    String modelKey = "report.composer.ai.model." + provider.fileSuffix();
+    JTextField model =
+        new JTextField(persistence.getProperty(modelKey, provider.defaultModel()), 24);
+    JPanel panel = new JPanel(new BorderLayout(0, 8));
+    panel.add(
+        new JLabel(
+            "<html>Send up to "
+                + imageCount
+                + " de-identified images and their labels to "
+                + provider.label()
+                + ".<br>Look through the images for burned-in names or dates first.</html>"),
+        BorderLayout.NORTH);
+    panel.add(
+        GuiUtils.getFlowLayoutPanel(FlowLayout.LEADING, 4, 0, new JLabel("Model:"), model),
+        BorderLayout.CENTER);
+    int choice =
+        JOptionPane.showConfirmDialog(
+            this,
+            panel,
+            "Send to " + provider.label(),
+            JOptionPane.OK_CANCEL_OPTION,
+            JOptionPane.WARNING_MESSAGE);
+    String chosenModel = model.getText().strip();
+    if (choice != JOptionPane.OK_OPTION || chosenModel.isEmpty()) {
+      return;
+    }
+    persistence.setProperty(modelKey, chosenModel);
+    aiPacketButton.setEnabled(false);
+    statusLabel.setText("Waiting for " + provider.label() + "…");
+    new SwingWorker<AiPacketSender.Sent, Void>() {
+      @Override
+      protected AiPacketSender.Sent doInBackground() throws IOException, InterruptedException {
+        return AiPacketSender.send(
+            packet,
+            provider,
+            chosenModel,
+            key.get(),
+            provider.endpoint(),
+            Clock.systemDefaultZone());
+      }
+
+      @Override
+      protected void done() {
+        aiPacketButton.setEnabled(true);
+        try {
+          showAiAnswer(get(), packet);
+        } catch (InterruptedException error) {
+          Thread.currentThread().interrupt();
+        } catch (ExecutionException error) {
+          statusLabel.setText(provider.label() + " request failed.");
+          showWarning(
+              provider.label()
+                  + " request failed: "
+                  + error.getCause().getMessage()
+                  + "\nAny response was saved in the packet folder.");
+        }
+      }
+    }.execute();
+  }
+
+  private void showAiAnswer(AiPacketSender.Sent sent, Path packet) {
+    statusLabel.setText("AI answer saved in the packet folder.");
+    JTextArea text = new JTextArea(sent.answerText(), 30, 90);
+    text.setEditable(false);
+    text.setLineWrap(true);
+    text.setWrapStyleWord(true);
+    text.setCaretPosition(0);
+    Object[] options = {"Open Folder", "Close"};
+    int choice =
+        JOptionPane.showOptionDialog(
+            this,
+            new JScrollPane(text),
+            "AI Answer",
+            JOptionPane.DEFAULT_OPTION,
+            JOptionPane.PLAIN_MESSAGE,
+            null,
+            options,
+            options[1]);
+    if (choice == 0) {
+      openAiPacketFolder(packet);
+    }
+  }
+
+  private void openAiPacketFolder(Path packet) {
+    if (!Desktop.isDesktopSupported()) {
+      return;
+    }
+    try {
+      Desktop.getDesktop().open(packet.toFile());
+    } catch (IOException error) {
+      showWarning("The AI packet folder could not be opened.");
+    }
+  }
 
   private void openLastExport() {
     if (lastExportDirectory == null || !Desktop.isDesktopSupported()) {
