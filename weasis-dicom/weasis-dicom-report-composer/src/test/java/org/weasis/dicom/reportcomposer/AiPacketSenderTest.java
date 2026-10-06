@@ -163,7 +163,7 @@ class AiPacketSenderTest {
 
     assertEquals("test-key", key.get());
     assertEquals(7, sent.imagesSent());
-    String text = Files.readString(packet.resolve("answer-anthropic.txt"));
+    String text = Files.readString(packet.resolve("answer-anthropic-20261005-130000.txt"));
     assertEquals(text, sent.answerText());
     assertTrue(
         text.startsWith(
@@ -179,8 +179,8 @@ class AiPacketSenderTest {
         text);
     assertTrue(text.contains("LIMITATIONS\nLimited exam due to motion.\n"), text);
     assertTrue(text.contains("IMAGES CITED\nL4-5: S2-02\n"), text);
-    assertTrue(Files.isRegularFile(packet.resolve("response-anthropic.json")));
-    assertTrue(Files.isRegularFile(packet.resolve("answer-anthropic.json")));
+    assertTrue(Files.isRegularFile(packet.resolve("response-anthropic-20261005-130000.json")));
+    assertTrue(Files.isRegularFile(packet.resolve("answer-anthropic-20261005-130000.json")));
   }
 
   @Test
@@ -230,7 +230,7 @@ class AiPacketSenderTest {
                         AiPacketSender.send(packet, AiProvider.ANTHROPIC, "m", "bad", uri, CLOCK)));
 
     assertEquals("Claude answered HTTP 401: invalid x-api-key", error.getMessage());
-    assertTrue(Files.isRegularFile(packet.resolve("response-anthropic.json")));
+    assertTrue(Files.isRegularFile(packet.resolve("response-anthropic-20261005-130000.json")));
   }
 
   @Test

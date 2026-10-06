@@ -113,7 +113,11 @@ final class AiPacketSender {
       throw new IOException(
           "Could not reach " + provider.label() + ". Check the internet connection.", e);
     }
-    String suffix = provider.fileSuffix();
+    // Each send keeps its own files, so repeated runs on one packet are all kept.
+    String suffix =
+        provider.fileSuffix()
+            + "-"
+            + LocalDateTime.now(clock).format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
     Files.writeString(packet.resolve("response-" + suffix + ".json"), response.body());
     if (response.statusCode() / 100 != 2) {
       throw new IOException(provider.label() + " answered " + errorMessage(response));

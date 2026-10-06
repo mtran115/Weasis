@@ -41,8 +41,10 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -61,8 +63,10 @@ import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
@@ -111,6 +115,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
           + " changed. Nothing was added to the draft; capture it again.";
 
   private static final String OUTPUT_DIRECTORY_KEY = "report.composer.output.directory";
+  private static final Path AI_PACKET_ROOT =
+      AppProperties.WEASIS_PATH.resolve("data/report-composer/ai-packets");
+  private static final int AI_REPORT_BUTTONS = 4;
   private static final String VIEW_LAYOUT_KEY = "report.composer.view.layout";
   private static final int FIELD_COLUMNS = 28;
 
@@ -192,6 +199,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JLabel statusLabel = new JLabel(" ");
   private final JButton exportButton = new JButton("Export Instruction Packet");
   private final JButton aiPacketButton = new JButton("AI Packet (Dry Run)");
+  private final JPanel aiReportsPanel = new JPanel(new FlowLayout(FlowLayout.TRAILING, 4, 3));
   private final JButton openExportButton =
       iconButton(ActionIcon.OPEN_EXTERNAL, "Open exported case folder");
   private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
@@ -1030,6 +1038,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             + " Nothing is sent.");
     aiPacketButton.addActionListener(event -> exportAiPacket());
     controls.add(GuiUtils.getFlowLayoutPanel(FlowLayout.TRAILING, 4, 3, aiPacketButton));
+    aiReportsPanel.setVisible(false);
+    controls.add(aiReportsPanel);
     controls.add(statusLabel);
     content.add(controls, BorderLayout.SOUTH);
     return content;
@@ -1455,6 +1465,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     composeScrollPosition.selectStudy(key);
     updateCaseHeader(context);
     refreshAll();
+    refreshAiReports();
     setComposerInputEnabled(false);
     if (context == null) {
       localSaveLabel.setText(idleSaveText());
@@ -2383,13 +2394,20 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
           "None of the loaded series can go in an AI packet (all were localizers or captures).");
       return;
     }
-    Path root = AppProperties.WEASIS_PATH.resolve("data/report-composer/ai-packets");
+    String studyKey = context.draftKey();
     aiPacketButton.setEnabled(false);
     statusLabel.setText("Building AI packet (" + plan.imageCount() + " images)…");
     new SwingWorker<AiPacketExporter.Result, Void>() {
       @Override
       protected AiPacketExporter.Result doInBackground() throws IOException {
-        return AiPacketExporter.export(plan, root, Clock.systemDefaultZone());
+        AiPacketExporter.Result result =
+            AiPacketExporter.export(plan, AI_PACKET_ROOT, Clock.systemDefaultZone());
+        try {
+          AiReports.link(AI_PACKET_ROOT, studyKey, result.directory());
+        } catch (IOException e) {
+          // The packet is still usable; only its answer buttons would be missing.
+        }
+        return result;
       }
 
       @Override
@@ -2506,7 +2524,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       protected void done() {
         aiPacketButton.setEnabled(true);
         try {
-          showAiAnswer(get(), packet);
+          String answer = get().answerText();
+          refreshAiReports();
+          showAiAnswer(answer, packet);
         } catch (InterruptedException error) {
           Thread.currentThread().interrupt();
         } catch (ExecutionException error) {
@@ -2521,9 +2541,56 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }.execute();
   }
 
-  private void showAiAnswer(AiPacketSender.Sent sent, Path packet) {
+  // One button per saved AI answer for the current study, newest first; older ones go in More….
+  private void refreshAiReports() {
+    aiReportsPanel.removeAll();
+    List<AiReports.Report> reports = AiReports.forStudy(AI_PACKET_ROOT, activeStudyKey);
+    LocalDate today = LocalDate.now();
+    if (!reports.isEmpty()) {
+      aiReportsPanel.add(new JLabel("AI reports:"));
+      reports.stream()
+          .limit(AI_REPORT_BUTTONS)
+          .forEach(r -> aiReportsPanel.add(aiReportButton(r, today)));
+      if (reports.size() > AI_REPORT_BUTTONS) {
+        JPopupMenu older = new JPopupMenu();
+        for (AiReports.Report report : reports.subList(AI_REPORT_BUTTONS, reports.size())) {
+          JMenuItem item = new JMenuItem(report.label(today));
+          item.addActionListener(event -> showAiReport(report));
+          older.add(item);
+        }
+        JButton more = new JButton("More…");
+        more.addActionListener(event -> older.show(more, 0, more.getHeight()));
+        aiReportsPanel.add(more);
+      }
+    }
+    aiReportsPanel.setVisible(!reports.isEmpty());
+    aiReportsPanel.revalidate();
+    aiReportsPanel.repaint();
+  }
+
+  private JButton aiReportButton(AiReports.Report report, LocalDate today) {
+    JButton button = new JButton(report.label(today));
+    button.setToolTipText(
+        (report.provider().isBlank() ? "" : report.provider() + ", ")
+            + report.model()
+            + " — "
+            + report.file().getFileName());
+    button.addActionListener(event -> showAiReport(report));
+    return button;
+  }
+
+  private void showAiReport(AiReports.Report report) {
+    try {
+      showAiAnswer(Files.readString(report.file()), report.packet());
+    } catch (IOException e) {
+      showWarning("That AI report is no longer available.");
+      refreshAiReports();
+    }
+  }
+
+  private void showAiAnswer(String answer, Path packet) {
     statusLabel.setText("AI answer saved in the packet folder.");
-    JTextArea text = new JTextArea(sent.answerText(), 30, 90);
+    JTextArea text = new JTextArea(answer, 30, 90);
     text.setEditable(false);
     text.setLineWrap(true);
     text.setWrapStyleWord(true);
