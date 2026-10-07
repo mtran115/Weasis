@@ -134,6 +134,11 @@ final class AiLumbarRequest {
 
   /** Strict JSON schema; every object lists all of its properties as required. */
   static Map<String, Object> outputFormat() {
+    return outputFormat(false);
+  }
+
+  /** With marks, the answer also covers each numbered ring the radiologist drew. */
+  static Map<String, Object> outputFormat(boolean marks) {
     Map<String, Object> level =
         object(
             entry("level", enumOf(LEVELS)),
@@ -200,6 +205,11 @@ final class AiLumbarRequest {
                         entry("image_ids", arrayOf(type("string"))),
                         entry("confidence", enumOf(List.of("low", "medium", "high")))))),
             entry("limitations", AiLumbarExtras.limitationsSchema())));
+    if (marks) {
+      List<String> locations = new ArrayList<>(LEVELS);
+      locations.add("other");
+      properties.add(AiSchema.marks(enumOf(locations)));
+    }
     Map<String, Object> schema = object(properties);
 
     Map<String, Object> format = new LinkedHashMap<>();

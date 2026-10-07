@@ -27,6 +27,10 @@ class AiLumbarRequestTest {
   void answerFormatsAreValidStrictSchemas() {
     assertStrict(JSON.valueToTree(AiLumbarRequest.outputFormat()).path("schema"), "lumbar");
     assertStrict(JSON.valueToTree(AiPacketExporter.outputFormat()).path("schema"), "generic");
+    assertStrict(
+        JSON.valueToTree(AiLumbarRequest.outputFormat(true)).path("schema"), "lumbar marked");
+    assertStrict(
+        JSON.valueToTree(AiPacketExporter.outputFormat(true)).path("schema"), "generic marked");
   }
 
   @Test

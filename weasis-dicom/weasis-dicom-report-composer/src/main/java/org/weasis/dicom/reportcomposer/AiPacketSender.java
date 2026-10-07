@@ -45,6 +45,7 @@ import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
  */
 final class AiPacketSender {
   static final String TOOL_NAME = "record_findings";
+  private static final String MARKED = "-marked";
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final Pattern ESSENTIAL_SAGITTAL =
       Pattern.compile("\\bt1|\\bt2|stir|tirm", Pattern.CASE_INSENSITIVE);
@@ -52,7 +53,18 @@ final class AiPacketSender {
   private static final Duration TIMEOUT = Duration.ofMinutes(15);
   private static final int CLAUDE_MAX_TOKENS = 16_000;
 
-  record Sent(Path answerFile, String answerText, int imagesSent, List<String> notSent) {}
+  record Sent(
+      Path answerFile, String answerText, int imagesSent, List<String> notSent, JsonNode answer) {}
+
+  // One request and its reply, before the readable answer is written.
+  private record Exchange(
+      ObjectNode request,
+      JsonNode reply,
+      JsonNode answer,
+      int sent,
+      int total,
+      Fit fit,
+      String suffix) {}
 
   /** Which images to leave out so a packet fits a provider's image count and size limits. */
   record Fit(Set<String> dropped, List<String> notes) {}
@@ -61,10 +73,62 @@ final class AiPacketSender {
 
   private AiPacketSender() {}
 
+  /** Sends the blind request: every image, no rings. */
   static Sent send(
       Path packet, AiProvider provider, String model, String apiKey, URI endpoint, Clock clock)
       throws IOException, InterruptedException {
-    ObjectNode request = (ObjectNode) JSON.readTree(packet.resolve("request.json").toFile());
+    Exchange exchange =
+        exchange(packet, "request.json", "", provider, model, apiKey, endpoint, clock);
+    String text = heading(provider, model, exchange, clock) + "\n\n" + answerText(exchange);
+    return save(packet, exchange, text);
+  }
+
+  /**
+   * Sends the marked request, after the blind one, and compares each ring with the blind read: a
+   * ring at a level where the blind read already found something is listed as found blind.
+   */
+  static Sent sendMarked(
+      Path packet,
+      AiProvider provider,
+      String model,
+      String apiKey,
+      URI endpoint,
+      Clock clock,
+      JsonNode blindAnswer)
+      throws IOException, InterruptedException {
+    Exchange exchange =
+        exchange(
+            packet,
+            AiPacketExporter.MARKED_REQUEST,
+            "-marked",
+            provider,
+            model,
+            apiKey,
+            endpoint,
+            clock);
+    String text =
+        heading(provider, model + " (marked)", exchange, clock)
+            + "\n\n"
+            + ringsText(exchange.answer(), blindAnswer, lumbar(exchange.request()))
+            + answerText(exchange);
+    return save(packet, exchange, text);
+  }
+
+  static boolean hasMarks(Path packet) {
+    return Files.isRegularFile(packet.resolve(AiPacketExporter.MARKED_REQUEST));
+  }
+
+  private static Exchange exchange(
+      Path packet,
+      String requestName,
+      String tag,
+      AiProvider provider,
+      String model,
+      String apiKey,
+      URI endpoint,
+      Clock clock)
+      throws IOException, InterruptedException {
+    ObjectNode request = (ObjectNode) JSON.readTree(packet.resolve(requestName).toFile());
     JsonNode manifest = JSON.readTree(packet.resolve("manifest.json").toFile());
     List<SeriesInfo> series = new ArrayList<>();
     manifest
@@ -117,26 +181,73 @@ final class AiPacketSender {
     String suffix =
         provider.fileSuffix()
             + "-"
-            + LocalDateTime.now(clock).format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            + LocalDateTime.now(clock).format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+            + tag;
     Files.writeString(packet.resolve("response-" + suffix + ".json"), response.body());
     if (response.statusCode() / 100 != 2) {
       throw new IOException(provider.label() + " answered " + errorMessage(response));
     }
-
     JsonNode reply = JSON.readTree(response.body());
     JsonNode answer = provider == AiProvider.ANTHROPIC ? claudeAnswer(reply) : openAiAnswer(reply);
+    return new Exchange(
+        request,
+        reply,
+        answer,
+        imageBytes.size() - fit.dropped().size(),
+        imageBytes.size(),
+        fit,
+        suffix);
+  }
+
+  private static Sent save(Path packet, Exchange exchange, String text) throws IOException {
     JSON.writerWithDefaultPrettyPrinter()
-        .writeValue(packet.resolve("answer-" + suffix + ".json").toFile(), answer);
-    int sent = imageBytes.size() - fit.dropped().size();
-    String text =
-        heading(provider, model, reply, sent, imageBytes.size(), fit, clock)
-            + "\n\n"
-            + answerText(
-                answer,
-                AiLumbarRequest.FORMAT_NAME.equals(request.at("/text/format/name").asText()));
-    Path answerFile = packet.resolve("answer-" + suffix + ".txt");
+        .writeValue(
+            packet.resolve("answer-" + exchange.suffix() + ".json").toFile(), exchange.answer());
+    Path answerFile = packet.resolve("answer-" + exchange.suffix() + ".txt");
     Files.writeString(answerFile, text, StandardCharsets.UTF_8);
-    return new Sent(answerFile, text, sent, fit.notes());
+    return new Sent(answerFile, text, exchange.sent(), exchange.fit().notes(), exchange.answer());
+  }
+
+  private static String answerText(Exchange exchange) {
+    return answerText(exchange.answer(), lumbar(exchange.request()));
+  }
+
+  private static boolean lumbar(JsonNode request) {
+    return AiLumbarRequest.FORMAT_NAME.equals(request.at("/text/format/name").asText());
+  }
+
+  /** Each ring's answer, and for lumbar studies whether the blind read reported its level. */
+  static String ringsText(JsonNode markedAnswer, JsonNode blindAnswer, boolean lumbar) {
+    Set<String> blindLevels = new LinkedHashSet<>();
+    if (lumbar && blindAnswer != null) {
+      AiLumbarRequest.read(blindAnswer).selection().levelSelections().stream()
+          .filter(SpineFindingBuilder.LevelSelection::hasFinding)
+          .forEach(level -> blindLevels.add(level.level()));
+    }
+    List<String> lines = new ArrayList<>();
+    for (JsonNode ring : markedAnswer.path("marks")) {
+      String location = ring.path("location").asText("").strip();
+      String blind =
+          !lumbar || blindAnswer == null || location.isEmpty() || "other".equalsIgnoreCase(location)
+              ? ""
+              : blindLevels.contains(location.toUpperCase(Locale.ROOT))
+                  ? " · blind read also found " + location
+                  : " · blind read reported nothing at " + location;
+      lines.add(
+          "Ring "
+              + ring.path("number").asInt()
+              + " ("
+              + (location.isEmpty() ? "?" : location)
+              + "): "
+              + ring.path("finding").asText("").strip()
+              + " ("
+              + ring.path("confidence").asText("?")
+              + " confidence)"
+              + blind);
+    }
+    StringBuilder text = new StringBuilder();
+    section(text, "RINGS", lines);
+    return text.toString();
   }
 
   /**
@@ -148,8 +259,8 @@ final class AiPacketSender {
     Set<String> dropped = new LinkedHashSet<>();
     List<String> notes = new ArrayList<>();
     Map<String, List<String>> bySeries = new LinkedHashMap<>();
-    imageBytes
-        .keySet()
+    imageBytes.keySet().stream()
+        .filter(id -> !id.endsWith(MARKED))
         .forEach(id -> bySeries.computeIfAbsent(seriesOf(id), k -> new ArrayList<>()).add(id));
     List<SeriesInfo> optional =
         series.stream()
@@ -335,14 +446,11 @@ final class AiPacketSender {
     return text.toString().strip() + "\n";
   }
 
-  private static String heading(
-      AiProvider provider,
-      String model,
-      JsonNode reply,
-      int sent,
-      int total,
-      Fit fit,
-      Clock clock) {
+  private static String heading(AiProvider provider, String model, Exchange exchange, Clock clock) {
+    JsonNode reply = exchange.reply();
+    int sent = exchange.sent();
+    int total = exchange.total();
+    Fit fit = exchange.fit();
     StringBuilder text = new StringBuilder();
     text.append(provider.label()).append(" · ").append(model).append(" · ");
     text.append(LocalDateTime.now(clock).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));

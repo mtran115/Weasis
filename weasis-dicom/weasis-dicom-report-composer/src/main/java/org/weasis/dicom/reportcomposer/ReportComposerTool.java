@@ -70,6 +70,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
@@ -200,6 +201,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JButton exportButton = new JButton("Export Instruction Packet");
   private final JButton aiPacketButton = new JButton("AI Packet (Dry Run)");
   private final JPanel aiReportsPanel = new JPanel(new FlowLayout(FlowLayout.TRAILING, 4, 3));
+  private final AiMarks aiMarks = new AiMarks();
+  private final JToggleButton markingButton = new JToggleButton("Mark Findings");
+  private final JButton clearRingsButton = new JButton("Clear Rings");
+  private AiMarkingMode markingMode;
   private final JButton openExportButton =
       iconButton(ActionIcon.OPEN_EXTERNAL, "Open exported case folder");
   private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
@@ -285,6 +290,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   public void addNotify() {
     super.addNotify();
     navigationShortcuts.install();
+    markingMode.install();
     if (!canvasInteractionListenerInstalled) {
       Toolkit.getDefaultToolkit()
           .addAWTEventListener(
@@ -301,6 +307,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   public void removeNotify() {
     cancelKeyImagePreview();
     navigationShortcuts.uninstall();
+    markingMode.uninstall();
     persistCurrentDraft();
     if (canvasInteractionListenerInstalled) {
       Toolkit.getDefaultToolkit().removeAWTEventListener(canvasInteractionListener);
@@ -526,6 +533,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             this::cancelKeyImagePreview,
             this::activateComposerPreview);
     navigationShortcuts.updateTooltips();
+    markingMode =
+        new AiMarkingMode(
+            this, navigationShortcuts::acceptsFocus, aiMarks, this::updateMarkingControls);
     views.addVisibilityListener(
         () -> {
           cancelKeyImagePreview();
@@ -1040,6 +1050,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     controls.add(GuiUtils.getFlowLayoutPanel(FlowLayout.TRAILING, 4, 3, aiPacketButton));
     aiReportsPanel.setVisible(false);
     controls.add(aiReportsPanel);
+    markingButton.setFocusable(false);
+    markingButton.addActionListener(event -> markingMode.toggle());
+    clearRingsButton.setFocusable(false);
+    clearRingsButton.setEnabled(false);
+    clearRingsButton.addActionListener(event -> clearRings());
+    controls.add(
+        GuiUtils.getFlowLayoutPanel(FlowLayout.TRAILING, 4, 3, markingButton, clearRingsButton));
     controls.add(statusLabel);
     content.add(controls, BorderLayout.SOUTH);
     return content;
@@ -1466,6 +1483,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     updateCaseHeader(context);
     refreshAll();
     refreshAiReports();
+    if (markingMode != null) {
+      markingMode.showMarks();
+      updateMarkingControls();
+    }
     setComposerInputEnabled(false);
     if (context == null) {
       localSaveLabel.setText(idleSaveText());
@@ -2386,9 +2407,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
     AiPacketPlan plan =
         AiPacketPlan.build(
-            collected.get().study(),
-            collected.get().series(),
-            lumbarLevels.discLevels(context.studyInstanceUid()));
+                collected.get().study(),
+                collected.get().series(),
+                lumbarLevels.discLevels(context.studyInstanceUid()))
+            .withMarks(aiMarks.forStudy(context.draftKey()));
     if (plan.series().isEmpty()) {
       showWarning(
           "None of the loaded series can go in an AI packet (all were localizers or captures).");
@@ -2431,12 +2453,19 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         String.format(
             Locale.ROOT,
             "Wrote %d images and the request a vision model would receive. Nothing was sent.%n"
-                + "Estimated input: about %,d tokens.%s%n%n%s",
+                + "Estimated input: about %,d tokens.%s%s%n%n%s",
             result.imageCount(),
             result.imageTokens() + result.textTokens(),
             result.skipped().isEmpty()
                 ? ""
                 : " " + result.skipped().size() + " images could not be rendered.",
+            result.markCount() == 0
+                ? ""
+                : String.format(
+                    Locale.ROOT,
+                    "%nYour %d ring%s go in a second request, after a blind read.",
+                    result.markCount(),
+                    result.markCount() == 1 ? "" : "s"),
             result.directory());
     Object[] options = {"Send to OpenAI…", "Send to Claude…", "Open Folder", "Close"};
     int choice =
@@ -2450,8 +2479,12 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             options,
             options[2]);
     switch (choice) {
-      case 0 -> sendAiPacket(result.directory(), AiProvider.OPENAI, result.imageCount());
-      case 1 -> sendAiPacket(result.directory(), AiProvider.ANTHROPIC, result.imageCount());
+      case 0 ->
+          sendAiPacket(
+              result.directory(), AiProvider.OPENAI, result.imageCount(), result.markCount());
+      case 1 ->
+          sendAiPacket(
+              result.directory(), AiProvider.ANTHROPIC, result.imageCount(), result.markCount());
       case 2 -> openAiPacketFolder(result.directory());
       default -> {
         // Closed.
@@ -2459,7 +2492,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
   }
 
-  private void sendAiPacket(Path packet, AiProvider provider, int imageCount) {
+  private record AiSendResult(
+      AiPacketSender.Sent blind, AiPacketSender.Sent marked, String markedError) {}
+
+  private void sendAiPacket(Path packet, AiProvider provider, int imageCount, int markCount) {
     Optional<String> key = provider.apiKey();
     if (key.isEmpty()) {
       JTextArea help =
@@ -2489,7 +2525,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                 + imageCount
                 + " de-identified images and their labels to "
                 + provider.label()
-                + ".<br>Look through the images for burned-in names or dates first.</html>"),
+                + "."
+                + (markCount == 0
+                    ? ""
+                    : "<br>A blind read goes first, then a second request with your "
+                        + markCount
+                        + (markCount == 1 ? " ring." : " rings."))
+                + "<br>Look through the images for burned-in names or dates first.</html>"),
         BorderLayout.NORTH);
     panel.add(
         GuiUtils.getFlowLayoutPanel(FlowLayout.LEADING, 4, 0, new JLabel("Model:"), model),
@@ -2508,25 +2550,46 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     persistence.setProperty(modelKey, chosenModel);
     aiPacketButton.setEnabled(false);
     statusLabel.setText("Waiting for " + provider.label() + "…");
-    new SwingWorker<AiPacketSender.Sent, Void>() {
+    new SwingWorker<AiSendResult, Void>() {
       @Override
-      protected AiPacketSender.Sent doInBackground() throws IOException, InterruptedException {
-        return AiPacketSender.send(
-            packet,
-            provider,
-            chosenModel,
-            key.get(),
-            provider.endpoint(),
-            Clock.systemDefaultZone());
+      protected AiSendResult doInBackground() throws IOException, InterruptedException {
+        Clock clock = Clock.systemDefaultZone();
+        AiPacketSender.Sent blind =
+            AiPacketSender.send(
+                packet, provider, chosenModel, key.get(), provider.endpoint(), clock);
+        if (!AiPacketSender.hasMarks(packet)) {
+          return new AiSendResult(blind, null, "");
+        }
+        try {
+          AiPacketSender.Sent marked =
+              AiPacketSender.sendMarked(
+                  packet,
+                  provider,
+                  chosenModel,
+                  key.get(),
+                  provider.endpoint(),
+                  clock,
+                  blind.answer());
+          return new AiSendResult(blind, marked, "");
+        } catch (IOException e) {
+          // The blind read is still worth showing when the ringed request fails.
+          return new AiSendResult(blind, null, e.getMessage());
+        }
       }
 
       @Override
       protected void done() {
         aiPacketButton.setEnabled(true);
         try {
-          String answer = get().answerText();
+          AiSendResult result = get();
           refreshAiReports();
-          showAiAnswer(answer, packet);
+          if (!result.markedError().isEmpty()) {
+            showWarning(
+                "The blind read worked, but the request with your rings failed: "
+                    + result.markedError());
+          }
+          AiPacketSender.Sent shown = result.marked() == null ? result.blind() : result.marked();
+          showAiAnswer(shown.answerText(), packet);
         } catch (InterruptedException error) {
           Thread.currentThread().interrupt();
         } catch (ExecutionException error) {
@@ -2586,6 +2649,34 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       showWarning("That AI report is no longer available.");
       refreshAiReports();
     }
+  }
+
+  private void updateMarkingControls() {
+    int rings = activeStudyKey == null ? 0 : aiMarks.forStudy(activeStudyKey).size();
+    boolean active = markingMode != null && markingMode.isActive();
+    markingButton.setSelected(active);
+    markingButton.setText(
+        (active ? "Marking" : "Mark Findings") + (rings == 0 ? "" : " (" + rings + ")"));
+    var entry =
+        ShortcutManager.getInstance().getEntry(ShortcutManager.ID_REPORT_COMPOSER_MARKING_MODE);
+    String binding = entry == null ? "" : entry.getShortcutText().replace("Meta", "Cmd");
+    markingButton.setToolTipText(
+        "Ring findings for the AI: click a finding in the viewer, click inside a ring to remove it"
+            + (binding.isEmpty() ? "" : " — " + binding));
+    clearRingsButton.setEnabled(rings > 0);
+    if (active) {
+      statusLabel.setText(
+          "Marking: click findings in the viewer; click inside a ring to remove it. Esc"
+              + (binding.isEmpty() ? "" : " or " + binding)
+              + " to finish.");
+    }
+  }
+
+  private void clearRings() {
+    if (activeStudyKey == null) return;
+    aiMarks.clear(activeStudyKey);
+    DicomContextReader.visibleCanvases().forEach(viewport -> viewport.canvas().repaint());
+    updateMarkingControls();
   }
 
   private void showAiAnswer(String answer, Path packet) {

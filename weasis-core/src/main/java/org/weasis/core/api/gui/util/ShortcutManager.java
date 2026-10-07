@@ -395,6 +395,7 @@ public final class ShortcutManager {
   public static final String ID_REPORT_COMPOSER_PREVIEW = "reportComposer.previewTab";
   public static final String ID_REPORT_COMPOSER_FOCUS_PREVIEW = "reportComposer.focusPreview";
   public static final String ID_REPORT_COMPOSER_EXPORT = "reportComposer.exportPacket";
+  public static final String ID_REPORT_COMPOSER_MARKING_MODE = "reportComposer.markingMode";
 
   // -- Shortcut IDs: Docking --
   public static final String ID_DOCKING_MAXIMIZE = "docking.maximize";
@@ -995,6 +996,13 @@ public final class ShortcutManager {
         KeyEvent.VK_E,
         // Ctrl+Shift+E already opens the docking panel list on Windows/Linux.
         SystemInfo.isMacOS ? composerModifier : KeyEvent.CTRL_MASK | KeyEvent.ALT_MASK);
+    register(
+        ID_REPORT_COMPOSER_MARKING_MODE,
+        Messages.getString("ShortcutManager.report_composer_marking_mode"),
+        CATEGORY_REPORT_COMPOSER,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_M,
+        composerModifier);
 
     // ---- Docking framework tab shortcuts (WeasisWin.createMainPanel()) ----
     register(

@@ -24,13 +24,12 @@ import org.weasis.dicom.viewer2d.EventManager;
 
 /** Patient-coordinate navigation; no instance-number assumptions and no persisted graphics. */
 final class LumbarLevelNavigation {
+  private static final String OVERLAY = "lumbar-levels";
   private final List<DefaultView2d<DicomImageElement>> attached = new ArrayList<>();
 
   void clear() {
     for (var canvas : attached) {
-      if (canvas.getClientProperty(ViewCanvasOverlay.KEY) instanceof LevelOverlay)
-        canvas.putClientProperty(ViewCanvasOverlay.KEY, null);
-      canvas.repaint();
+      ComposerOverlays.remove(canvas, OVERLAY);
     }
     attached.clear();
   }
@@ -39,9 +38,8 @@ final class LumbarLevelNavigation {
     clear();
     for (var viewport : DicomContextReader.visibleCanvases()) {
       var canvas = viewport.canvas();
-      canvas.putClientProperty(ViewCanvasOverlay.KEY, new LevelOverlay(map, points, confirmed));
+      ComposerOverlays.set(canvas, OVERLAY, new LevelOverlay(map, points, confirmed));
       attached.add(canvas);
-      canvas.repaint();
     }
   }
 

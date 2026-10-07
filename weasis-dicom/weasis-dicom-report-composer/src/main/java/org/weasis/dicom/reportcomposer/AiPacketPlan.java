@@ -29,7 +29,9 @@ record AiPacketPlan(
     List<Series> series,
     List<Localizer> localizers,
     List<Exclusion> excluded,
-    String levelSource) {
+    String levelSource,
+    List<PlacedMark> marks,
+    List<Integer> unplacedMarks) {
 
   private static final String SECONDARY_CAPTURE = "1.2.840.10008.5.1.4.1.1.7";
   private static final Pattern LOCALIZER_WORDS =
@@ -88,6 +90,9 @@ record AiPacketPlan(
 
   record Exclusion(String series, String reason) {}
 
+  /** A ring the radiologist drew, on the packet slice it belongs to, in source pixels. */
+  record PlacedMark(int number, Slice slice, double column, double row) {}
+
   static AiPacketPlan build(
       Study study, List<SourceSeries> sources, Optional<DiscLevels> discLevels) {
     List<Exclusion> excluded = new ArrayList<>();
@@ -113,7 +118,34 @@ record AiPacketPlan(
             .map(
                 d -> d.confirmed() ? "confirmed by the radiologist" : "model estimate, unconfirmed")
             .orElse("none");
-    return new AiPacketPlan(study, series, localizers, excluded, levelSource);
+    return new AiPacketPlan(study, series, localizers, excluded, levelSource, List.of(), List.of());
+  }
+
+  /** Places rings on their slices; rings on images left out of the packet are listed apart. */
+  AiPacketPlan withMarks(List<AiMarks.Mark> rings) {
+    List<PlacedMark> placed = new ArrayList<>();
+    List<Integer> unplaced = new ArrayList<>();
+    for (AiMarks.Mark ring : rings) {
+      series.stream()
+          .flatMap(s -> s.slices().stream())
+          .filter(
+              slice ->
+                  slice.reference().sopInstanceUid().equals(ring.sopInstanceUid())
+                      && java.util.Objects.equals(
+                          slice.reference().sourceFrameIndex(), ring.frame()))
+          .findFirst()
+          .ifPresentOrElse(
+              slice -> placed.add(new PlacedMark(ring.number(), slice, ring.column(), ring.row())),
+              () -> unplaced.add(ring.number()));
+    }
+    return new AiPacketPlan(
+        study,
+        series,
+        localizers,
+        excluded,
+        levelSource,
+        List.copyOf(placed),
+        List.copyOf(unplaced));
   }
 
   int imageCount() {

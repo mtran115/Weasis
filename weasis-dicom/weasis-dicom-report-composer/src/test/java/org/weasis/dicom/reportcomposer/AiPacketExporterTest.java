@@ -96,6 +96,61 @@ class AiPacketExporterTest {
   }
 
   @Test
+  void ringsGoInASecondRequestAfterTheBlindOne() throws Exception {
+    AiPacketPlan plan =
+        AiPacketPlan.build(
+                AiPacketPlanTest.STUDY,
+                List.of(
+                    AiPacketPlanTest.series("601", "T2 SAG", AiPacketPlanTest.sagittals(-2, 0, 2)),
+                    AiPacketPlanTest.series("801", "T2 AX", AiPacketPlanTest.axials(30, 20, 10))),
+                Optional.empty())
+            .withMarks(
+                List.of(
+                    new AiMarks.Mark(1, "sop[0.0, -100.0, 100.0]", null, 100, 80),
+                    new AiMarks.Mark(2, "not-in-packet", null, 10, 10)));
+    assertEquals(1, plan.marks().size());
+    assertEquals(List.of(2), plan.unplacedMarks());
+
+    AiPacketExporter.Result result = AiPacketExporter.export(plan, root, CLOCK);
+    Path directory = result.directory();
+    assertEquals(1, result.markCount());
+
+    ObjectMapper json = new ObjectMapper();
+    JsonNode blind = json.readTree(directory.resolve("request.json").toFile());
+    JsonNode marked = json.readTree(directory.resolve(AiPacketExporter.MARKED_REQUEST).toFile());
+    assertFalse(blind.toString().contains("-marked"));
+    assertFalse(blind.at("/text/format/schema/properties").has("marks"));
+    assertTrue(marked.at("/text/format/schema/properties").has("marks"));
+    assertTrue(marked.get("instructions").asText().endsWith(AiPacketExporter.MARK_INSTRUCTIONS));
+    assertTrue(marked.at("/input/0/content/0/text").asText().endsWith("Rings: ring 1 on S1-02."));
+
+    // The ringed copy follows the clean image of the same slice.
+    JsonNode content = marked.at("/input/0/content");
+    int clean = -1;
+    for (int index = 0; index < content.size(); index++) {
+      if ("images/S1-02.png".equals(content.get(index).path("image_url").asText())) clean = index;
+    }
+    assertEquals(
+        "[S1-02-marked] The image above with the radiologist's ring 1",
+        content.get(clean + 1).get("text").asText());
+    assertEquals("images/S1-02-marked.png", content.get(clean + 2).get("image_url").asText());
+    assertEquals(blind.at("/input/0/content").size() + 2, content.size());
+
+    // A red ring is drawn around the marked point (100, 80 in the 200-pixel source, enlarged to
+    // 512).
+    BufferedImage ringed = ImageIO.read(directory.resolve("images/S1-02-marked.png").toFile());
+    double scale = 512 / 200.0;
+    double radius = 7.5 * scale;
+    int ringPixel =
+        ringed.getRGB((int) Math.round(100 * scale + radius), (int) Math.round(80 * scale));
+    assertTrue(
+        ((ringPixel >> 16) & 0xff) > 150 && ((ringPixel >> 8) & 0xff) < 100,
+        Integer.toHexString(ringPixel));
+    assertTrue(
+        Files.readString(directory.resolve("README.txt")).contains("not in this packet: ring [2]"));
+  }
+
+  @Test
   void squaresPixelsEnlargesSmallImagesAndEstimatesPatchTokens() {
     ImageGeometry geometry =
         new ImageGeometry(

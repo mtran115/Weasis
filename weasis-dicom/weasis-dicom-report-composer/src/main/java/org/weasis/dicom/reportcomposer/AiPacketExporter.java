@@ -80,7 +80,27 @@ final class AiPacketExporter {
       - Do not speculate about the patient's identity, the institution, or dates.""";
 
   record Result(
-      Path directory, int imageCount, long imageTokens, long textTokens, List<String> skipped) {}
+      Path directory,
+      int imageCount,
+      long imageTokens,
+      long textTokens,
+      List<String> skipped,
+      int markCount) {}
+
+  static final String MARKED_REQUEST = "request-marked.json";
+
+  static final String MARK_INSTRUCTIONS =
+      """
+
+      Marked findings
+      - The radiologist ringed findings in red, each ring numbered. An image whose ID ends in \
+      -marked is a copy of the image just before it with the rings drawn; use the unmarked copy to \
+      see the anatomy under a ring.
+      - For each ring, add one entry to marks with its number, its location (the spinal level when \
+      relevant), what the ringed finding is, and your confidence. If the ringed area looks normal, \
+      say so in that entry.
+      - A ring asks for a closer look; it does not mean something is abnormal. Report every other \
+      finding as usual.""";
 
   private AiPacketExporter() {}
 
@@ -104,16 +124,25 @@ final class AiPacketExporter {
       content.addAll(written.content());
       boolean lumbar = isLumbar(plan);
       String instructions = lumbar ? AiLumbarRequest.INSTRUCTIONS : INSTRUCTIONS;
-      Map<String, Object> request = new LinkedHashMap<>();
-      request.put("model", MODEL);
-      request.put("instructions", instructions);
-      request.put("input", List.of(Map.of("role", "user", "content", content)));
-      request.put(
-          "text", Map.of("format", lumbar ? AiLumbarRequest.outputFormat() : outputFormat()));
       long textTokens = (instructions.length() + written.labelCharacters() + overview.length()) / 4;
 
       JSON.writerWithDefaultPrettyPrinter()
-          .writeValue(partial.resolve("request.json").toFile(), request);
+          .writeValue(
+              partial.resolve("request.json").toFile(),
+              request(
+                  instructions, content, lumbar ? AiLumbarRequest.outputFormat() : outputFormat()));
+      if (!plan.marks().isEmpty()) {
+        List<Map<String, Object>> marked = new ArrayList<>();
+        marked.add(textPart(overview + "\n" + marksOverview(plan)));
+        marked.addAll(written.markedContent());
+        JSON.writerWithDefaultPrettyPrinter()
+            .writeValue(
+                partial.resolve(MARKED_REQUEST).toFile(),
+                request(
+                    instructions + MARK_INSTRUCTIONS,
+                    marked,
+                    lumbar ? AiLumbarRequest.outputFormat(true) : outputFormat(true)));
+      }
       JSON.writerWithDefaultPrettyPrinter()
           .writeValue(partial.resolve("manifest.json").toFile(), manifest(plan, written));
       Files.writeString(
@@ -123,11 +152,34 @@ final class AiPacketExporter {
       Path directory = root.resolve(name);
       Files.move(partial, directory, StandardCopyOption.ATOMIC_MOVE);
       return new Result(
-          directory, written.files().size(), written.imageTokens(), textTokens, written.skipped());
+          directory,
+          written.files().size(),
+          written.imageTokens(),
+          textTokens,
+          written.skipped(),
+          plan.marks().size());
     } catch (IOException | RuntimeException error) {
       deleteRecursively(partial);
       throw error;
     }
+  }
+
+  private static Map<String, Object> request(
+      String instructions, List<Map<String, Object>> content, Map<String, Object> format) {
+    Map<String, Object> request = new LinkedHashMap<>();
+    request.put("model", MODEL);
+    request.put("instructions", instructions);
+    request.put("input", List.of(Map.of("role", "user", "content", content)));
+    request.put("text", Map.of("format", format));
+    return request;
+  }
+
+  private static String marksOverview(AiPacketPlan plan) {
+    return "Rings: "
+        + String.join(
+            ", ",
+            plan.marks().stream().map(m -> "ring " + m.number() + " on " + m.slice().id()).toList())
+        + ".";
   }
 
   static boolean isLumbar(AiPacketPlan plan) {
@@ -166,25 +218,26 @@ final class AiPacketExporter {
 
   private record Written(
       List<Map<String, Object>> content,
+      List<Map<String, Object>> markedContent,
       List<ImageFile> files,
+      List<ImageFile> markedFiles,
       long imageTokens,
       long labelCharacters,
       List<String> skipped) {}
 
   private static Written writeImages(AiPacketPlan plan, Path directory) throws IOException {
     List<Map<String, Object>> content = new ArrayList<>();
+    List<Map<String, Object>> markedContent = new ArrayList<>();
     List<ImageFile> files = new ArrayList<>();
+    List<ImageFile> markedFiles = new ArrayList<>();
     List<String> skipped = new ArrayList<>();
     for (Series series : plan.series()) {
       for (Localizer localizer : plan.localizers()) {
         if (localizer.axial() == series) {
-          write(
-              localizerImage(localizer),
-              localizer.id(),
-              localizer.label(),
-              directory,
-              content,
-              files);
+          var parts =
+              write(localizerImage(localizer), localizer.id(), localizer.label(), directory, files);
+          content.addAll(parts);
+          markedContent.addAll(parts);
         }
       }
       for (Slice slice : series.slices()) {
@@ -195,33 +248,74 @@ final class AiPacketExporter {
           skipped.add(slice.id() + ": " + error.getMessage());
           continue;
         }
-        write(image, slice.id(), slice.label(), directory, content, files);
+        var parts = write(image, slice.id(), slice.label(), directory, files);
+        content.addAll(parts);
+        markedContent.addAll(parts);
+        List<AiPacketPlan.PlacedMark> rings =
+            plan.marks().stream().filter(mark -> mark.slice() == slice).toList();
+        if (!rings.isEmpty()) {
+          String id = slice.id() + "-marked";
+          String numbers =
+              String.join(", ", rings.stream().map(m -> Integer.toString(m.number())).toList());
+          String label =
+              "["
+                  + id
+                  + "] The image above with the radiologist's ring"
+                  + (rings.size() > 1 ? "s " : " ")
+                  + numbers;
+          markedContent.addAll(
+              write(
+                  markedCopy(image, slice.reference().geometry(), rings),
+                  id,
+                  label,
+                  directory,
+                  markedFiles));
+        }
       }
     }
     long tokens = files.stream().mapToLong(f -> imageTokens(f.width(), f.height())).sum();
     long characters = files.stream().mapToLong(f -> f.label().length()).sum();
-    return new Written(content, List.copyOf(files), tokens, characters, List.copyOf(skipped));
+    return new Written(
+        content,
+        markedContent,
+        List.copyOf(files),
+        List.copyOf(markedFiles),
+        tokens,
+        characters,
+        List.copyOf(skipped));
   }
 
-  private static void write(
-      BufferedImage image,
-      String id,
-      String label,
-      Path directory,
-      List<Map<String, Object>> content,
-      List<ImageFile> files)
+  // Writes the PNG and returns its label and image parts.
+  private static List<Map<String, Object>> write(
+      BufferedImage image, String id, String label, Path directory, List<ImageFile> files)
       throws IOException {
     String file = "images/" + id + ".png";
     if (!ImageIO.write(image, "png", directory.resolve(file).toFile())) {
       throw new IOException("No PNG writer is available.");
     }
-    content.add(textPart(label));
     Map<String, Object> part = new LinkedHashMap<>();
     part.put("type", "input_image");
     part.put("image_url", file);
     part.put("detail", DETAIL);
-    content.add(part);
     files.add(new ImageFile(id, file, image.getWidth(), image.getHeight(), label));
+    return List.of(textPart(label), part);
+  }
+
+  /** A color copy of the sent image with the radiologist's numbered rings drawn on it. */
+  static BufferedImage markedCopy(
+      BufferedImage image, ImageGeometry geometry, List<AiPacketPlan.PlacedMark> rings) {
+    BufferedImage copy =
+        new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
+    Graphics2D g = copy.createGraphics();
+    g.drawImage(image, 0, 0, null);
+    double x = image.getWidth() / (double) Math.max(1, geometry.columns());
+    double y = image.getHeight() / (double) Math.max(1, geometry.rows());
+    double radius = AiMarks.radiusPixels(geometry)[0] * x;
+    for (AiPacketPlan.PlacedMark ring : rings) {
+      AiMarks.paintRing(g, ring.column() * x, ring.row() * y, radius, ring.number());
+    }
+    g.dispose();
+    return copy;
   }
 
   private static BufferedImage localizerImage(Localizer localizer) {
@@ -326,6 +420,10 @@ final class AiPacketExporter {
   }
 
   static Map<String, Object> outputFormat() {
+    return outputFormat(false);
+  }
+
+  static Map<String, Object> outputFormat(boolean marks) {
     Map<String, Object> finding = new LinkedHashMap<>();
     finding.put("type", "object");
     finding.put("additionalProperties", false);
@@ -344,10 +442,14 @@ final class AiPacketExporter {
     Map<String, Object> schema = new LinkedHashMap<>();
     schema.put("type", "object");
     schema.put("additionalProperties", false);
-    schema.put("required", List.of("findings", "limitations"));
     Map<String, Object> top = new LinkedHashMap<>();
     top.put("findings", Map.of("type", "array", "items", finding));
     top.put("limitations", Map.of("type", "array", "items", Map.of("type", "string")));
+    if (marks) {
+      var ringAnswers = AiSchema.marks(Map.of("type", "string"));
+      top.put(ringAnswers.getKey(), ringAnswers.getValue());
+    }
+    schema.put("required", List.copyOf(top.keySet()));
     schema.put("properties", top);
 
     Map<String, Object> format = new LinkedHashMap<>();
@@ -403,6 +505,17 @@ final class AiPacketExporter {
             .map(e -> Map.of("series", e.series(), "reason", e.reason()))
             .toList());
     manifest.put("skipped_images", written.skipped());
+    manifest.put(
+        "marks",
+        plan.marks().stream()
+            .map(
+                m ->
+                    Map.of(
+                        "number", m.number(),
+                        "image_id", m.slice().id(),
+                        "marked_image_id", m.slice().id() + "-marked"))
+            .toList());
+    manifest.put("marks_not_in_packet", plan.unplacedMarks());
     manifest.put("estimated_image_tokens", written.imageTokens());
     return manifest;
   }
@@ -451,7 +564,17 @@ final class AiPacketExporter {
             e -> text.append("  ").append(e.series()).append(": ").append(e.reason()).append('\n'));
     written.skipped().forEach(s -> text.append("  Image ").append(s).append('\n'));
     text.append("\nDisc levels in labels: ").append(plan.levelSource()).append('\n');
-    text.append("Answer format: ").append(answerFormat(plan)).append("\n\n");
+    text.append("Answer format: ").append(answerFormat(plan)).append('\n');
+    if (!plan.marks().isEmpty()) {
+      text.append("Rings: ").append(plan.marks().size());
+      text.append(
+          " (sent as a second request, request-marked.json, after the blind read in request.json)");
+      if (!plan.unplacedMarks().isEmpty()) {
+        text.append("; not in this packet: ring ").append(plan.unplacedMarks());
+      }
+      text.append('\n');
+    }
+    text.append('\n');
     text.append(
         """
         Files

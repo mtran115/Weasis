@@ -270,6 +270,89 @@ class AiPacketSenderTest {
   }
 
   @Test
+  void ringedCopiesAreNeverLeftOutToFitLimits() {
+    Map<String, Long> images = new LinkedHashMap<>();
+    addSeries(images, "S1", 10);
+    images.put("S1-03-marked", 10L);
+    AiPacketSender.Fit fit =
+        AiPacketSender.fit(
+            List.of(new AiPacketSender.SeriesInfo("S1", "axial", "T1 AX")),
+            images,
+            5,
+            Long.MAX_VALUE);
+    assertFalse(fit.dropped().contains("S1-03-marked"));
+  }
+
+  @Test
+  void eachRingIsComparedWithTheBlindRead() throws Exception {
+    JsonNode blind = JSON.readTree(ANSWER);
+    JsonNode marked =
+        JSON.readTree(
+            """
+            {"marks": [
+              {"number": 1, "location": "L4-5", "finding": "Small central protrusion", "confidence": "high"},
+              {"number": 2, "location": "L5-S1", "finding": "Normal disc", "confidence": "medium"},
+              {"number": 3, "location": "other", "finding": "Renal cyst", "confidence": "low"}
+            ]}
+            """);
+
+    assertEquals(
+        "RINGS\n"
+            + "Ring 1 (L4-5): Small central protrusion (high confidence) · blind read also found L4-5\n"
+            + "Ring 2 (L5-S1): Normal disc (medium confidence) · blind read reported nothing at L5-S1\n"
+            + "Ring 3 (other): Renal cyst (low confidence)\n\n",
+        AiPacketSender.ringsText(marked, blind, true));
+  }
+
+  @Test
+  void theMarkedRequestFollowsTheBlindOne() throws Exception {
+    AiPacketPlan plan =
+        AiPacketPlan.build(
+                AiPacketPlanTest.STUDY,
+                List.of(
+                    AiPacketPlanTest.series("601", "T2 SAG", AiPacketPlanTest.sagittals(-2, 0, 2))),
+                Optional.empty())
+            .withMarks(List.of(new AiMarks.Mark(1, "sop[0.0, -100.0, 100.0]", null, 100, 80)));
+    Path packet = AiPacketExporter.export(plan, root, CLOCK).directory();
+    assertTrue(AiPacketSender.hasMarks(packet));
+    String markedAnswer =
+        "{\"levels\": [], \"marks\": [{\"number\": 1, \"location\": \"L4-5\","
+            + " \"finding\": \"Disc bulge\", \"confidence\": \"high\"}]}";
+    String reply =
+        "{\"content\": [{\"type\": \"tool_use\", \"name\": \"record_findings\", \"input\": "
+            + markedAnswer
+            + "}], \"stop_reason\": \"tool_use\"}";
+
+    AiPacketSender.Sent sent =
+        withServer(
+            200,
+            reply,
+            new AtomicReference<>(),
+            "x-api-key",
+            uri ->
+                AiPacketSender.sendMarked(
+                    packet,
+                    AiProvider.ANTHROPIC,
+                    "claude-test",
+                    "key",
+                    uri,
+                    CLOCK,
+                    JSON.readTree(ANSWER)));
+
+    assertEquals(
+        "answer-anthropic-20261005-130000-marked.txt", sent.answerFile().getFileName().toString());
+    assertTrue(
+        sent.answerText().startsWith("Claude · claude-test (marked) · 2026-10-05 13:00"),
+        sent.answerText());
+    assertTrue(
+        sent.answerText()
+            .contains(
+                "RINGS\nRing 1 (L4-5): Disc bulge (high confidence) · blind read also found L4-5"),
+        sent.answerText());
+    assertEquals(4, sent.imagesSent());
+  }
+
+  @Test
   void genericAnswersListFindingsWithTheirImages() throws Exception {
     JsonNode answer =
         JSON.readTree(

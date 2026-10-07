@@ -54,4 +54,16 @@ final class AiSchema {
   static Map<String, Object> arrayOf(Map<String, Object> items) {
     return Map.of("type", "array", "items", items);
   }
+
+  /** One answer per numbered ring the radiologist drew: where it is and what it shows. */
+  static Map.Entry<String, Object> marks(Map<String, Object> location) {
+    return entry(
+        "marks",
+        arrayOf(
+            object(
+                entry("number", type("integer")),
+                entry("location", location),
+                entry("finding", type("string")),
+                entry("confidence", enumOf(List.of("low", "medium", "high"))))));
+  }
 }
