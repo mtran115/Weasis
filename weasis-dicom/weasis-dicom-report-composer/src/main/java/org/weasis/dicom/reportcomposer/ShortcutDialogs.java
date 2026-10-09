@@ -73,7 +73,7 @@ final class ShortcutDialogs {
       Runnable changed) {
     JDialog dialog = dialog(parent, existing == null ? "Add shortcut" : "Edit shortcut");
     JTextField label = new JTextField(32);
-    JTextArea text = new JTextArea(7, 42);
+    JTextArea text = ComposerTextEditing.install(new JTextArea(7, 42));
     text.setLineWrap(true);
     text.setWrapStyleWord(true);
     JComboBox<Object> scope = scopes(false);

@@ -110,7 +110,7 @@ final class WristFormPanel extends JPanel {
       new DirectChoiceControl<>(FLUID_AMOUNTS, 2);
   private final JToggleButton likelyInflammatory = new FindingToggleButton("Likely inflammatory");
   private final JToggleButton motionArtifact = new FindingToggleButton("Motion artifact");
-  private final JTextArea freeText = new JTextArea(3, 24);
+  private final JTextArea freeText = ComposerTextEditing.install(new JTextArea(3, 24));
   private final JButton resetButton = iconButton(ActionIcon.RESET, "Clear wrist form");
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");

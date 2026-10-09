@@ -991,6 +991,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
           updatingKeyImageCaption = true;
           try {
             keyImageCaption.setText(selected == null ? "" : selected.caption());
+            ComposerTextEditing.forgetHistory(keyImageCaption);
           } finally {
             updatingKeyImageCaption = false;
           }
@@ -1582,6 +1583,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       cancelEditButton.setVisible(false);
       restoreEditorState(draftEditorStates.get(context.draftKey()));
       refreshAll();
+      // Undo must not reach back into the previous study's text.
+      ComposerTextEditing.forgetHistoryWithin(this);
       refreshCaptureViewports();
       localSaveLabel.setText("Saved locally");
     } finally {
@@ -1870,6 +1873,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     editingFindingId = selected.id();
     findingText.setText(selected.findingText());
     impressionText.setText(selected.impressionText());
+    ComposerTextEditing.forgetHistory(findingText);
+    ComposerTextEditing.forgetHistory(impressionText);
     includeInImpression.setSelected(selected.includeInImpression());
     impressionText.setEnabled(selected.includeInImpression());
     saveFindingButton.setText("Update");
@@ -2681,7 +2686,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private void showAiAnswer(String answer, Path packet) {
     statusLabel.setText("AI answer saved in the packet folder.");
-    JTextArea text = new JTextArea(answer, 30, 90);
+    JTextArea text = ComposerTextEditing.install(new JTextArea(answer, 30, 90));
     text.setEditable(false);
     text.setLineWrap(true);
     text.setWrapStyleWord(true);
@@ -2934,7 +2939,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     JTextArea area = new JTextArea(rows, FIELD_COLUMNS);
     area.setLineWrap(true);
     area.setWrapStyleWord(true);
-    return area;
+    return ComposerTextEditing.install(area);
   }
 
   private static JButton iconButton(ActionIcon icon, String tooltip) {

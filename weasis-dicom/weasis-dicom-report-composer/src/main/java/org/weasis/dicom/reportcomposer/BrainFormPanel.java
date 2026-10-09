@@ -105,7 +105,7 @@ final class BrainFormPanel extends JPanel {
   private final JTextField anteriorFalxLipomaSize = new JTextField(7);
   private final Map<TechnicalNote, JToggleButton> technicalNotes =
       new EnumMap<>(TechnicalNote.class);
-  private final JTextArea freeText = new JTextArea(3, 24);
+  private final JTextArea freeText = ComposerTextEditing.install(new JTextArea(3, 24));
   private final JButton resetButton = iconButton(ActionIcon.RESET, "Clear brain form");
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");

@@ -67,7 +67,7 @@ final class ShoulderFormPanel extends JPanel {
   private final JToggleButton paralabralCyst = new FindingToggleButton("Adjacent paralabral cyst");
   private final DirectChoiceControl<Degree> longHeadBicepsTenosynovitis =
       new DirectChoiceControl<>(DEGREES);
-  private final JTextArea freeText = new JTextArea(3, 24);
+  private final JTextArea freeText = ComposerTextEditing.install(new JTextArea(3, 24));
   private final JButton resetButton = iconButton(ActionIcon.RESET, "Clear shoulder form");
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");

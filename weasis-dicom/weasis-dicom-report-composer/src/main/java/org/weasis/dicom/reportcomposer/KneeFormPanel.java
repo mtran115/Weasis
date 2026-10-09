@@ -103,7 +103,7 @@ final class KneeFormPanel extends JPanel {
   private final DirectChoiceControl<Degree> softTissueEdema = new DirectChoiceControl<>(DEGREES, 2);
   private final Map<SoftTissueLocation, JToggleButton> softTissueLocations =
       new EnumMap<>(SoftTissueLocation.class);
-  private final JTextArea freeText = new JTextArea(3, 24);
+  private final JTextArea freeText = ComposerTextEditing.install(new JTextArea(3, 24));
   private final JButton resetButton = iconButton(ActionIcon.RESET, "Clear knee form");
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");
