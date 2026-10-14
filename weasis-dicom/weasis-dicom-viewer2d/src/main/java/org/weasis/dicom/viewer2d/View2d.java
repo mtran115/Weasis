@@ -129,6 +129,10 @@ public class View2d extends DefaultView2d<DicomImageElement> {
   private static final Logger LOGGER = LoggerFactory.getLogger(View2d.class);
   private static final WindowLevelMemory MR_WINDOW_LEVEL_MEMORY = new WindowLevelMemory();
 
+  // The series W/L shown on slices without their own Auto W/L (see SliceWindowLevel).
+  private SliceWindowLevel.State sliceBase;
+  private boolean switchingSeries;
+
   public static final String P_CROSSHAIR_CENTER_GAP = "mpr.crosshair.center.gap";
   public static final String P_CROSSHAIR_MODE = "mpr.crosshair.mode";
   private final Dimension oldSize;
@@ -634,14 +638,23 @@ public class View2d extends DefaultView2d<DicomImageElement> {
     MediaSeries<DicomImageElement> previousSeries = getSeries();
     boolean seriesChanged = !Objects.equals(previousSeries, series);
     if (seriesChanged) {
+      leaveSliceWindowLevel(getImage());
       rememberWindowLevel(previousSeries);
     }
 
-    super.setSeries(series, selectedDicom);
+    switchingSeries = seriesChanged;
+    try {
+      super.setSeries(series, selectedDicom);
+    } finally {
+      switchingSeries = false;
+    }
 
-    if (seriesChanged && restoreWindowLevel(series)) {
-      imageLayer.updateDisplayOperations();
-      eventManager.updateComponentsListener(this);
+    if (seriesChanged) {
+      boolean restored = restoreWindowLevel(series);
+      if (enterSliceWindowLevel(getImage()) || restored) {
+        imageLayer.updateDisplayOperations();
+        eventManager.updateComponentsListener(this);
+      }
     }
 
     // TODO
@@ -703,9 +716,44 @@ public class View2d extends DefaultView2d<DicomImageElement> {
     }
 
     WindowLevelMemory.State state = remembered.get();
-    OpManager disOp = getDisplayOpManager();
     // Restore the exact baseline, including Auto Level. Recomputing Auto from the slice
     // selected on return makes contrast jump when moving between sequences or key images.
+    applyWindowLevelParams(
+        new SliceWindowLevel.State(
+            state.window(),
+            state.level(),
+            state.lutShape(),
+            state.preset(),
+            state.defaultPreset()));
+    return true;
+  }
+
+  private Optional<SliceWindowLevel.State> viewWindowLevel() {
+    OpManager disOp = getDisplayOpManager();
+    Optional<Number> window =
+        disOp.getParamValue(WindowOp.OP_NAME, ActionW.WINDOW.cmd(), Number.class);
+    Optional<Number> level =
+        disOp.getParamValue(WindowOp.OP_NAME, ActionW.LEVEL.cmd(), Number.class);
+    if (window.isEmpty() || level.isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        new SliceWindowLevel.State(
+            window.get().doubleValue(),
+            level.get().doubleValue(),
+            disOp
+                .getParamValue(WindowOp.OP_NAME, ActionW.LUT_SHAPE.cmd(), LutShape.class)
+                .orElse(null),
+            disOp
+                .getParamValue(WindowOp.OP_NAME, ActionW.PRESET.cmd(), PresetWindowLevel.class)
+                .orElse(null),
+            disOp
+                .getParamValue(WindowOp.OP_NAME, ActionW.DEFAULT_PRESET.cmd(), Boolean.class)
+                .orElse(Boolean.TRUE)));
+  }
+
+  private void applyWindowLevelParams(SliceWindowLevel.State state) {
+    OpManager disOp = getDisplayOpManager();
     disOp.setParamValue(WindowOp.OP_NAME, ActionW.PRESET.cmd(), state.preset());
     disOp.setParamValue(WindowOp.OP_NAME, ActionW.DEFAULT_PRESET.cmd(), state.defaultPreset());
     disOp.setParamValue(WindowOp.OP_NAME, ActionW.WINDOW.cmd(), state.window());
@@ -714,15 +762,90 @@ public class View2d extends DefaultView2d<DicomImageElement> {
       disOp.setParamValue(WindowOp.OP_NAME, ActionW.LUT_SHAPE.cmd(), state.lutShape());
     }
     actionsInView.put(ActionW.PRESET.cmd(), state.preset());
+  }
+
+  private boolean sliceWindowLevelActive() {
+    return SliceWindowLevel.applies(series)
+        && !(getActionValue(ActionW.PR_STATE.cmd()) instanceof PRSpecialElement);
+  }
+
+  /** Keeps {@code preset} for the current slice only; false when this series is excluded. */
+  boolean setSliceWindowLevel(PresetWindowLevel preset) {
+    DicomImageElement image = getImage();
+    if (image == null || !sliceWindowLevelActive()) {
+      return false;
+    }
+    if (SliceWindowLevel.of(image).isEmpty()) {
+      sliceBase = viewWindowLevel().orElse(null);
+    }
+    SliceWindowLevel.set(image, SliceWindowLevel.State.of(preset));
+    return true;
+  }
+
+  /** Drops the current slice's own W/L and returns the series W/L to show instead. */
+  Optional<SliceWindowLevel.State> clearSliceWindowLevel() {
+    DicomImageElement image = getImage();
+    if (SliceWindowLevel.of(image).isEmpty()) {
+      return Optional.empty();
+    }
+    SliceWindowLevel.clear(image);
+    return Optional.ofNullable(sliceBase);
+  }
+
+  // Keeps manual changes on a slice with its own W/L and puts the series W/L back in the view.
+  private void leaveSliceWindowLevel(DicomImageElement image) {
+    if (sliceWindowLevelActive() && SliceWindowLevel.of(image).isPresent()) {
+      viewWindowLevel().ifPresent(current -> SliceWindowLevel.set(image, current));
+      if (sliceBase != null) {
+        applyWindowLevelParams(sliceBase);
+      }
+    }
+    sliceBase = null;
+  }
+
+  private boolean enterSliceWindowLevel(DicomImageElement image) {
+    Optional<SliceWindowLevel.State> own = SliceWindowLevel.of(image);
+    if (!sliceWindowLevelActive() || own.isEmpty()) {
+      return false;
+    }
+    sliceBase = viewWindowLevel().orElse(null);
+    applyWindowLevelParams(own.get());
+    return true;
+  }
+
+  // Scrolling within a series: each slice shows its own W/L, or the series W/L when it has none.
+  private boolean swapSliceWindowLevel(DicomImageElement from, DicomImageElement to) {
+    if (switchingSeries || from == null || !sliceWindowLevelActive()) {
+      return false;
+    }
+    boolean leavingOwn = SliceWindowLevel.of(from).isPresent();
+    Optional<SliceWindowLevel.State> entering = SliceWindowLevel.of(to);
+    Optional<SliceWindowLevel.State> current = viewWindowLevel();
+    if ((!leavingOwn && entering.isEmpty()) || current.isEmpty()) {
+      return false;
+    }
+    if (leavingOwn) {
+      SliceWindowLevel.set(from, current.get());
+    } else {
+      sliceBase = current.get();
+    }
+    SliceWindowLevel.State next = entering.orElse(sliceBase);
+    if (next == null) {
+      return false;
+    }
+    applyWindowLevelParams(next);
     return true;
   }
 
   @Override
   protected void setImage(DicomImageElement img) {
-    boolean newImg = img != null && !img.equals(imageLayer.getSourceImage());
+    DicomImageElement previous = imageLayer.getSourceImage();
+    boolean newImg = img != null && !img.equals(previous);
+    boolean swapped = false;
     if (newImg) {
       deletePrLayers();
       PrGraphicUtil.applyPresentationModel(img);
+      swapped = swapSliceWindowLevel(previous, img);
     }
     super.setImage(img);
 
@@ -730,6 +853,9 @@ public class View2d extends DefaultView2d<DicomImageElement> {
       updateSegmentation(img);
       updatePrButtonState(img);
       updateKOSelectedState(img);
+    }
+    if (swapped && eventManager instanceof EventManager manager) {
+      manager.refreshWindowLevelComponents(this);
     }
   }
 
@@ -741,6 +867,7 @@ public class View2d extends DefaultView2d<DicomImageElement> {
 
   @Override
   public void reset() {
+    clearSliceWindowLevel();
     super.reset();
     if (getActionValue(ActionW.PR_STATE.cmd()) instanceof PRSpecialElement pr) {
       setPresentationState(pr, true);

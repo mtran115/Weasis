@@ -931,7 +931,11 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     }
     KeyboardWindowLevelState original = before.get();
     Object filter = view.getActionValue(ActionW.FILTERED_SERIES.cmd());
-    List<DicomImageElement> images = MrAutoWindowLevel.nearbyImages(view);
+    DicomImageElement image = view.getImage();
+    // On the Taylor Philips Intera, Auto W/L is calculated from and kept for this slice only.
+    boolean thisSliceOnly = view instanceof View2d && SliceWindowLevel.applies(view.getSeries());
+    List<DicomImageElement> images =
+        thisSliceOnly ? List.of(image) : MrAutoWindowLevel.nearbyImages(view);
     pendingMrAutoLevel =
         new SwingWorker<>() {
           @Override
@@ -949,6 +953,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
             // or selection of another pane/series takes precedence over the pending request.
             if (getSelectedViewPane() != view
                 || view.getImage() == null
+                || (thisSliceOnly && view.getImage() != image)
                 || !captureWindowLevelState(view).filter(original::equals).isPresent()
                 || !Objects.equals(presentation, view.getActionValue(ActionW.PR_STATE.cmd()))
                 || filter != view.getActionValue(ActionW.FILTERED_SERIES.cmd())
@@ -962,6 +967,12 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
               if (preset == null) {
                 LOGGER.debug("MR Auto Level could not obtain a usable pixel range");
                 return;
+              }
+              if (thisSliceOnly) {
+                preset = SliceWindowLevel.slicePreset(preset);
+                if (!((View2d) view).setSliceWindowLevel(preset)) {
+                  return;
+                }
               }
               KeyboardWindowLevelState updated =
                   new KeyboardWindowLevelState(
@@ -1048,6 +1059,22 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
 
   private void restorePreviousKeyboardWindowLevel(ViewCanvas<DicomImageElement> view) {
     cancelPendingMrAutoLevel();
+    if (view instanceof View2d view2d) {
+      Optional<SliceWindowLevel.State> base = view2d.clearSliceWindowLevel();
+      if (base.isPresent()) {
+        SliceWindowLevel.State state = base.get();
+        applyKeyboardWindowLevelState(
+            view,
+            new KeyboardWindowLevelState(
+                view.getSeries(),
+                state.window(),
+                state.level(),
+                state.lutShape(),
+                state.preset(),
+                state.defaultPreset()));
+        return;
+      }
+    }
     KeyboardWindowLevelState previous = previousWindowLevels.get(view);
     if (previous == null || previous.series() != view.getSeries()) {
       previousWindowLevels.remove(view);
@@ -1593,6 +1620,13 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
         koFilterAction.ifPresent(a -> a.enableAction(enable));
         koSelectionAction.ifPresent(a -> a.enableAction(enable));
       }
+    }
+  }
+
+  /** Shows the view's W/L in the toolbar controls after it changed with the slice. */
+  void refreshWindowLevelComponents(View2d view) {
+    if (getSelectedViewPane() == view && view.getImage() != null) {
+      updateWindowLevelComponentsListener(view.getImage(), view);
     }
   }
 
