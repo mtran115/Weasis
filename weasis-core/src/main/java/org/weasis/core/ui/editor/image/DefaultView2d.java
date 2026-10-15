@@ -100,6 +100,7 @@ import org.weasis.core.ui.model.utils.bean.GraphicClipboard;
 import org.weasis.core.ui.model.utils.bean.PanPoint;
 import org.weasis.core.ui.model.utils.imp.DefaultViewModel;
 import org.weasis.core.ui.pref.Monitor;
+import org.weasis.core.ui.recorder.InteractionRecorder;
 import org.weasis.core.ui.util.DefaultAction;
 import org.weasis.core.ui.util.MouseEventDouble;
 import org.weasis.core.ui.util.TitleMenuItem;
@@ -917,6 +918,7 @@ public abstract class DefaultView2d<E extends ImageElement> extends GraphicsPane
     }
 
     GuiUtils.getUICore().closeSeries(oldSequence);
+    InteractionRecorder.seriesShown(this, newSeries);
 
     initActionWState();
     try {

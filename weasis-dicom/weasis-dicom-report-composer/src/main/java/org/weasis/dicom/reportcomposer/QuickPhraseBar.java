@@ -57,6 +57,7 @@ import javax.swing.event.PopupMenuListener;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.JTextComponent;
 import javax.swing.text.Position;
+import org.weasis.core.ui.recorder.InteractionRecorder;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
 import org.weasis.dicom.reportcomposer.ReportQuickPhrases.Phrase;
 import org.weasis.dicom.reportcomposer.ShortcutLibrary.Shortcut;
@@ -495,6 +496,12 @@ final class QuickPhraseBar extends JPanel {
     if (current.isEmpty() || !current.get().appliesTo(exam)) return;
     insert(current.get().phrase());
     library.recordUse(shortcut.id(), exam);
+    InteractionRecorder.record(
+        "phrase",
+        Map.of(
+            "id", shortcut.id(),
+            "category", String.valueOf(current.get().category()),
+            "exam", exam.name()));
     for (int i = 0; i < Math.min(examButtons.size(), phrases.size()); i++) {
       Shortcut latest = library.find(phrases.get(i).id()).orElse(phrases.get(i));
       examButtons

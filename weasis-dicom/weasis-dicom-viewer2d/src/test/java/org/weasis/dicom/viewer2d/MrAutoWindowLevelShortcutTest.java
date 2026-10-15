@@ -56,6 +56,20 @@ class MrAutoWindowLevelShortcutTest {
     assertSame(LutShape.SIGMOID, f.node.getParam(ActionW.LUT_SHAPE.cmd()));
   }
 
+  @Test
+  void autoOnOpenAppliesToAViewportThatIsNotSelected() throws Exception {
+    Fixture f = new Fixture();
+    when(f.manager.getSelectedViewPane()).thenReturn(mock(View2d.class));
+    when(f.image.getMrAutoWindowLevelRange()).thenReturn(new MrWindowLevelRange(0, 1200));
+    doCallRealMethod().when(f.manager).applyAutoWindowLevelOnOpen(f.view);
+
+    SwingUtilities.invokeAndWait(() -> f.manager.applyAutoWindowLevelOnOpen(f.view));
+
+    verify(f.view.getImageLayer(), timeout(5000)).updateDisplayOperations();
+    assertEquals(1200.0, f.node.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(600.0, f.node.getParam(ActionW.LEVEL.cmd()));
+  }
+
   @ParameterizedTest
   @ValueSource(strings = {"manual", "series", "pane", "padding", "presentation", "filter"})
   void delayedAutoCannotOverrideNewReadingState(String change) throws Exception {

@@ -96,6 +96,7 @@ import org.weasis.core.ui.editor.SeriesViewerEvent;
 import org.weasis.core.ui.editor.SeriesViewerEvent.EVENT;
 import org.weasis.core.ui.editor.SeriesViewerListener;
 import org.weasis.core.ui.editor.image.DefaultView2d;
+import org.weasis.core.ui.recorder.InteractionRecorder;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.explorer.LocalImportDirectory;
 import org.weasis.dicom.reportcomposer.ArrowAnnotationDialog.AnnotationResult;
@@ -134,6 +135,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final Timer draftSaveTimer = new Timer(500, event -> persistCurrentDraft());
   private final JLabel localSaveLabel = new JLabel(idleSaveText());
   private final JCheckBox localArchiveBox = new JCheckBox("Keep local archive");
+  private final JCheckBox recordWorkflowBox = new JCheckBox("Record my workflow");
   private final JTextArea shortcutHelp = new JTextArea(SpineFormShortcuts.IDLE_HELP, 4, 0);
   private final StructuredFindingDraftTracker<SpineRegion, SpineFindingBuilder.Selection>
       spineFindingTracker =
@@ -578,9 +580,20 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
           localArchive.set(localArchiveBox.isSelected());
           if (currentDraft == null) localSaveLabel.setText(idleSaveText());
         });
+    recordWorkflowBox.setSelected(InteractionRecorder.isEnabled());
+    recordWorkflowBox.setFocusable(false);
+    recordWorkflowBox.setToolTipText(
+        "<html>On: what you do in the viewer and the composer is logged on this computer, without"
+            + " patient names, IDs, or typed text, so frequent steps can become macros.<br>Logs are"
+            + " deleted after 30 days.</html>");
+    recordWorkflowBox.addActionListener(
+        event -> InteractionRecorder.setEnabled(recordWorkflowBox.isSelected()));
+    JPanel saveChoices = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+    saveChoices.add(recordWorkflowBox);
+    saveChoices.add(localArchiveBox);
     JPanel saveStatus = new JPanel(new BorderLayout(6, 0));
     saveStatus.add(localSaveLabel, BorderLayout.CENTER);
-    saveStatus.add(localArchiveBox, BorderLayout.EAST);
+    saveStatus.add(saveChoices, BorderLayout.EAST);
     footer.add(saveStatus, BorderLayout.SOUTH);
     add(footer, BorderLayout.SOUTH);
   }
@@ -1135,6 +1148,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void selectExamTemplate(ExamTemplate exam) {
+    InteractionRecorder.record("composer_exam", Map.of("exam", exam.name()));
     updatingCatalogControls = true;
     examCombo.setSelectedItem(exam);
     updatingCatalogControls = false;
@@ -1966,6 +1980,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   }
 
   private void captureKeyImage(DicomContextReader.CapturedView capture) {
+    InteractionRecorder.record("key_image", Map.of());
     // Cancel before opening the annotation dialog, which runs its own Swing event loop.
     cancelKeyImagePreview();
     persistCurrentDraft();
@@ -2217,6 +2232,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
     String text = reportBody(currentDraft.snapshot());
     Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+    InteractionRecorder.record("report_copied", Map.of("chars", text.length()));
     statusLabel.setText("Report text copied to the clipboard.");
   }
 
@@ -2296,6 +2312,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
     Destination destination = selectedDestination.orElse(null);
     exportInProgress = true;
+    InteractionRecorder.record("case_export", Map.of("normal_lumbar", normalLumbar));
     exportButton.setEnabled(false);
     if (completion.studyKey().equals(activeStudyKey)) {
       localSaveLabel.setText("Saving annotation pass locally…");
@@ -2423,6 +2440,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     }
     String studyKey = context.draftKey();
     aiPacketButton.setEnabled(false);
+    InteractionRecorder.record("ai_packet_built", Map.of("images", plan.imageCount()));
     statusLabel.setText("Building AI packet (" + plan.imageCount() + " images)…");
     new SwingWorker<AiPacketExporter.Result, Void>() {
       @Override
@@ -2553,6 +2571,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       return;
     }
     persistence.setProperty(modelKey, chosenModel);
+    InteractionRecorder.record(
+        "ai_packet_sent",
+        Map.of(
+            "provider", provider.name(),
+            "model", chosenModel,
+            "images", imageCount,
+            "marks", markCount));
     aiPacketButton.setEnabled(false);
     statusLabel.setText("Waiting for " + provider.label() + "…");
     new SwingWorker<AiSendResult, Void>() {

@@ -330,8 +330,9 @@ public abstract class SliderChangeListener extends MouseActionAdapter
   public void mousePressed(MouseEvent e) {
     if (basicState.isActionEnabled() && !e.isConsumed()) {
       int buttonMask = getButtonMaskEx();
+      // Adjusting starts with the first move: a click alone would re-apply the rounded slider
+      // value.
       if ((e.getModifiersEx() & buttonMask) != 0) {
-        model.setValueIsAdjusting(true);
         lastPosition = isMoveOnX() ? e.getX() : e.getY();
         dragAccumulator = getSliderValue();
       }
@@ -351,7 +352,6 @@ public abstract class SliderChangeListener extends MouseActionAdapter
        * multi split container)
        */
       if ((modifier & buttonMask) != 0 && MathUtil.isDifferent(dragAccumulator, Double.MAX_VALUE)) {
-        model.setValueIsAdjusting(true);
         int position = isMoveOnX() ? e.getX() : e.getY();
         int mask = InputEvent.SHIFT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK;
         // Accelerate the action if ctrl or shift is down
@@ -361,6 +361,7 @@ public abstract class SliderChangeListener extends MouseActionAdapter
         if (MathUtil.isEqualToZero(val)) {
           return;
         }
+        model.setValueIsAdjusting(true);
         lastPosition = position;
         if (isInverse()) {
           dragAccumulator -= val;

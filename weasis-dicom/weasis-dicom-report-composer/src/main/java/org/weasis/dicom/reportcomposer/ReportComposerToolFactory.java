@@ -48,6 +48,7 @@ public class ReportComposerToolFactory extends ExtToolFactory<DicomImageElement>
 
   @Override
   protected Insertable getInstance(Hashtable<String, Object> properties) {
+    ViewerMacros.install();
     return new ReportComposerTool();
   }
 }

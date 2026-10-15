@@ -54,6 +54,7 @@ import org.weasis.core.ui.model.graphic.Graphic;
 import org.weasis.core.ui.model.utils.bean.PanPoint;
 import org.weasis.core.ui.model.utils.imp.DefaultViewModel;
 import org.weasis.core.ui.pref.ZoomSetting;
+import org.weasis.core.ui.recorder.InteractionRecorder;
 import org.weasis.core.ui.util.ColorLayerUI;
 import org.weasis.core.ui.util.PrintDialog;
 
@@ -539,6 +540,7 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
 
   /** Fire property change event. */
   protected void firePropertyChange(String propertyName, Object oldValue, Object newValue) {
+    if (newValue instanceof SynchEvent synch) InteractionRecorder.displayChanged(synch);
     propertySupport.firePropertyChange(propertyName, oldValue, newValue);
   }
 
@@ -565,6 +567,7 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
 
   public void fireSeriesViewerListeners(SeriesViewerEvent event) {
     if (event != null) {
+      InteractionRecorder.viewerEvent(event);
       for (SeriesViewerListener listener : seriesViewerListeners) {
         listener.changingViewContentEvent(event);
       }
@@ -640,6 +643,7 @@ public abstract class ImageViewerEventManager<E extends ImageElement> implements
       if (toolBar != null) {
         MouseActions mActions = getMouseActions();
         if (!command.equals(mActions.getAction(MouseActions.T_LEFT))) {
+          InteractionRecorder.mouseToolChanged(command);
           mActions.setAction(MouseActions.T_LEFT, command);
           view.setMouseActions(mActions);
           toolBar.changeButtonState(MouseActions.T_LEFT, command);

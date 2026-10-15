@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -28,6 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
@@ -80,6 +82,7 @@ import org.weasis.core.api.media.data.MediaElement;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.Series;
 import org.weasis.core.api.media.data.SeriesComparator;
+import org.weasis.core.api.media.data.TagReadable;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.service.AuditLog;
 import org.weasis.core.api.service.BundlePreferences;
@@ -103,6 +106,7 @@ import org.weasis.core.ui.editor.image.ZoomToolBar;
 import org.weasis.core.ui.launcher.Launcher;
 import org.weasis.core.ui.model.graphic.Graphic;
 import org.weasis.core.ui.model.utils.bean.PanPoint;
+import org.weasis.core.ui.recorder.InteractionRecorder;
 import org.weasis.core.util.LangUtil;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomSeries;
@@ -165,6 +169,15 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   private final Map<ViewCanvas<DicomImageElement>, KeyboardWindowLevelState> previousWindowLevels =
       new WeakHashMap<>();
   private SwingWorker<PresetWindowLevel, Void> pendingMrAutoLevel;
+  private final List<SeriesOpenedListener> seriesOpenedListeners = new CopyOnWriteArrayList<>();
+
+  /** Told on the Swing thread when a viewport opens another series. */
+  public interface SeriesOpenedListener {
+    /**
+     * @param windowLevelRestored the series got back the W/L it had earlier in the session
+     */
+    void seriesOpened(View2d view, boolean windowLevelRestored);
+  }
 
   /**
    * Return the single instance of this class. This method guarantees the singleton property of this
@@ -229,6 +242,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     zoomSetting.applyPreferences(prefs);
     windowLevelSetting.applyPreferences(prefs);
     mouseActions.applyPreferences(prefs);
+    InteractionRecorder.install(EventManager::describeForRecorder);
 
     if (prefs != null) {
       Preferences prefNode = prefs.node("mouse.sensivity");
@@ -910,8 +924,29 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     return true;
   }
 
+  public void addSeriesOpenedListener(SeriesOpenedListener listener) {
+    seriesOpenedListeners.add(listener);
+  }
+
+  void fireSeriesOpened(View2d view, boolean windowLevelRestored) {
+    seriesOpenedListeners.forEach(listener -> listener.seriesOpened(view, windowLevelRestored));
+  }
+
   void applyAutoWindowLevel(ViewCanvas<DicomImageElement> view) {
-    cancelPendingMrAutoLevel();
+    applyAutoWindowLevel(view, true);
+  }
+
+  /** Auto W/L for an MR series that has just opened in {@code view}, selected or not. */
+  public void applyAutoWindowLevelOnOpen(View2d view) {
+    applyAutoWindowLevel(view, false);
+  }
+
+  // A keyboard request replaces the pending one, falls back to the default preset outside MR, and
+  // gives way when another viewport is selected before it is ready.
+  private void applyAutoWindowLevel(ViewCanvas<DicomImageElement> view, boolean keyboard) {
+    if (keyboard) {
+      cancelPendingMrAutoLevel();
+    }
     Object presentation = view.getActionValue(ActionW.PR_STATE.cmd());
     boolean pixelPadding =
         view.getDisplayOpManager()
@@ -922,7 +957,9 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
         || PRManager.getPrDicomObject(presentation) != null
         || view instanceof MprView
         || view instanceof MipView) {
-      getWindowLevelPreset(KeyEvent.VK_0).ifPresent(preset -> applyKeyboardPreset(view, preset));
+      if (keyboard) {
+        getWindowLevelPreset(KeyEvent.VK_0).ifPresent(preset -> applyKeyboardPreset(view, preset));
+      }
       return;
     }
     Optional<KeyboardWindowLevelState> before = captureWindowLevelState(view);
@@ -936,7 +973,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     boolean thisSliceOnly = view instanceof View2d && SliceWindowLevel.applies(view.getSeries());
     List<DicomImageElement> images =
         thisSliceOnly ? List.of(image) : MrAutoWindowLevel.nearbyImages(view);
-    pendingMrAutoLevel =
+    SwingWorker<PresetWindowLevel, Void> worker =
         new SwingWorker<>() {
           @Override
           protected PresetWindowLevel doInBackground() {
@@ -945,27 +982,37 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
 
           @Override
           protected void done() {
-            if (isCancelled() || pendingMrAutoLevel != this) {
+            if (isCancelled() || (keyboard && pendingMrAutoLevel != this)) {
               return;
             }
-            pendingMrAutoLevel = null;
+            if (keyboard) {
+              pendingMrAutoLevel = null;
+            }
             // Scrolling in this series is OK. A later adjustment, presentation/filter change,
             // or selection of another pane/series takes precedence over the pending request.
-            if (getSelectedViewPane() != view
+            if ((keyboard && getSelectedViewPane() != view)
                 || view.getImage() == null
                 || (thisSliceOnly && view.getImage() != image)
-                || !captureWindowLevelState(view).filter(original::equals).isPresent()
                 || !Objects.equals(presentation, view.getActionValue(ActionW.PR_STATE.cmd()))
                 || filter != view.getActionValue(ActionW.FILTERED_SERIES.cmd())
                 || !view.getDisplayOpManager()
                     .getParamValue(WindowOp.OP_NAME, ActionW.IMAGE_PIX_PADDING.cmd(), Boolean.class)
                     .orElse(Boolean.TRUE)) {
+              recordAutoWindowLevel(
+                  view, keyboard, Map.of("applied", false, "reason", "view changed"));
+              return;
+            }
+            if (!captureWindowLevelState(view).filter(original::equals).isPresent()) {
+              recordAutoWindowLevel(
+                  view, keyboard, Map.of("applied", false, "reason", "W/L changed"));
               return;
             }
             try {
               PresetWindowLevel preset = get();
               if (preset == null) {
                 LOGGER.debug("MR Auto Level could not obtain a usable pixel range");
+                recordAutoWindowLevel(
+                    view, keyboard, Map.of("applied", false, "reason", "no range"));
                 return;
               }
               if (thisSliceOnly) {
@@ -982,7 +1029,20 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
                       preset.getLutShape(),
                       preset,
                       false);
-              if (applyKeyboardWindowLevelState(view, updated)
+              boolean applied = applyKeyboardWindowLevelState(view, updated);
+              if (applied) {
+                recordAutoWindowLevel(
+                    view,
+                    keyboard,
+                    Map.of(
+                        "applied",
+                        true,
+                        ActionW.WINDOW.cmd(),
+                        updated.window(),
+                        ActionW.LEVEL.cmd(),
+                        updated.level()));
+              }
+              if (applied
                   && (Double.compare(original.window(), updated.window()) != 0
                       || Double.compare(original.level(), updated.level()) != 0
                       || !Objects.equals(original.lutShape(), updated.lutShape()))) {
@@ -998,7 +1058,19 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
             }
           }
         };
-    pendingMrAutoLevel.execute();
+    if (keyboard) {
+      pendingMrAutoLevel = worker;
+    }
+    worker.execute();
+  }
+
+  // Tells the interaction log whether an Auto W/L request was applied, and the W/L it set.
+  private static void recordAutoWindowLevel(
+      ViewCanvas<DicomImageElement> view, boolean keyboard, Map<String, Object> result) {
+    Map<String, Object> fields = new LinkedHashMap<>();
+    fields.put("source", keyboard ? "key" : "series_open");
+    fields.putAll(result);
+    InteractionRecorder.recordInView(view, "auto_window_level", fields);
   }
 
   private void cancelPendingMrAutoLevel() {
@@ -1139,7 +1211,10 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     }
     view.getActionsInView().put(ActionW.PRESET.cmd(), state.preset());
     view.getImageLayer().updateDisplayOperations();
-    updateWindowLevelComponentsListener(view.getImage(), view);
+    // The W/L controls show the selected viewport; another one is shown when it gets selected.
+    if (view == getSelectedViewPane()) {
+      updateWindowLevelComponentsListener(view.getImage(), view);
+    }
     fireSeriesViewerListeners(
         new SeriesViewerEvent(selectedView2dContainer, null, null, EVENT.WIN_LEVEL));
     return true;
@@ -2419,5 +2494,34 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
             }
           }
         });
+  }
+
+  // Names a series for the interaction recorder: descriptions and numbers, never the patient. The
+  // recorder hashes the study UID before writing it.
+  private static Map<String, Object> describeForRecorder(MediaSeries<?> series) {
+    Map<String, Object> fields = new LinkedHashMap<>();
+    putRecorderTag(fields, InteractionRecorder.STUDY_UID, series, Tag.StudyInstanceUID);
+    putRecorderTag(fields, "modality", series, Tag.Modality);
+    putRecorderTag(fields, "study_desc", series, Tag.StudyDescription);
+    putRecorderTag(fields, "body_part", series, Tag.BodyPartExamined);
+    putRecorderTag(fields, "series_desc", series, Tag.SeriesDescription);
+    putRecorderTag(fields, "series_no", series, Tag.SeriesNumber);
+    return fields;
+  }
+
+  private static void putRecorderTag(
+      Map<String, Object> fields, String name, MediaSeries<?> series, int tag) {
+    Object value = TagD.getTagValue(series, tag);
+    // Study-level tags such as the study UID are kept on the images rather than on the series.
+    if (value == null
+        && series.getMedia(MediaSeries.MEDIA_POSITION.FIRST, null, null)
+            instanceof TagReadable image) {
+      value = TagD.getTagValue(image, tag);
+    }
+    if (value instanceof Number number) {
+      fields.put(name, number);
+    } else if (value != null && !value.toString().isBlank()) {
+      fields.put(name, value.toString().strip());
+    }
   }
 }

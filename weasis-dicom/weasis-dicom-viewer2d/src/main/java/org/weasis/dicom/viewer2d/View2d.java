@@ -655,6 +655,9 @@ public class View2d extends DefaultView2d<DicomImageElement> {
         imageLayer.updateDisplayOperations();
         eventManager.updateComponentsListener(this);
       }
+      if (series != null && eventManager instanceof EventManager manager) {
+        manager.fireSeriesOpened(this, restored);
+      }
     }
 
     // TODO
