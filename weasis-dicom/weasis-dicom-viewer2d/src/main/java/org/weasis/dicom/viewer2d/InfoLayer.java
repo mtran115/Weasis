@@ -69,6 +69,8 @@ import org.weasis.opencv.op.lut.DefaultWlPresentation;
  * @author Nicolas Roduit
  */
 public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
+  // The sequence name's size relative to the other corner text.
+  private static final float SERIES_DESCRIPTION_SCALE = 1.35f;
 
   public InfoLayer(ViewCanvas<DicomImageElement> view2DPane) {
     this(view2DPane, true);
@@ -556,7 +558,9 @@ public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
       for (int j = infos.length - 1; j >= 0; j--) {
         if (infos[j] != null) {
           String text = getFormattedTag(infos[j], patient, study, series, image, anonymize);
-          if (text != null) {
+          if (text != null && isSeriesDescription(infos[j])) {
+            drawY = paintSeriesDescription(g2, text, bound, drawY);
+          } else if (text != null) {
             FontTools.paintFontOutline(
                 g2,
                 text,
@@ -570,6 +574,26 @@ public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
       drawSeriesInMemoryState(g2, view2DPane.getSeries(), bound.width - border, (int) drawY);
     }
     return drawY;
+  }
+
+  private static boolean isSeriesDescription(TagView tagView) {
+    return Arrays.stream(tagView.getTag()).anyMatch(tag -> tag.getId() == Tag.SeriesDescription);
+  }
+
+  // The sequence name stands out from the other corner lines: larger and in red. Returns the
+  // baseline for the line above it.
+  private float paintSeriesDescription(Graphics2D g2, String text, Rectangle bound, float drawY) {
+    Font font = g2.getFont();
+    g2.setFont(font.deriveFont(font.getSize2D() * SERIES_DESCRIPTION_SCALE));
+    FontMetrics metrics = g2.getFontMetrics();
+    FontTools.paintColorFontOutline(
+        g2,
+        text,
+        bound.width - metrics.stringWidth(text) - (float) border,
+        drawY,
+        IconColor.ACTIONS_RED.getColor());
+    g2.setFont(font);
+    return drawY - metrics.getHeight();
   }
 
   private String getFormattedTag(
