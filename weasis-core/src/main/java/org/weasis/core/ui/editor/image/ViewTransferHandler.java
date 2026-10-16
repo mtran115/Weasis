@@ -17,10 +17,12 @@ import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.image.BufferedImage;
 import java.awt.image.RenderedImage;
+import java.util.function.Consumer;
 import javax.swing.JComponent;
 import javax.swing.TransferHandler;
 import org.weasis.core.api.gui.model.ViewModel;
 import org.weasis.core.api.media.data.ImageElement;
+import org.weasis.core.ui.model.layer.LayerAnnotation;
 import org.weasis.core.ui.model.layer.LayerItem;
 import org.weasis.core.ui.model.utils.imp.DefaultViewModel;
 import org.weasis.core.ui.util.ImagePrint;
@@ -84,6 +86,12 @@ public class ViewTransferHandler extends TransferHandler implements Transferable
 
   public static <E extends ImageElement> RenderedImage createComponentImage(
       DefaultView2d<E> canvas, boolean anonymize) {
+    return createComponentImage(canvas, anonymize, infoLayer -> {});
+  }
+
+  /** {@code infoLayerSetup} adjusts the copied annotations, for example to keep one tag. */
+  public static <E extends ImageElement> RenderedImage createComponentImage(
+      DefaultView2d<E> canvas, boolean anonymize, Consumer<LayerAnnotation> infoLayerSetup) {
     BufferedImage img =
         new BufferedImage(canvas.getWidth(), canvas.getHeight(), BufferedImage.TYPE_3BYTE_BGR);
     ExportImage<E> exportImage = new ExportImage<>(canvas);
@@ -92,6 +100,7 @@ public class ViewTransferHandler extends TransferHandler implements Transferable
           .getInfoLayer()
           .setDisplayPreferencesValue(LayerItem.ANONYM_ANNOTATIONS, anonymize);
       exportImage.getInfoLayer().setBorder(3);
+      infoLayerSetup.accept(exportImage.getInfoLayer());
       Graphics2D g = img.createGraphics();
       if (g != null) {
         ViewModel originViewModel = canvas.getViewModel();

@@ -10,6 +10,8 @@
 package org.weasis.dicom.reportcomposer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
@@ -59,7 +61,7 @@ class DicomCaptureSnapshotTest {
     DicomContextReader.CapturedView capture;
     try (var renderer = mockStatic(ViewTransferHandler.class)) {
       renderer
-          .when(() -> ViewTransferHandler.createComponentImage(canvas, true))
+          .when(() -> ViewTransferHandler.createComponentImage(eq(canvas), eq(true), any()))
           .thenReturn(new BufferedImage(100, 100, BufferedImage.TYPE_INT_RGB));
       capture = selection.capture();
     }

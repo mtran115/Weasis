@@ -292,7 +292,16 @@ final class DicomContextReader {
       RenderedImage rendered =
           captureWithoutReferenceLines(
               canvas.getGraphicManager().findLayerByType(LayerType.CROSSLINES),
-              () -> ViewTransferHandler.createComponentImage(canvas, true));
+              () ->
+                  ViewTransferHandler.createComponentImage(
+                      canvas,
+                      true,
+                      // Key images name their sequence; anonymizing would drop it.
+                      infoLayer -> {
+                        if (infoLayer instanceof InfoLayer dicomInfo) {
+                          dicomInfo.setSeriesDescriptionWhenAnonymized(true);
+                        }
+                      }));
       if (rendered instanceof BufferedImage bufferedImage) {
         return bufferedImage;
       }

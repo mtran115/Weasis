@@ -72,6 +72,9 @@ public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
   // The sequence name's size relative to the other corner text.
   private static final float SERIES_DESCRIPTION_SCALE = 1.35f;
 
+  // Anonymized annotations hide the series description unless it is kept, as for key images.
+  private boolean seriesDescriptionWhenAnonymized;
+
   public InfoLayer(ViewCanvas<DicomImageElement> view2DPane) {
     this(view2DPane, true);
   }
@@ -557,7 +560,9 @@ public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
 
       for (int j = infos.length - 1; j >= 0; j--) {
         if (infos[j] != null) {
-          String text = getFormattedTag(infos[j], patient, study, series, image, anonymize);
+          boolean kept = seriesDescriptionWhenAnonymized && isSeriesDescription(infos[j]);
+          String text =
+              getFormattedTag(infos[j], patient, study, series, image, anonymize && !kept);
           if (text != null && isSeriesDescription(infos[j])) {
             drawY = paintSeriesDescription(g2, text, bound, drawY);
           } else if (text != null) {
@@ -574,6 +579,11 @@ public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
       drawSeriesInMemoryState(g2, view2DPane.getSeries(), bound.width - border, (int) drawY);
     }
     return drawY;
+  }
+
+  /** Shows the sequence name even in anonymized annotations, which hide it otherwise. */
+  public void setSeriesDescriptionWhenAnonymized(boolean shown) {
+    seriesDescriptionWhenAnonymized = shown;
   }
 
   private static boolean isSeriesDescription(TagView tagView) {
