@@ -588,7 +588,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             + " deleted after 30 days.</html>");
     recordWorkflowBox.addActionListener(
         event -> InteractionRecorder.setEnabled(recordWorkflowBox.isSelected()));
+    JButton hangingButton = new JButton("Hanging…");
+    hangingButton.setFocusable(false);
+    hangingButton.setToolTipText(
+        "<html>Layouts and sequence orders for the next-study and next-sequence keys</html>");
+    hangingButton.addActionListener(event -> HangingProtocolsDialog.show(this));
     JPanel saveChoices = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+    saveChoices.add(hangingButton);
     saveChoices.add(recordWorkflowBox);
     saveChoices.add(localArchiveBox);
     JPanel saveStatus = new JPanel(new BorderLayout(6, 0));

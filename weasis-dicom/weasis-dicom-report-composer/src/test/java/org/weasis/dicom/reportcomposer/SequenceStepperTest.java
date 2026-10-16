@@ -45,13 +45,14 @@ class SequenceStepperTest {
             Map.entry("AX T1 TSE (DISC CUTS)", new Kind("AX", "T1")),
             Map.entry("LT OBL SAG T2_smcs_AIRS", new Kind("OBL", "T2")),
             Map.entry("OBL SAG RIGHT_2DSMCS_AIRS", new Kind("OBL", "")),
-            Map.entry("COR PD FS_smwr_AIRS", new Kind("COR", "PD")),
+            Map.entry("COR PD FS_smwr_AIRS", new Kind("COR", "STIR")),
+            Map.entry("SAG PD", new Kind("SAG", "PD")),
             Map.entry("SURVEY", new Kind("", "")));
     expected.forEach((description, kind) -> assertEquals(kind, Kind.of(description), description));
   }
 
   @Test
-  void aSpineStudyFollowsTheReadersOrderThenTheRestBySeriesNumber() {
+  void aSpineStudyFollowsTheReadersOrderThenTheRestBySeriesNumberWithLocalizersLast() {
     List<String> study =
         List.of(
             "SURVEY",
@@ -73,10 +74,30 @@ class SequenceStepperTest {
             "AX T2",
             "LT SAG T2 OBL",
             "RT SAG T2 OBL",
-            "SURVEY",
-            "AX T1"),
+            "AX T1",
+            "SURVEY"),
         SequenceStepper.ordered(study, Function.identity(), SPINE));
-    assertEquals(study, SequenceStepper.ordered(study, Function.identity(), List.of()));
+    assertEquals(
+        List.of(
+            "SAG T1",
+            "SAG T2",
+            "SAG STIR",
+            "AX T2",
+            "AX T1",
+            "LT SAG T2 OBL",
+            "RT SAG T2 OBL",
+            "COR T2",
+            "SURVEY"),
+        SequenceStepper.ordered(study, Function.identity(), List.of()));
+  }
+
+  @Test
+  void localizersGoLastSoTheyNeverFillAViewport() {
+    List<String> study = List.of("3 PLANE LOC", "ASSET CAL", "COR T1", "SAG STIR", "T/S/C SCANO");
+
+    assertEquals(
+        List.of("COR T1", "SAG STIR", "3 PLANE LOC", "ASSET CAL", "T/S/C SCANO"),
+        SequenceStepper.ordered(study, Function.identity(), List.of()));
   }
 
   @Test

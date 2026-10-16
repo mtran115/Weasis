@@ -9,12 +9,14 @@
  */
 package org.weasis.dicom.reportcomposer;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -38,8 +40,9 @@ import org.weasis.dicom.viewer2d.View2d;
 /**
  * The reader's viewer macros, from a JSON file they can edit; a change applies to the next series
  * opened or stepped to. "series_open" holds display steps run when a viewport opens a series, such
- * as the zoom and Auto W/L the reader would otherwise set by hand; "sequence_order" holds the order
- * the next-sequence keys follow (see {@link SequenceStepper}).
+ * as the zoom and Auto W/L the reader would otherwise set by hand; "sequence_order" holds how each
+ * exam is hung by the next-study keys and the order the next-sequence keys follow (see {@link
+ * SequenceStepper}). The reader edits the orders in {@link HangingProtocolsDialog}.
  */
 final class ViewerMacros {
   private static final Logger LOGGER = LoggerFactory.getLogger(ViewerMacros.class);
@@ -48,20 +51,6 @@ final class ViewerMacros {
       """
       {
         "series_open": [
-          {
-            "name": "Cervical spine MR",
-            "exam": "CERVICAL_SPINE",
-            "modality": "MR",
-            "zoom": 1.4,
-            "auto_window_level": true
-          },
-          {
-            "name": "Lumbar spine MR",
-            "exam": "LUMBAR_SPINE",
-            "modality": "MR",
-            "zoom": 1.25,
-            "auto_window_level": true
-          },
           {
             "name": "Every MR series",
             "modality": "MR",
@@ -72,7 +61,14 @@ final class ViewerMacros {
           {
             "name": "Spine MR",
             "exams": ["CERVICAL_SPINE", "THORACIC_SPINE", "LUMBAR_SPINE"],
+            "layout": "1x2",
             "order": ["SAG T2", "COR", "SAG STIR", "SAG T1", "AX T2", "OBL"]
+          },
+          {
+            "name": "Joint MR",
+            "exams": ["SHOULDER", "ELBOW", "WRIST", "HAND", "HIP", "KNEE", "ANKLE", "FOOT"],
+            "layout": "1x2",
+            "order": ["COR STIR", "COR", "SAG STIR", "SAG", "AX STIR", "AX"]
           }
         ]
       }
@@ -81,11 +77,12 @@ final class ViewerMacros {
   private static final ObjectMapper MAPPER =
       new ObjectMapper()
           .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
-          .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+          .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+          .setSerializationInclusion(JsonInclude.Include.NON_NULL);
   // A series waits for its viewport to show an image, e.g. until its viewer tab is opened.
   private static final Duration SHOW_WAIT = Duration.ofMinutes(10);
   private static final int POLL_MILLIS = 100;
-  private static boolean installed;
+  private static ViewerMacros installed;
 
   /**
    * What to do when a matching series opens; a missing criterion matches any series.
@@ -117,17 +114,28 @@ final class ViewerMacros {
   }
 
   /**
-   * The order the next-sequence keys follow for some exams; other studies go by series number.
+   * How some exams are hung and stepped through: the viewer layout, and the order sequences fill
+   * the viewports and the next-sequence keys follow. Other studies go by series number in 1x2.
    *
    * @param exams the {@link ExamTemplate} names it is for
+   * @param layout a viewer layout id such as "1x2"
    * @param order steps such as "SAG T2", "COR" or "AX T2", each a plane and/or a contrast
    */
-  record SequenceOrder(String name, List<String> exams, List<String> order) {
+  record SequenceOrder(String name, List<String> exams, String layout, List<String> order) {
+    static final String DEFAULT_LAYOUT = "1x2";
+    static final SequenceOrder BY_SERIES_NUMBER = new SequenceOrder("", List.of(), null, List.of());
+
     SequenceOrder {
+      name = name == null ? "" : name.strip();
       exams = exams == null ? List.of() : List.copyOf(exams);
+      layout = layout == null || layout.isBlank() ? DEFAULT_LAYOUT : layout.strip();
       order = order == null ? List.of() : List.copyOf(order);
       // A misspelled step fails when the file is read rather than when a key is pressed.
       order.forEach(SequenceStepper::checkStep);
+    }
+
+    boolean isFor(ExamTemplate exam) {
+      return exams.stream().anyMatch(exam.name()::equalsIgnoreCase);
     }
   }
 
@@ -150,13 +158,18 @@ final class ViewerMacros {
 
   /** Starts the macros once per session, writing the starting file if there is none. */
   static synchronized void install() {
-    if (installed) return;
-    installed = true;
+    if (installed != null) return;
     ViewerMacros macros =
         new ViewerMacros(AppProperties.WEASIS_PATH.resolve("data/report-composer/macros.json"));
+    installed = macros;
     macros.writeDefaultsIfMissing();
     EventManager.getInstance().addSeriesOpenedListener(macros::seriesOpened);
     SequenceStepper.install(macros);
+  }
+
+  /** The session's macros, once installed. */
+  static synchronized Optional<ViewerMacros> current() {
+    return Optional.ofNullable(installed);
   }
 
   void writeDefaultsIfMissing() {
@@ -177,16 +190,32 @@ final class ViewerMacros {
         .findFirst();
   }
 
-  /** The sequence order for the exam, or an empty one to go by series number. */
-  List<String> sequenceOrderFor(Optional<ExamTemplate> exam) {
+  /** The first sequence order for the exam, or series-number order in 1x2. */
+  SequenceOrder hangingFor(Optional<ExamTemplate> exam) {
     return exam.flatMap(
             template ->
                 macros().sequenceOrder().stream()
-                    .filter(
-                        order -> order.exams().stream().anyMatch(template.name()::equalsIgnoreCase))
+                    .filter(order -> order.isFor(template))
                     .findFirst())
-        .map(SequenceOrder::order)
-        .orElse(List.of());
+        .orElse(SequenceOrder.BY_SERIES_NUMBER);
+  }
+
+  /** The order the next-sequence keys follow for the exam; empty to go by series number. */
+  List<String> sequenceOrderFor(Optional<ExamTemplate> exam) {
+    return hangingFor(exam).order();
+  }
+
+  List<SequenceOrder> sequenceOrders() {
+    return macros().sequenceOrder();
+  }
+
+  /** Replaces the sequence orders in the file and keeps its series-open rules. */
+  void saveSequenceOrders(List<SequenceOrder> orders) throws IOException {
+    Macros updated = new Macros(macros().seriesOpen(), orders);
+    Files.createDirectories(file.getParent());
+    Path draft = file.resolveSibling(file.getFileName() + ".saving");
+    Files.writeString(draft, MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(updated));
+    Files.move(draft, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
   }
 
   private Macros macros() {

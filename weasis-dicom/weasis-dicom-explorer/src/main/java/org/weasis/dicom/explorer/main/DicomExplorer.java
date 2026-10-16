@@ -528,6 +528,29 @@ public class DicomExplorer extends PluginTool
     }
   }
 
+  /**
+   * Scrolls the thumbnails to the study. "All patients" stays as it is; a list showing another
+   * patient switches to the study's patient.
+   */
+  public void revealStudy(MediaSeriesGroup study) {
+    MediaSeriesGroup patient = paneManager.getPatientForStudy(study);
+    if (patient == null) {
+      return;
+    }
+    if (!isAllPatientsSelected() && !patientSelectionManager.isCurrentPatient(patient)) {
+      selectPatient(patient);
+    }
+    // Wait for the list to be laid out with the study in it.
+    SwingUtilities.invokeLater(
+        () -> {
+          StudyPane pane = paneManager.getStudyPane(study);
+          if (pane != null) {
+            int height = Math.min(pane.getHeight(), thumbnailView.getViewport().getHeight());
+            pane.scrollRectToVisible(new Rectangle(0, 0, pane.getWidth(), height));
+          }
+        });
+  }
+
   /** Gets the currently selected patient. */
   public MediaSeriesGroupNode getSelectedPatient() {
     return (MediaSeriesGroupNode) selectedPatient.getCurrentPatient().orElse(null);

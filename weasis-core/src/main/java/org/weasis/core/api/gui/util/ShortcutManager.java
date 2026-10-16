@@ -399,6 +399,8 @@ public final class ShortcutManager {
   public static final String ID_REPORT_COMPOSER_NEXT_SEQUENCE = "reportComposer.nextSequence";
   public static final String ID_REPORT_COMPOSER_PREVIOUS_SEQUENCE =
       "reportComposer.previousSequence";
+  public static final String ID_REPORT_COMPOSER_NEXT_STUDY = "reportComposer.nextStudy";
+  public static final String ID_REPORT_COMPOSER_PREVIOUS_STUDY = "reportComposer.previousStudy";
 
   // -- Shortcut IDs: Docking --
   public static final String ID_DOCKING_MAXIMIZE = "docking.maximize";
@@ -960,6 +962,20 @@ public final class ShortcutManager {
         CATEGORY_REPORT_COMPOSER,
         ShortcutContext.DICOM_VIEWER,
         KeyEvent.VK_NUMPAD5,
+        0);
+    register(
+        ID_REPORT_COMPOSER_NEXT_STUDY,
+        Messages.getString("ShortcutManager.report_composer_next_study"),
+        CATEGORY_REPORT_COMPOSER,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_MULTIPLY,
+        0);
+    register(
+        ID_REPORT_COMPOSER_PREVIOUS_STUDY,
+        Messages.getString("ShortcutManager.report_composer_previous_study"),
+        CATEGORY_REPORT_COMPOSER,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_DIVIDE,
         0);
     register(
         ID_REPORT_COMPOSER_CAPTURE_VIEW_1,

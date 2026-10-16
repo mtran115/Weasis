@@ -220,6 +220,8 @@ def describe(event: dict, labels: dict[str, dict]) -> str:
         return "key image captured"
     if kind == "sequence_key":
         return f"{view(event)}{event.get('direction', 'next')} sequence key"
+    if kind == "study_key":
+        return f"{event.get('direction', 'next')} study key"
     if kind == "auto_window_level":
         source = "on open" if event.get("source") == "series_open" else "by key"
         if event.get("applied"):
@@ -257,6 +259,8 @@ def step(event: dict, labels: dict[str, dict]) -> str | None:
         return f"tool {event['tool']}"
     if kind == "sequence_key":
         return f"{view(event)}{event.get('direction', 'next')} sequence"
+    if kind == "study_key":
+        return f"{event.get('direction', 'next')} study"
     if kind == "composer_exam":
         return f"composer exam {event['exam']}"
     if kind in ("key_image", "report_copied", "case_export"):

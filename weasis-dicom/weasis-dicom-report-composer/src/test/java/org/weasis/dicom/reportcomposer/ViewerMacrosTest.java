@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
 import org.weasis.dicom.reportcomposer.ViewerMacros.Rule;
+import org.weasis.dicom.reportcomposer.ViewerMacros.SequenceOrder;
 
 class ViewerMacrosTest {
   private static final Optional<ExamTemplate> CERVICAL = Optional.of(ExamTemplate.CERVICAL_SPINE);
@@ -50,15 +51,12 @@ class ViewerMacrosTest {
   }
 
   @Test
-  void startingFileZoomsSpineMrAndAppliesAutoWindowLevelToEveryMrSeries() {
+  void startingFileAppliesAutoWindowLevelWithoutZoomToEveryMrSeries() {
     ViewerMacros macros = startingMacros();
 
-    Rule cervical = macros.ruleFor(CERVICAL, "MR", "SAG T2 RESTORE").orElseThrow();
-    assertEquals(1.4, cervical.zoom());
-    assertTrue(cervical.autoWindowLevel());
-    assertEquals(1.25, macros.ruleFor(LUMBAR, "MR", "AX T2").orElseThrow().zoom());
     for (Optional<ExamTemplate> exam :
-        List.of(Optional.of(ExamTemplate.SHOULDER), Optional.<ExamTemplate>empty())) {
+        List.of(
+            CERVICAL, LUMBAR, Optional.of(ExamTemplate.SHOULDER), Optional.<ExamTemplate>empty())) {
       Rule other = macros.ruleFor(exam, "MR", "COR PD FS").orElseThrow();
       assertEquals("Every MR series", other.name());
       assertNull(other.zoom());
@@ -68,19 +66,53 @@ class ViewerMacrosTest {
   }
 
   @Test
-  void spineStudiesHaveASequenceOrderAndOtherStudiesGoBySeriesNumber() throws IOException {
+  void spineAndJointStudiesHaveASequenceOrderAndOtherStudiesGoBySeriesNumber() throws IOException {
     ViewerMacros macros = startingMacros();
     List<String> spine = List.of("SAG T2", "COR", "SAG STIR", "SAG T1", "AX T2", "OBL");
 
     assertEquals(spine, macros.sequenceOrderFor(CERVICAL));
     assertEquals(spine, macros.sequenceOrderFor(Optional.of(ExamTemplate.THORACIC_SPINE)));
     assertEquals(spine, macros.sequenceOrderFor(LUMBAR));
-    assertEquals(List.of(), macros.sequenceOrderFor(Optional.of(ExamTemplate.SHOULDER)));
+    assertEquals(
+        List.of("COR STIR", "COR", "SAG STIR", "SAG", "AX STIR", "AX"),
+        macros.sequenceOrderFor(Optional.of(ExamTemplate.SHOULDER)));
+    assertEquals(List.of(), macros.sequenceOrderFor(Optional.of(ExamTemplate.BRAIN)));
     assertEquals(List.of(), macros.sequenceOrderFor(Optional.empty()));
 
     edit(ViewerMacros.DEFAULTS.replace("\"SAG STIR\"", "\"SAG FLAIR\""), 1);
     assertEquals(
         spine, macros.sequenceOrderFor(LUMBAR), "A misspelled step keeps the order read before.");
+  }
+
+  @Test
+  void jointsHaveABestGuessAndEveryProtocolHasALayout() {
+    ViewerMacros macros = startingMacros();
+
+    SequenceOrder knee = macros.hangingFor(Optional.of(ExamTemplate.KNEE));
+    assertEquals("Joint MR", knee.name());
+    assertEquals("1x2", knee.layout());
+    assertEquals(List.of("COR STIR", "COR", "SAG STIR", "SAG", "AX STIR", "AX"), knee.order());
+    assertEquals(
+        SequenceOrder.BY_SERIES_NUMBER, macros.hangingFor(Optional.of(ExamTemplate.BRAIN)));
+    assertEquals("1x2", new SequenceOrder("x", null, " ", null).layout());
+  }
+
+  @Test
+  void savingProtocolsKeepsTheSeriesOpenRules() throws IOException {
+    ViewerMacros macros = startingMacros();
+    SequenceOrder brain =
+        new SequenceOrder(
+            "Brain MR", List.of("BRAIN"), "2x2", List.of("AX T2", "AX STIR", "SAG T1"));
+
+    macros.saveSequenceOrders(List.of(brain));
+
+    ViewerMacros reread = new ViewerMacros(file());
+    assertEquals(List.of(brain), reread.sequenceOrders());
+    Rule kept = reread.ruleFor(CERVICAL, "MR", "SAG T2").orElseThrow();
+    assertEquals("Every MR series", kept.name());
+    assertTrue(kept.autoWindowLevel());
+    assertEquals("2x2", reread.hangingFor(Optional.of(ExamTemplate.BRAIN)).layout());
+    assertFalse(Files.exists(file().resolveSibling("macros.json.saving")));
   }
 
   @Test
@@ -97,18 +129,23 @@ class ViewerMacrosTest {
   @Test
   void editsApplyToTheNextSeriesAndABrokenEditKeepsTheRulesReadBefore() throws IOException {
     ViewerMacros macros = startingMacros();
+    assertNull(macros.ruleFor(LUMBAR, "MR", "SAG T2").orElseThrow().zoom());
+    String lumbarZoom =
+        "{\"series_open\": [{\"name\": \"Lumbar\", \"exam\": \"LUMBAR_SPINE\", \"zoom\": %s}]}";
+
+    edit(lumbarZoom.formatted("1.25"), 1);
     assertEquals(1.25, macros.ruleFor(LUMBAR, "MR", "SAG T2").orElseThrow().zoom());
 
-    edit(ViewerMacros.DEFAULTS.replace("1.25", "1.5"), 1);
+    edit(lumbarZoom.formatted("1.5"), 2);
     assertEquals(1.5, macros.ruleFor(LUMBAR, "MR", "SAG T2").orElseThrow().zoom());
 
-    edit("{\"series_open\": [", 2);
+    edit("{\"series_open\": [", 3);
     assertEquals(1.5, macros.ruleFor(LUMBAR, "MR", "SAG T2").orElseThrow().zoom());
 
-    edit("{\"series_open\": [{\"name\": \"bad\", \"series\": \"(\"}]}", 3);
+    edit("{\"series_open\": [{\"name\": \"bad\", \"series\": \"(\"}]}", 4);
     assertEquals(1.5, macros.ruleFor(LUMBAR, "MR", "SAG T2").orElseThrow().zoom());
 
-    edit("{\"series_open\": [{\"name\": \"bad\", \"zoom\": 0}]}", 4);
+    edit("{\"series_open\": [{\"name\": \"bad\", \"zoom\": 0}]}", 5);
     assertEquals(1.5, macros.ruleFor(LUMBAR, "MR", "SAG T2").orElseThrow().zoom());
   }
 

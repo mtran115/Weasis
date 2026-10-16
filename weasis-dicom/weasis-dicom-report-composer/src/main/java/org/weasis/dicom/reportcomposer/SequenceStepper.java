@@ -53,7 +53,8 @@ import org.weasis.dicom.viewer2d.View2d;
  * sagittal T2, coronal, sagittal STIR, sagittal T1 and axial T2 on a spine MR, skipping sequences
  * other viewports show. The study is the one last opened in the viewer, so after a new study's
  * first sequence goes into one viewport, the next key brings that study into another. Studies
- * without an order in the macros file go by series number.
+ * without an order in the macros file go by series number. The next-study keys go to {@link
+ * StudyStepper}.
  */
 final class SequenceStepper {
   private static final Pattern NOT_A_WORD = Pattern.compile("[^A-Z0-9]+");
@@ -77,26 +78,40 @@ final class SequenceStepper {
           "AX",
           "TRANSVERSE",
           "AX");
-  private static final Set<String> PLANES = Set.of("SAG", "COR", "AX", "OBL");
-  private static final Set<String> CONTRASTS = Set.of("T1", "T2", "STIR", "PD");
+  static final List<String> PLANES = List.of("SAG", "COR", "AX", "OBL");
+  static final List<String> CONTRASTS = List.of("T1", "T2", "STIR", "PD");
   private static final Set<String> INVERSION_RECOVERY = Set.of("STIR", "TIRM", "IR", "FIR");
   private static final Set<String> FAT_SUPPRESSED =
       Set.of("FS", "FATSAT", "SPAIR", "SPIR", "DIXON");
-  private static boolean installed;
+  private static final Set<String> LOCALIZER =
+      Set.of(
+          "LOC",
+          "LOCALIZER",
+          "LOCALISER",
+          "SCOUT",
+          "SURVEY",
+          "SCANO",
+          "PILOT",
+          "CAL",
+          "CALIBRATION",
+          "PLANE");
+  private static SequenceStepper installed;
 
   private final ViewerMacros macros;
+  private final StudyStepper studies;
   // When each viewport last opened a series; the newest names the study being read.
   private final Map<View2d, Long> openedAt = new WeakHashMap<>();
   private long opened;
 
   private SequenceStepper(ViewerMacros macros) {
     this.macros = macros;
+    this.studies = new StudyStepper(macros);
   }
 
   static synchronized void install(ViewerMacros macros) {
-    if (installed) return;
-    installed = true;
+    if (installed != null) return;
     SequenceStepper stepper = new SequenceStepper(macros);
+    installed = stepper;
     EventManager.getInstance()
         .addSeriesOpenedListener((view, restored) -> stepper.openedAt.put(view, ++stepper.opened));
     KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(stepper::dispatch);
@@ -105,8 +120,7 @@ final class SequenceStepper {
   /** The plane and contrast of a sequence, read from its description; either may be "". */
   record Kind(String plane, String contrast) {
     static Kind of(String description) {
-      List<String> words =
-          Arrays.asList(NOT_A_WORD.split(description.toUpperCase(Locale.ROOT).strip()));
+      List<String> words = words(description);
       String plane =
           words.contains("OBL") || words.contains("OBLIQUE")
               ? "OBL"
@@ -116,9 +130,11 @@ final class SequenceStepper {
                   .findFirst()
                   .orElse("");
       boolean t2 = words.contains("T2");
+      // Fat-suppressed T2 and PD are fluid-sensitive like STIR.
+      boolean fluidSensitive =
+          (t2 || words.contains("PD")) && words.stream().anyMatch(FAT_SUPPRESSED::contains);
       String contrast;
-      if (words.stream().anyMatch(INVERSION_RECOVERY::contains)
-          || (t2 && words.stream().anyMatch(FAT_SUPPRESSED::contains))) {
+      if (fluidSensitive || words.stream().anyMatch(INVERSION_RECOVERY::contains)) {
         contrast = "STIR";
       } else if (words.contains("T1")) {
         contrast = "T1";
@@ -157,7 +173,18 @@ final class SequenceStepper {
     return text.isEmpty() ? List.of() : List.of(text.split("\\s+"));
   }
 
-  /** The series in reading order: those fitting each step in turn, then the rest as given. */
+  private static List<String> words(String description) {
+    return Arrays.asList(NOT_A_WORD.split(description.toUpperCase(Locale.ROOT).strip()));
+  }
+
+  static boolean isLocalizer(String description) {
+    return words(description).stream().anyMatch(LOCALIZER::contains);
+  }
+
+  /**
+   * The series in reading order: those fitting each step in turn, then the rest as given with
+   * localizers last.
+   */
   static <T> List<T> ordered(List<T> series, Function<T, String> description, List<String> order) {
     List<T> result = new ArrayList<>();
     for (String step : order) {
@@ -167,7 +194,9 @@ final class SequenceStepper {
         }
       }
     }
-    series.stream().filter(item -> !result.contains(item)).forEach(result::add);
+    List<T> rest = series.stream().filter(item -> !result.contains(item)).toList();
+    rest.stream().filter(item -> !isLocalizer(description.apply(item))).forEach(result::add);
+    rest.stream().filter(item -> isLocalizer(description.apply(item))).forEach(result::add);
     return result;
   }
 
@@ -192,12 +221,21 @@ final class SequenceStepper {
     }
     ShortcutManager shortcuts = ShortcutManager.getInstance();
     int keyCode = shortcutKeyCode(event);
+    int modifiers = event.getModifiers();
+    boolean nextStudy =
+        shortcuts.matches(ShortcutManager.ID_REPORT_COMPOSER_NEXT_STUDY, keyCode, modifiers);
+    if (nextStudy
+        || shortcuts.matches(
+            ShortcutManager.ID_REPORT_COMPOSER_PREVIOUS_STUDY, keyCode, modifiers)) {
+      event.consume();
+      InteractionRecorder.record("study_key", Map.of("direction", nextStudy ? "next" : "previous"));
+      studies.step(studyBeingRead().orElse(null), !nextStudy);
+      return true;
+    }
     boolean next =
-        shortcuts.matches(
-            ShortcutManager.ID_REPORT_COMPOSER_NEXT_SEQUENCE, keyCode, event.getModifiers());
+        shortcuts.matches(ShortcutManager.ID_REPORT_COMPOSER_NEXT_SEQUENCE, keyCode, modifiers);
     boolean previous =
-        shortcuts.matches(
-            ShortcutManager.ID_REPORT_COMPOSER_PREVIOUS_SEQUENCE, keyCode, event.getModifiers());
+        shortcuts.matches(ShortcutManager.ID_REPORT_COMPOSER_PREVIOUS_SEQUENCE, keyCode, modifiers);
     if (!next && !previous) return false;
     Optional<View2d> view = targetView(event);
     if (view.isEmpty()) return false;
@@ -242,18 +280,15 @@ final class SequenceStepper {
       return;
     }
     List<ViewCanvas<DicomImageElement>> views = viewer.getImagePanels(false);
-    Optional<MediaSeries<DicomImageElement>> reading = seriesBeingRead(views);
-    MediaSeriesGroup study =
-        reading.map(series -> InfoLayer.getParent(series, DicomModel.study)).orElse(null);
+    MediaSeriesGroup study = studyOf(seriesBeingRead(views)).orElse(null);
     int viewIndex = views.indexOf(view);
     if (study == null || viewIndex < 0) return;
 
-    List<DicomSeries> studySeries = imageSeries(model, study);
-    Optional<ExamTemplate> exam =
-        MriFindingCatalog.inferExam(
-            Objects.toString(TagD.getTagValue(study, Tag.StudyDescription), ""));
     List<DicomSeries> ordered =
-        ordered(studySeries, SequenceStepper::description, macros.sequenceOrderFor(exam));
+        ordered(
+            imageSeries(model, study),
+            SequenceStepper::description,
+            macros.sequenceOrderFor(examOf(study)));
     Set<DicomSeries> elsewhere = new HashSet<>();
     for (ViewCanvas<DicomImageElement> other : views) {
       if (other != view && other.getSeries() instanceof DicomSeries shown) elsewhere.add(shown);
@@ -265,6 +300,19 @@ final class SequenceStepper {
         .ifPresent(series -> dicomExplorer.displaySeriesInViewSlot(series, null, viewIndex));
   }
 
+  /** The study being read in the selected viewer, if any. */
+  static synchronized Optional<MediaSeriesGroup> studyBeingRead() {
+    ImageViewerPlugin<DicomImageElement> viewer =
+        EventManager.getInstance().getSelectedView2dContainer();
+    if (installed == null || viewer == null) return Optional.empty();
+    return studyOf(installed.seriesBeingRead(viewer.getImagePanels(false)));
+  }
+
+  private static Optional<MediaSeriesGroup> studyOf(
+      Optional<MediaSeries<DicomImageElement>> series) {
+    return series.map(shown -> InfoLayer.getParent(shown, DicomModel.study));
+  }
+
   // The series a viewport opened last; its study is the one being read in this viewer.
   private Optional<MediaSeries<DicomImageElement>> seriesBeingRead(
       List<ViewCanvas<DicomImageElement>> views) {
@@ -274,7 +322,13 @@ final class SequenceStepper {
         .map(ViewCanvas::getSeries);
   }
 
-  private static List<DicomSeries> imageSeries(DicomModel model, MediaSeriesGroup study) {
+  static Optional<ExamTemplate> examOf(MediaSeriesGroup study) {
+    return MriFindingCatalog.inferExam(
+        Objects.toString(TagD.getTagValue(study, Tag.StudyDescription), ""));
+  }
+
+  /** The study's image series by series number, without key objects, reports and the like. */
+  static List<DicomSeries> imageSeries(DicomModel model, MediaSeriesGroup study) {
     Collection<MediaSeriesGroup> children;
     synchronized (model) {
       children = List.copyOf(model.getChildren(study));
@@ -295,7 +349,7 @@ final class SequenceStepper {
     return number == null ? Integer.MAX_VALUE : number;
   }
 
-  private static String description(DicomSeries series) {
+  static String description(DicomSeries series) {
     Object value = TagD.getTagValue(series, Tag.SeriesDescription);
     return value == null ? "" : value.toString();
   }
