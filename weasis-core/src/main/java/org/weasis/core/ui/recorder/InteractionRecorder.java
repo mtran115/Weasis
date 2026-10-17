@@ -194,22 +194,34 @@ public final class InteractionRecorder {
         values.put(feature.cmd(), simple(event.getEvents().get(feature.cmd())));
       }
     }
+    recorder.recordDisplay(event.getView(), values, Map.of());
+  }
+
+  /** A W/L set straight on a view, such as by a dial; a turn becomes one line, like a drag. */
+  public static void windowLevelSet(
+      ViewCanvas<?> view, double window, double level, String source) {
+    InteractionRecorder recorder = instance;
+    if (recorder == null || !recorder.enabled || view == null) return;
+    Map<String, Object> values = new LinkedHashMap<>();
+    values.put(ActionW.WINDOW.cmd(), simple(window));
+    values.put(ActionW.LEVEL.cmd(), simple(level));
+    recorder.recordDisplay(view, values, Map.of("source", source));
+  }
+
+  private void recordDisplay(
+      ViewCanvas<?> view, Map<String, Object> values, Map<String, Object> extraFields) {
     if (values.isEmpty()) return;
-    ViewCanvas<?> view = event.getView();
     String viewKey = viewKey(view);
     Optional<Map<String, Object>> before =
-        recorder.displayBaseline.changes(viewKey, values, recorder.clock.instant());
+        displayBaseline.changes(viewKey, values, clock.instant());
     if (before.isEmpty()) return;
     Map<String, Object> changed = new LinkedHashMap<>();
     before.get().keySet().forEach(name -> changed.put(name, values.get(name)));
     String group =
         WINDOW_LEVEL.containsAll(changed.keySet()) ? "wl" : String.join(",", changed.keySet());
-    recorder.add(
-        "display",
-        "display:" + viewKey + ":" + group,
-        recorder.viewFields(view, view.getSeries()),
-        before.get(),
-        changed);
+    Map<String, Object> fields = viewFields(view, view.getSeries());
+    fields.putAll(extraFields);
+    add("display", "display:" + viewKey + ":" + group, fields, before.get(), changed);
   }
 
   /** Slice scrolling (one line per run), layout changes, and selecting another viewport. */

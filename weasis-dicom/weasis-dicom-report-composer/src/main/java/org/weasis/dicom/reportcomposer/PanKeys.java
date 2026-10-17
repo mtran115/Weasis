@@ -9,13 +9,10 @@
  */
 package org.weasis.dicom.reportcomposer;
 
-import java.awt.Component;
 import java.awt.KeyboardFocusManager;
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.geom.Point2D;
 import java.util.Optional;
-import javax.swing.text.JTextComponent;
 import org.weasis.core.api.gui.util.ShortcutManager;
 import org.weasis.core.ui.model.utils.bean.PanPoint;
 import org.weasis.dicom.viewer2d.View2d;
@@ -74,22 +71,12 @@ final class PanKeys {
         continue;
       }
       Optional<View2d> view = SequenceStepper.targetView(event);
-      if (typesIntoText(event) || view.isEmpty()) return false;
+      if (SequenceStepper.typesIntoText(event) || view.isEmpty()) return false;
       event.consume();
       pan(view.get(), direction);
       return true;
     }
     return false;
-  }
-
-  // A pan key rebound to a plain key would also move a text box's caret; leave that to the box.
-  private static boolean typesIntoText(KeyEvent event) {
-    Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-    int commandKeys =
-        InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK | InputEvent.META_DOWN_MASK;
-    return focusOwner instanceof JTextComponent text
-        && text.isEditable()
-        && (event.getModifiersEx() & commandKeys) == 0;
   }
 
   private static void pan(View2d view, Direction direction) {

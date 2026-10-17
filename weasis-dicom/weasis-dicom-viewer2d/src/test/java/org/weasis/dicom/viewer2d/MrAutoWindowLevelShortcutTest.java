@@ -57,6 +57,31 @@ class MrAutoWindowLevelShortcutTest {
   }
 
   @Test
+  void aDialSetsWindowLevelOnAViewportThatIsNotSelectedAndNineUndoesTheTurn() throws Exception {
+    Fixture f = new Fixture();
+    when(f.manager.getSelectedViewPane()).thenReturn(mock(View2d.class));
+    doCallRealMethod().when(f.manager).keyboardWindowLevel(f.view);
+    doCallRealMethod().when(f.manager).setKeyboardWindowLevel(eq(f.view), any(), anyBoolean());
+
+    assertEquals(
+        new EventManager.WindowLevel(400, 100),
+        f.manager.keyboardWindowLevel(f.view).orElseThrow());
+    SwingUtilities.invokeAndWait(
+        () -> {
+          f.manager.setKeyboardWindowLevel(f.view, new EventManager.WindowLevel(600, 200), true);
+          // Later clicks in the same turn keep the W/L from before the turn for the 9 key.
+          f.manager.setKeyboardWindowLevel(f.view, new EventManager.WindowLevel(700, 250), false);
+        });
+    assertEquals(700.0, f.node.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(250.0, f.node.getParam(ActionW.LEVEL.cmd()));
+    assertNull(f.node.getParam(ActionW.PRESET.cmd()));
+
+    f.previous();
+    assertEquals(400.0, f.node.getParam(ActionW.WINDOW.cmd()));
+    assertEquals(100.0, f.node.getParam(ActionW.LEVEL.cmd()));
+  }
+
+  @Test
   void autoOnOpenAppliesToAViewportThatIsNotSelected() throws Exception {
     Fixture f = new Fixture();
     when(f.manager.getSelectedViewPane()).thenReturn(mock(View2d.class));

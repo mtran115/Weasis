@@ -405,6 +405,10 @@ public final class ShortcutManager {
   public static final String ID_REPORT_COMPOSER_PAN_RIGHT = "reportComposer.panRight";
   public static final String ID_REPORT_COMPOSER_PAN_UP = "reportComposer.panUp";
   public static final String ID_REPORT_COMPOSER_PAN_DOWN = "reportComposer.panDown";
+  public static final String ID_REPORT_COMPOSER_WHITE_POINT_UP = "reportComposer.whitePointUp";
+  public static final String ID_REPORT_COMPOSER_WHITE_POINT_DOWN = "reportComposer.whitePointDown";
+  public static final String ID_REPORT_COMPOSER_BRIGHTER = "reportComposer.brighter";
+  public static final String ID_REPORT_COMPOSER_DARKER = "reportComposer.darker";
 
   // -- Shortcut IDs: Docking --
   public static final String ID_DOCKING_MAXIMIZE = "docking.maximize";
@@ -1010,6 +1014,35 @@ public final class ShortcutManager {
         CATEGORY_PAN,
         ShortcutContext.DICOM_VIEWER,
         KeyEvent.VK_DOWN,
+        panModifiers);
+    // A controller dial's clockwise and counterclockwise clicks, alone and with a button held.
+    register(
+        ID_REPORT_COMPOSER_WHITE_POINT_UP,
+        Messages.getString("ShortcutManager.report_composer_white_point_up"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_CLOSE_BRACKET,
+        panModifiers);
+    register(
+        ID_REPORT_COMPOSER_WHITE_POINT_DOWN,
+        Messages.getString("ShortcutManager.report_composer_white_point_down"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_OPEN_BRACKET,
+        panModifiers);
+    register(
+        ID_REPORT_COMPOSER_BRIGHTER,
+        Messages.getString("ShortcutManager.report_composer_brighter"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_EQUALS,
+        panModifiers);
+    register(
+        ID_REPORT_COMPOSER_DARKER,
+        Messages.getString("ShortcutManager.report_composer_darker"),
+        CATEGORY_DISPLAY,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_MINUS,
         panModifiers);
     register(
         ID_REPORT_COMPOSER_CAPTURE_VIEW_1,

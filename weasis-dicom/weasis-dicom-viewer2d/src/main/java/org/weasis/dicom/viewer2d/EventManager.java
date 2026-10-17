@@ -169,6 +169,8 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
   private final Map<ViewCanvas<DicomImageElement>, KeyboardWindowLevelState> previousWindowLevels =
       new WeakHashMap<>();
   private SwingWorker<PresetWindowLevel, Void> pendingMrAutoLevel;
+  // Keeps a key- or dial-set window from collapsing to nothing.
+  private static final double MIN_KEYBOARD_WINDOW = 1e-3;
   private final List<SeriesOpenedListener> seriesOpenedListeners = new CopyOnWriteArrayList<>();
 
   /** Told on the Swing thread when a viewport opens another series. */
@@ -1078,6 +1080,51 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
       pendingMrAutoLevel.cancel(false);
       pendingMrAutoLevel = null;
     }
+  }
+
+  /** A window and level, as set by a key or a dial. */
+  public record WindowLevel(double window, double level) {}
+
+  /** The W/L of {@code view} when it is an MR or radiograph that keys can adjust. */
+  public Optional<WindowLevel> keyboardWindowLevel(ViewCanvas<DicomImageElement> view) {
+    if (view == null
+        || view.getImage() == null
+        || !isKeyboardWindowLevelModality(view.getSeries())) {
+      return Optional.empty();
+    }
+    return captureWindowLevelState(view)
+        .map(state -> new WindowLevel(state.window(), state.level()));
+  }
+
+  /**
+   * Sets the W/L of {@code view}, selected or not, as a keyboard adjustment: the preset becomes
+   * custom and a pending Auto is dropped. With {@code rememberPrevious}, the restore-previous key
+   * goes back to the W/L before; a dial asks for that only when a turn starts.
+   */
+  public boolean setKeyboardWindowLevel(
+      ViewCanvas<DicomImageElement> view, WindowLevel target, boolean rememberPrevious) {
+    if (keyboardWindowLevel(view).isEmpty()) {
+      return false;
+    }
+    Optional<KeyboardWindowLevelState> current = captureWindowLevelState(view);
+    if (current.isEmpty()) {
+      return false;
+    }
+    cancelPendingMrAutoLevel();
+    KeyboardWindowLevelState before = current.get();
+    KeyboardWindowLevelState updated =
+        new KeyboardWindowLevelState(
+            before.series(),
+            Math.max(target.window(), MIN_KEYBOARD_WINDOW),
+            target.level(),
+            before.lutShape(),
+            null,
+            false);
+    boolean applied = applyKeyboardWindowLevelState(view, updated);
+    if (applied && rememberPrevious) {
+      previousWindowLevels.put(view, before);
+    }
+    return applied;
   }
 
   private void adjustKeyboardWindowLevel(

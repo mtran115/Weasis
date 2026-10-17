@@ -166,6 +166,7 @@ final class ViewerMacros {
     EventManager.getInstance().addSeriesOpenedListener(macros::seriesOpened);
     SequenceStepper.install(macros);
     PanKeys.install();
+    WindowLevelDial.install();
   }
 
   /** The session's macros, once installed. */

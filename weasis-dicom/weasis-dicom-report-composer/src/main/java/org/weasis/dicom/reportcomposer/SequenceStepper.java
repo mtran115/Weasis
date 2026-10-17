@@ -13,6 +13,7 @@ import java.awt.Component;
 import java.awt.KeyboardFocusManager;
 import java.awt.MouseInfo;
 import java.awt.PointerInfo;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -255,6 +256,16 @@ final class SequenceStepper {
   private static boolean isEditingText() {
     Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
     return focusOwner instanceof JTextComponent text && text.isEditable();
+  }
+
+  /**
+   * Whether a key would type into the focused text box: one without Control, Option or Command.
+   * Keys made for a controller carry those, so they work while the reader types a report.
+   */
+  static boolean typesIntoText(KeyEvent event) {
+    int commandKeys =
+        InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK | InputEvent.META_DOWN_MASK;
+    return isEditingText() && (event.getModifiersEx() & commandKeys) == 0;
   }
 
   /** The viewport under the mouse, else the one with the keyboard focus. */
