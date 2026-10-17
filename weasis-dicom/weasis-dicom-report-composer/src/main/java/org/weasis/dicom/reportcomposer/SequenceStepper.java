@@ -257,8 +257,8 @@ final class SequenceStepper {
     return focusOwner instanceof JTextComponent text && text.isEditable();
   }
 
-  // The viewport under the mouse, else the one with the keyboard focus.
-  private static Optional<View2d> targetView(KeyEvent event) {
+  /** The viewport under the mouse, else the one with the keyboard focus. */
+  static Optional<View2d> targetView(KeyEvent event) {
     PointerInfo pointer = MouseInfo.getPointerInfo();
     return DicomContextReader.canvasAt(pointer == null ? null : pointer.getLocation())
         .or(

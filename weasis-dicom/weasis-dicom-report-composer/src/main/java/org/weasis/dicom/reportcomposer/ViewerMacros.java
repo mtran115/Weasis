@@ -165,6 +165,7 @@ final class ViewerMacros {
     macros.writeDefaultsIfMissing();
     EventManager.getInstance().addSeriesOpenedListener(macros::seriesOpened);
     SequenceStepper.install(macros);
+    PanKeys.install();
   }
 
   /** The session's macros, once installed. */

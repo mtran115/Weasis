@@ -401,6 +401,10 @@ public final class ShortcutManager {
       "reportComposer.previousSequence";
   public static final String ID_REPORT_COMPOSER_NEXT_STUDY = "reportComposer.nextStudy";
   public static final String ID_REPORT_COMPOSER_PREVIOUS_STUDY = "reportComposer.previousStudy";
+  public static final String ID_REPORT_COMPOSER_PAN_LEFT = "reportComposer.panLeft";
+  public static final String ID_REPORT_COMPOSER_PAN_RIGHT = "reportComposer.panRight";
+  public static final String ID_REPORT_COMPOSER_PAN_UP = "reportComposer.panUp";
+  public static final String ID_REPORT_COMPOSER_PAN_DOWN = "reportComposer.panDown";
 
   // -- Shortcut IDs: Docking --
   public static final String ID_DOCKING_MAXIMIZE = "docking.maximize";
@@ -977,6 +981,36 @@ public final class ShortcutManager {
         ShortcutContext.DICOM_VIEWER,
         KeyEvent.VK_DIVIDE,
         0);
+    // Keys that type nothing, for a controller's D-pad.
+    int panModifiers = KeyEvent.CTRL_MASK | KeyEvent.ALT_MASK | KeyEvent.META_MASK;
+    register(
+        ID_REPORT_COMPOSER_PAN_LEFT,
+        Messages.getString("ShortcutManager.report_composer_pan_left"),
+        CATEGORY_PAN,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_LEFT,
+        panModifiers);
+    register(
+        ID_REPORT_COMPOSER_PAN_RIGHT,
+        Messages.getString("ShortcutManager.report_composer_pan_right"),
+        CATEGORY_PAN,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_RIGHT,
+        panModifiers);
+    register(
+        ID_REPORT_COMPOSER_PAN_UP,
+        Messages.getString("ShortcutManager.report_composer_pan_up"),
+        CATEGORY_PAN,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_UP,
+        panModifiers);
+    register(
+        ID_REPORT_COMPOSER_PAN_DOWN,
+        Messages.getString("ShortcutManager.report_composer_pan_down"),
+        CATEGORY_PAN,
+        ShortcutContext.DICOM_VIEWER,
+        KeyEvent.VK_DOWN,
+        panModifiers);
     register(
         ID_REPORT_COMPOSER_CAPTURE_VIEW_1,
         Messages.getString("ShortcutManager.report_composer_capture_view_1"),
