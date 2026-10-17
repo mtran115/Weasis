@@ -69,8 +69,8 @@ import org.weasis.opencv.op.lut.DefaultWlPresentation;
  * @author Nicolas Roduit
  */
 public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
-  // The sequence name's size relative to the other corner text.
-  private static final float SERIES_DESCRIPTION_SCALE = 1.35f;
+  // The size of the lines that stand out, relative to the other corner text.
+  private static final float EMPHASIS_SCALE = 1.35f;
 
   // Anonymized annotations hide the series description unless it is kept, as for key images.
   private boolean seriesDescriptionWhenAnonymized;
@@ -272,7 +272,7 @@ public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
       drawY = paintRotation(g2, drawY, fontHeight);
     }
     if (getDisplayPreferences(LayerItem.FRAME) && hideMin) {
-      drawY = paintFrame(g2, image, drawY, fontHeight);
+      drawY = paintFrame(g2, image, drawY);
     }
 
     return drawY;
@@ -393,10 +393,11 @@ public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
     return drawY - fontHeight;
   }
 
-  private float paintFrame(Graphics2D g2, DicomImageElement image, float drawY, int fontHeight) {
-    String frameText = buildFrameText(image);
-    FontTools.paintFontOutline(g2, frameText, border, drawY);
-    drawY -= fontHeight;
+  private float paintFrame(Graphics2D g2, DicomImageElement image, float drawY) {
+    // The image number stands out like the sequence name and series number, in its own color.
+    drawY =
+        paintEmphasized(
+            g2, buildFrameText(image), IconColor.ACTIONS_BLUE.getColor(), border, false, drawY);
 
     Double imgProgression = (Double) view2DPane.getActionValue(ActionW.PROGRESSION.cmd());
     if (imgProgression != null) {
@@ -560,11 +561,12 @@ public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
 
       for (int j = infos.length - 1; j >= 0; j--) {
         if (infos[j] != null) {
-          boolean kept = seriesDescriptionWhenAnonymized && isSeriesDescription(infos[j]);
+          boolean kept = seriesDescriptionWhenAnonymized && hasTag(infos[j], Tag.SeriesDescription);
           String text =
               getFormattedTag(infos[j], patient, study, series, image, anonymize && !kept);
-          if (text != null && isSeriesDescription(infos[j])) {
-            drawY = paintSeriesDescription(g2, text, bound, drawY);
+          Color emphasis = emphasisColor(infos[j]);
+          if (text != null && emphasis != null) {
+            drawY = paintEmphasized(g2, text, emphasis, bound.width - (float) border, true, drawY);
           } else if (text != null) {
             FontTools.paintFontOutline(
                 g2,
@@ -586,22 +588,28 @@ public class InfoLayer extends AbstractInfoLayer<DicomImageElement> {
     seriesDescriptionWhenAnonymized = shown;
   }
 
-  private static boolean isSeriesDescription(TagView tagView) {
-    return Arrays.stream(tagView.getTag()).anyMatch(tag -> tag.getId() == Tag.SeriesDescription);
+  private static boolean hasTag(TagView tagView, int tag) {
+    return Arrays.stream(tagView.getTag()).anyMatch(candidate -> candidate.getId() == tag);
   }
 
-  // The sequence name stands out from the other corner lines: larger and in red. Returns the
-  // baseline for the line above it.
-  private float paintSeriesDescription(Graphics2D g2, String text, Rectangle bound, float drawY) {
+  // The sequence name and series number stand out from the other corner lines, each in its color.
+  private static Color emphasisColor(TagView tagView) {
+    if (hasTag(tagView, Tag.SeriesDescription)) return IconColor.ACTIONS_RED.getColor();
+    if (hasTag(tagView, Tag.SeriesNumber)) return IconColor.ACTIONS_GREEN.getColor();
+    return null;
+  }
+
+  /**
+   * Draws a line larger than the other corner text and in {@code color}, starting at {@code x} or
+   * ending there when right-aligned. Returns the baseline for the line above it.
+   */
+  private float paintEmphasized(
+      Graphics2D g2, String text, Color color, float x, boolean alignRight, float drawY) {
     Font font = g2.getFont();
-    g2.setFont(font.deriveFont(font.getSize2D() * SERIES_DESCRIPTION_SCALE));
+    g2.setFont(font.deriveFont(font.getSize2D() * EMPHASIS_SCALE));
     FontMetrics metrics = g2.getFontMetrics();
-    FontTools.paintColorFontOutline(
-        g2,
-        text,
-        bound.width - metrics.stringWidth(text) - (float) border,
-        drawY,
-        IconColor.ACTIONS_RED.getColor());
+    float start = alignRight ? x - metrics.stringWidth(text) : x;
+    FontTools.paintColorFontOutline(g2, text, start, drawY, color);
     g2.setFont(font);
     return drawY - metrics.getHeight();
   }
