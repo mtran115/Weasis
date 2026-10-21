@@ -48,9 +48,12 @@ fi
 
 cd "$ROOT/weasis-launcher"
 
+# A quarter of RAM for the heap, as the Weasis installers allow; running out writes a heap dump to the log folder.
 exec "$JAVA_CMD" \
   -Xms64m \
-  -Xmx768m \
+  -XX:MaxRAMPercentage=25 \
+  -XX:+HeapDumpOnOutOfMemoryError \
+  "-XX:HeapDumpPath=$JAVA_USER_HOME/.weasis/log" \
   "-Duser.home=$JAVA_USER_HOME" \
   "-Dgosh.port=$GOSH_PORT" \
   "${WEASIS_JAVA_PROPERTIES[@]}" \

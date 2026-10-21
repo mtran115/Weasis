@@ -122,8 +122,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private static final int AI_REPORT_BUTTONS = 4;
   private static final String VIEW_LAYOUT_KEY = "report.composer.view.layout";
   private static final int FIELD_COLUMNS = 28;
+  // Studies whose drafts stay in memory for going back and forth; older ones reload from disk.
+  private static final int DRAFTS_IN_MEMORY = 8;
 
-  private final Map<String, ReportDraft> drafts = new LinkedHashMap<>();
+  private final RecentDrafts drafts = new RecentDrafts(DRAFTS_IN_MEMORY);
   private final Map<String, ExamTemplate> draftExamTemplates = new LinkedHashMap<>();
   private final Map<String, JsonNode> draftEditorStates = new LinkedHashMap<>();
   private final Map<Component, Boolean> suspendedInputs = new java.util.IdentityHashMap<>();
@@ -1514,8 +1516,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       composeScrollPosition.restorePosition();
       return;
     }
-    if (drafts.containsKey(key)) {
-      activateDraft(drafts.get(key), context);
+    Optional<ReportDraft> open = drafts.get(key);
+    if (open.isPresent()) {
+      activateDraft(open.get(), context);
       return;
     }
     localSaveLabel.setText("Loading local draft…");
@@ -1539,7 +1542,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                         }
                         draftEditorStates.put(key, restored.editorState());
                       }
-                      drafts.put(key, draft);
+                      // A draft whose saved copy could not be read cannot be saved locally either.
+                      drafts.put(key, draft, error != null);
                       activateDraft(draft, activeStudyContext);
                       localSaveLabel.setText(
                           error != null
