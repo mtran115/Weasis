@@ -16,6 +16,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
 import java.awt.Graphics2D;
+import java.awt.KeyboardFocusManager;
 import java.awt.Point;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusListener;
@@ -264,8 +265,13 @@ public interface ViewCanvas<E extends ImageElement>
           instanceof ViewerPlugin<?> viewerPlugin) {
         FocusController focusController =
             UICore.getInstance().getDockingControl().getController().getFocusController();
+        // Mark the dockable focused without DockingFrames' "ensure" request: it retries focusing
+        // this view after a delay and would pull focus back once the reader has moved to another
+        // view, for example by hovering it or by opening a series into another slot.
         focusController.focus(
-            new DefaultFocusRequest(viewerPlugin.getDockable().intern(), getJComponent(), true));
+            new DefaultFocusRequest(
+                viewerPlugin.getDockable().intern(), getJComponent(), true, false, false));
+        requestFocusWhileSelected(viewerPlugin);
       } else {
         // Delay the request focus
         Timer timer = new Timer();
@@ -279,6 +285,22 @@ public interface ViewCanvas<E extends ImageElement>
             500);
       }
     }
+  }
+
+  /** Focuses this view now and once more after layout, unless another view took over meanwhile. */
+  private void requestFocusWhileSelected(ViewerPlugin<?> viewerPlugin) {
+    JComponent component = getJComponent();
+    component.requestFocusInWindow();
+    SwingUtilities.invokeLater(
+        () -> {
+          boolean stillSelected =
+              !(viewerPlugin instanceof ImageViewerPlugin<?> images)
+                  || images.getSelectedViewCanvas() == this;
+          Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+          if (stillSelected && component.isShowing() && !(owner instanceof ViewCanvas<?>)) {
+            component.requestFocusInWindow();
+          }
+        });
   }
 
   default Point3 getVolumePoint3FromMouse(int x, int y) {

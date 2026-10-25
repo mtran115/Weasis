@@ -96,6 +96,7 @@ import org.weasis.core.ui.editor.SeriesViewerEvent;
 import org.weasis.core.ui.editor.SeriesViewerEvent.EVENT;
 import org.weasis.core.ui.editor.SeriesViewerListener;
 import org.weasis.core.ui.editor.image.DefaultView2d;
+import org.weasis.core.ui.editor.image.ViewerKeyFallback;
 import org.weasis.core.ui.recorder.InteractionRecorder;
 import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.explorer.LocalImportDirectory;
@@ -555,6 +556,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
           }
         });
     add(views.component(), BorderLayout.CENTER);
+    // The composer routes its own form shortcuts; keep the viewer fallback from taking them.
+    putClientProperty(ViewerKeyFallback.HANDLES_OWN_KEYS, Boolean.TRUE);
     localSaveLabel.setBorder(GuiUtils.getEmptyBorder(3, 4, 3, 4));
     localSaveLabel.setToolTipText(
         "Drafts and training records stay on this computer. Export completes the annotation pass.");

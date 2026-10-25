@@ -101,6 +101,7 @@ import org.weasis.core.ui.editor.image.SynchEvent;
 import org.weasis.core.ui.editor.image.SynchManager;
 import org.weasis.core.ui.editor.image.SynchView;
 import org.weasis.core.ui.editor.image.ViewCanvas;
+import org.weasis.core.ui.editor.image.ViewerKeyFallback;
 import org.weasis.core.ui.editor.image.ViewerToolBar;
 import org.weasis.core.ui.editor.image.ZoomToolBar;
 import org.weasis.core.ui.launcher.Launcher;
@@ -269,6 +270,7 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     }
 
     initializeParameters();
+    new ViewerKeyFallback(this::getSelectedViewPane).install();
   }
 
   private void initializeParameters() {
