@@ -1638,7 +1638,11 @@ public abstract class DefaultView2d<E extends ImageElement> extends GraphicsPane
       setImage(imgElement);
       actionsInView.put(ViewCanvas.ZOOM_TYPE_CMD, zoomType);
     } else {
+      // A fit zoom is recomputed for the new image, which recenters it; keep the reader's pan.
+      double offsetX = getViewModel().getModelOffsetX();
+      double offsetY = getViewModel().getModelOffsetY();
       setImage(imgElement);
+      setCenter(offsetX, offsetY);
     }
   }
 
