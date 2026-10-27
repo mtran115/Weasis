@@ -11,7 +11,11 @@ package org.weasis.core.ui.editor.image;
 
 import java.awt.Component;
 import java.awt.KeyEventDispatcher;
+import java.awt.KeyEventPostProcessor;
 import java.awt.KeyboardFocusManager;
+import java.awt.MouseInfo;
+import java.awt.Point;
+import java.awt.PointerInfo;
 import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.event.InputEvent;
@@ -34,9 +38,11 @@ import org.slf4j.LoggerFactory;
 /**
  * Viewer shortcuts only reach the focused image canvas. When focus rests on a part of the viewer
  * window that ignores keys (a toolbar button, a docking tab, or nothing after switching apps), an
- * unmodified key press moves focus to the selected image and is replayed there.
+ * unmodified key press moves focus to the selected image and is replayed there. When another window
+ * is active (e.g. a detached report composer) and nothing there used the key, a key pressed with
+ * the pointer over the selected image is delivered to it without raising its window.
  */
-public final class ViewerKeyFallback implements KeyEventDispatcher {
+public final class ViewerKeyFallback implements KeyEventDispatcher, KeyEventPostProcessor {
   /** Client property marking a panel that handles its own keys, e.g. a docked tool. */
   public static final String HANDLES_OWN_KEYS = "ViewerKeyFallback.handlesOwnKeys";
 
@@ -61,7 +67,9 @@ public final class ViewerKeyFallback implements KeyEventDispatcher {
   }
 
   public void install() {
-    KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(this);
+    KeyboardFocusManager focusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+    focusManager.addKeyEventDispatcher(this);
+    focusManager.addKeyEventPostProcessor(this);
   }
 
   @Override
@@ -104,6 +112,59 @@ public final class ViewerKeyFallback implements KeyEventDispatcher {
     Toolkit.getDefaultToolkit().getSystemEventQueue().postEvent(replayed);
     event.consume();
     return true;
+  }
+
+  /** Runs after every dispatcher and the focus owner, so only keys nobody used are delivered. */
+  @Override
+  public boolean postProcessKeyEvent(KeyEvent event) {
+    if (event.getID() != KeyEvent.KEY_PRESSED || event.isConsumed()) {
+      return false;
+    }
+    ViewCanvas<?> view = selectedView.get();
+    if (view == null) {
+      return false;
+    }
+    JComponent canvas = view.getJComponent();
+    KeyboardFocusManager focusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+    Window focusedWindow = focusManager.getFocusedWindow();
+    PointerInfo pointer = MouseInfo.getPointerInfo();
+    if (!canvas.isShowing()
+        || focusedWindow == null
+        || SwingUtilities.getWindowAncestor(canvas) == focusedWindow
+        || pointer == null) {
+      return false;
+    }
+    Point onScreen = pointer.getLocation();
+    Point onCanvas = new Point(onScreen);
+    SwingUtilities.convertPointFromScreen(onCanvas, canvas);
+    boolean pointerOnImageOnly =
+        canvas.contains(onCanvas) && !focusedWindow.getBounds().contains(onScreen);
+    boolean menuOpen = MenuSelectionManager.defaultManager().getSelectedPath().length > 0;
+    if (!redirectsAcrossWindows(
+        event, focusManager.getFocusOwner(), pointerOnImageOnly && !menuOpen)) {
+      return false;
+    }
+    LOGGER.info("Viewer shortcut delivered to the image under the pointer in another window");
+    focusManager.redispatchEvent(
+        canvas,
+        new KeyEvent(
+            canvas,
+            KeyEvent.KEY_PRESSED,
+            event.getWhen(),
+            event.getModifiersEx(),
+            event.getKeyCode(),
+            event.getKeyChar(),
+            event.getKeyLocation()));
+    event.consume();
+    return true;
+  }
+
+  static boolean redirectsAcrossWindows(
+      KeyEvent event, Component owner, boolean pointerOnImageOnly) {
+    return pointerOnImageOnly
+        && (event.getModifiersEx() & COMMAND_MODIFIERS) == 0
+        && !isNavigationKey(event.getKeyCode())
+        && (owner == null || !consumesKeys(owner));
   }
 
   static boolean redirects(KeyEvent event, Component owner, boolean viewerWindowHasFocus) {

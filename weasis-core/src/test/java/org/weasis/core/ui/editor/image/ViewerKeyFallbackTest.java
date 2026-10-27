@@ -70,6 +70,31 @@ class ViewerKeyFallbackTest {
     assertFalse(ViewerKeyFallback.redirects(press(KeyEvent.VK_1, 0), formButton, true));
   }
 
+  @Test
+  void deliversUnusedKeysToTheImageUnderThePointerInAnotherWindow() {
+    KeyEvent numpadPeriod = press(KeyEvent.VK_DECIMAL, 0);
+    assertTrue(ViewerKeyFallback.redirectsAcrossWindows(numpadPeriod, null, true));
+    JPanel composer = new JPanel();
+    composer.putClientProperty(ViewerKeyFallback.HANDLES_OWN_KEYS, Boolean.TRUE);
+    assertTrue(ViewerKeyFallback.redirectsAcrossWindows(numpadPeriod, composer, true));
+  }
+
+  @Test
+  void keepsKeysInTheActiveWindowUnlessThePointerIsOnTheImage() {
+    assertFalse(
+        ViewerKeyFallback.redirectsAcrossWindows(press(KeyEvent.VK_DECIMAL, 0), null, false));
+  }
+
+  @Test
+  void neverTakesTypingOrShortcutsFromTheActiveWindow() {
+    KeyEvent period = press(KeyEvent.VK_PERIOD, 0);
+    assertFalse(ViewerKeyFallback.redirectsAcrossWindows(period, new JTextField(), true));
+    assertFalse(
+        ViewerKeyFallback.redirectsAcrossWindows(
+            press(KeyEvent.VK_C, InputEvent.META_DOWN_MASK), null, true));
+    assertFalse(ViewerKeyFallback.redirectsAcrossWindows(press(KeyEvent.VK_ENTER, 0), null, true));
+  }
+
   @ParameterizedTest
   @ValueSource(
       ints = {InputEvent.META_DOWN_MASK, InputEvent.CTRL_DOWN_MASK, InputEvent.ALT_DOWN_MASK})
