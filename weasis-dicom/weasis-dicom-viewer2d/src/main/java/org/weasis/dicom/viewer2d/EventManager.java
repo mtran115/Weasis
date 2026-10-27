@@ -975,8 +975,14 @@ public class EventManager extends ImageViewerEventManager<DicomImageElement>
     DicomImageElement image = view.getImage();
     // On the Taylor Philips Intera, Auto W/L is calculated from and kept for this slice only.
     boolean thisSliceOnly = view instanceof View2d && SliceWindowLevel.applies(view.getSeries());
-    List<DicomImageElement> images =
-        thisSliceOnly ? List.of(image) : MrAutoWindowLevel.nearbyImages(view);
+    List<DicomImageElement> images;
+    if (thisSliceOnly) {
+      images = List.of(image);
+    } else if (keyboard) {
+      images = MrAutoWindowLevel.nearbyImages(view);
+    } else {
+      images = MrAutoWindowLevel.middleImages(view);
+    }
     SwingWorker<PresetWindowLevel, Void> worker =
         new SwingWorker<>() {
           @Override

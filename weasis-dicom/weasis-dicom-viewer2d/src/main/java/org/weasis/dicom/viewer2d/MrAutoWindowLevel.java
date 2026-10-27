@@ -32,22 +32,50 @@ final class MrAutoWindowLevel {
   /** Snapshot the displayed stack on the EDT without reading pixel data. Current image is first. */
   static List<DicomImageElement> nearbyImages(ViewCanvas<DicomImageElement> view) {
     DicomImageElement current = view.getImage();
+    List<DicomImageElement> stack = displayedStack(view);
+    return imagesAround(stack, stack.indexOf(current), current);
+  }
+
+  /**
+   * Like {@link #nearbyImages}, but centred on the middle of the displayed stack: a series opens on
+   * its first slice, which is often at the edge of the volume and gives an extreme range.
+   */
+  static List<DicomImageElement> middleImages(ViewCanvas<DicomImageElement> view) {
+    DicomImageElement current = view.getImage();
+    List<DicomImageElement> stack = displayedStack(view);
+    int middle = stack.size() / 2;
+    for (int distance = 0; distance <= stack.size() / 2; distance++) {
+      for (int index : new int[] {middle - distance, middle + distance}) {
+        if (index >= 0 && index < stack.size() && compatible(current, stack.get(index))) {
+          return imagesAround(stack, index, current);
+        }
+      }
+    }
+    return List.of(current);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static List<DicomImageElement> displayedStack(ViewCanvas<DicomImageElement> view) {
+    return view.getSeries()
+        .copyOfMedias(
+            (Filter<DicomImageElement>) view.getActionValue(ActionW.FILTERED_SERIES.cmd()),
+            view.getCurrentSortComparator());
+  }
+
+  // The image at index first, then up to two compatible neighbors on each side.
+  private static List<DicomImageElement> imagesAround(
+      List<DicomImageElement> stack, int index, DicomImageElement reference) {
+    if (index < 0) {
+      return List.of(reference);
+    }
     List<DicomImageElement> result = new ArrayList<>();
-    result.add(current);
-    List<DicomImageElement> stack =
-        view.getSeries()
-            .copyOfMedias(
-                (Filter<DicomImageElement>) view.getActionValue(ActionW.FILTERED_SERIES.cmd()),
-                view.getCurrentSortComparator());
-    int index = stack.indexOf(current);
-    if (index >= 0) {
-      for (int distance = 1; distance <= 2; distance++) {
-        for (int neighbor : new int[] {index - distance, index + distance}) {
-          if (neighbor >= 0 && neighbor < stack.size()) {
-            DicomImageElement image = stack.get(neighbor);
-            if (!result.contains(image) && compatible(current, image)) {
-              result.add(image);
-            }
+    result.add(stack.get(index));
+    for (int distance = 1; distance <= 2; distance++) {
+      for (int neighbor : new int[] {index - distance, index + distance}) {
+        if (neighbor >= 0 && neighbor < stack.size()) {
+          DicomImageElement image = stack.get(neighbor);
+          if (!result.contains(image) && compatible(reference, image)) {
+            result.add(image);
           }
         }
       }

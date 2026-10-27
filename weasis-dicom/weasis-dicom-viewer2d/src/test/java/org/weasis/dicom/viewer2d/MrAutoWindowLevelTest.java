@@ -53,6 +53,37 @@ class MrAutoWindowLevelTest {
   }
 
   @Test
+  void seriesOpenSamplesTheMiddleOfTheStackInsteadOfTheFirstSlice() {
+    View2d view = mock(View2d.class);
+    DicomSeries series = mock(DicomSeries.class);
+    Filter<DicomImageElement> filter = mock(Filter.class);
+    when(view.getSeries()).thenReturn(series);
+    when(view.getActionValue(ActionW.FILTERED_SERIES.cmd())).thenReturn(filter);
+    List<DicomImageElement> stack =
+        List.of(image(1), image(2), image(3), image(4), image(5), image(6), image(7), image(8));
+    when(view.getImage()).thenReturn(stack.getFirst());
+    when(series.copyOfMedias(eq(filter), any())).thenReturn(stack);
+
+    assertEquals(
+        List.of(stack.get(4), stack.get(3), stack.get(5), stack.get(2), stack.get(6)),
+        MrAutoWindowLevel.middleImages(view));
+  }
+
+  @Test
+  void seriesOpenSkipsAMiddleImageFromAnotherEcho() {
+    View2d view = mock(View2d.class);
+    DicomSeries series = mock(DicomSeries.class);
+    when(view.getSeries()).thenReturn(series);
+    List<DicomImageElement> stack = List.of(image(1), image(2), image(3), image(4), image(5));
+    when(stack.get(2).getTagValue(TagD.get(Tag.EchoNumbers))).thenReturn(2);
+    when(view.getImage()).thenReturn(stack.getFirst());
+    when(series.copyOfMedias(any(), any())).thenReturn(stack);
+
+    assertEquals(stack.get(1), MrAutoWindowLevel.middleImages(view).getFirst());
+    assertFalse(MrAutoWindowLevel.middleImages(view).contains(stack.get(2)));
+  }
+
+  @Test
   void neighborsStabilizeNarrowCurrentRangeAndIgnoreOneExtremeNeighbor() {
     PresetWindowLevel auto =
         MrAutoWindowLevel.estimate(
