@@ -215,6 +215,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
   private final JButton viewLayoutButton = new JButton();
   private final JButton unexportedButton = new JButton("Not Exported");
+  private final ReadTimerLabel readTimer = new ReadTimerLabel(new ReadTimeStore());
   private ComposerNavigationShortcuts navigationShortcuts;
 
   private ReportDraft currentDraft;
@@ -637,7 +638,11 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     windowControls.add(unexportedButton);
     windowControls.add(viewLayoutButton);
     windowControls.add(popOutButton);
-    header.add(windowControls, BorderLayout.EAST);
+    JPanel headerEnd = new JPanel(new BorderLayout());
+    headerEnd.setOpaque(false);
+    headerEnd.add(windowControls, BorderLayout.NORTH);
+    headerEnd.add(readTimer, BorderLayout.SOUTH);
+    header.add(headerEnd, BorderLayout.EAST);
     header.setBorder(
         BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY),
@@ -1385,6 +1390,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
           cancelKeyImagePreview();
           if (!recorderDisposed) {
             persistCurrentDraft();
+            readTimer.dispose();
             recorderDisposed = true;
             caseRecorder.close();
             reportQuickPhrases.close();
@@ -1501,6 +1507,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       warnLater(CAPTURE_DISCARDED_MESSAGE);
     }
     activeStudyKey = key;
+    readTimer.selectStudy(key);
     lumbarLevels.clear();
     activeStudyContext = context;
     long generation = ++studyLoadGeneration;
@@ -2356,6 +2363,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         exportButton.setEnabled(currentDraft != null);
         try {
           ExportCompletion result = get();
+          if (result.exported() != null || result.recorded())
+            readTimer.studyExported(completion.studyKey());
           boolean stillCurrent =
               completion.studyKey().equals(activeStudyKey)
                   && completedEditGeneration == draftChangeGeneration
