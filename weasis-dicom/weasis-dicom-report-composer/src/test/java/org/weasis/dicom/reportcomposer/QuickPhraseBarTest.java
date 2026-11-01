@@ -68,6 +68,48 @@ class QuickPhraseBarTest {
   }
 
   @Test
+  void aPhraseGoesOnItsOwnLineInsteadOfSplittingTheCaretsLine() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture(ExamTemplate.KNEE);
+          f.text.setText("Keep this finding.\nKeep this instruction.");
+          f.text.setCaretPosition("Keep this".length());
+          button(f.bar, "Quad tendinosis").doClick(0);
+          assertEquals(
+              "Keep this finding.\nMild quadriceps tendinosis.\nKeep this instruction.",
+              f.text.getText());
+
+          f.text.setCaretPosition(f.text.getText().indexOf("Keep this instruction."));
+          button(f.bar, "Prepatellar edema").doClick(0);
+          f.text.select(5, 9);
+          menuItem(f.bar, "Motion limit").doClick(0);
+          assertEquals(
+              """
+              Keep this finding.
+              Limited exam due to motion.
+              Mild quadriceps tendinosis.
+              Mild prepatellar soft tissue edema.
+              Keep this instruction.""",
+              f.text.getText());
+        });
+  }
+
+  @Test
+  void aPhraseClickedWhileADetailIsSelectedLeavesTheDetailInPlace() throws Exception {
+    SwingUtilities.invokeAndWait(
+        () -> {
+          Fixture f = new Fixture(ExamTemplate.SHOULDER);
+          button(f.bar, "Paralabral cyst").doClick(0);
+          assertEquals("[size]", f.text.getSelectedText());
+          button(f.bar, "Cuff repair").doClick(0);
+          assertEquals(
+              "A [size] [location] paralabral cyst suggests an occult tear of the adjacent labrum.\n"
+                  + "Postsurgical changes related to rotator cuff repair.",
+              f.text.getText());
+        });
+  }
+
+  @Test
   void detailsRemainNavigableAfterTypingAndOtherKeysRetainTheirNormalBehavior() throws Exception {
     SwingUtilities.invokeAndWait(
         () -> {

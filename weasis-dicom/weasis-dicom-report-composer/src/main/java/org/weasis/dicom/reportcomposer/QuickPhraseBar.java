@@ -635,8 +635,16 @@ final class QuickPhraseBar extends JPanel {
     String text = target.getText();
     int start = target.getSelectionStart();
     int end = target.getSelectionEnd();
-    String before = start > 0 && text.charAt(start - 1) != '\n' ? "\n" : "";
-    String after = end < text.length() && text.charAt(end) != '\n' ? "\n" : "";
+    // Only whole selected lines are replaced; otherwise the phrase goes on its own line after the
+    // caret's line, so it never splits a line or a [detail] still selected in the last phrase.
+    boolean wholeLines =
+        start < end && isLineStart(text, start) && (isLineStart(text, end) || isLineEnd(text, end));
+    if (!wholeLines) {
+      start = end = isLineStart(text, end) ? end : lineEnd(text, end);
+      target.select(start, end);
+    }
+    String before = isLineStart(text, start) ? "" : "\n";
+    String after = isLineEnd(text, end) ? "" : "\n";
     target.replaceSelection(before + phrase.text() + after);
     int insertedStart = start + before.length();
     try {
@@ -650,6 +658,19 @@ final class QuickPhraseBar extends JPanel {
     if (!selectNextDetail(false)) {
       target.setCaretPosition(insertedStart + phrase.text().length());
     }
+  }
+
+  private static boolean isLineStart(String text, int offset) {
+    return offset == 0 || text.charAt(offset - 1) == '\n';
+  }
+
+  private static boolean isLineEnd(String text, int offset) {
+    return offset == text.length() || text.charAt(offset) == '\n';
+  }
+
+  private static int lineEnd(String text, int offset) {
+    int newline = text.indexOf('\n', offset);
+    return newline < 0 ? text.length() : newline;
   }
 
   boolean selectNextDetail(boolean backwards) {
