@@ -310,10 +310,10 @@ class SpineFormShortcutsTest {
         () -> {
           Fixture f = new Fixture(SpineRegion.THORACIC, "T2-3");
           f.press('C');
-          assertFalse(
+          assertTrue(
               f.commands.handleKey(
                   key(f.form, KeyEvent.VK_NUMPAD3, KeyEvent.KEY_LOCATION_NUMPAD, 0), f.form));
-          assertEquals(Severity.NONE, f.level().spinalCanalSeverity());
+          assertEquals(Severity.SEVERE, f.level().spinalCanalSeverity());
           f.press('D');
           assertFalse(
               f.commands.handleKey(
@@ -611,6 +611,42 @@ class SpineFormShortcutsTest {
           viewport.setViewPosition(new Point(0, level.y));
           assertNull(form.targetAt(alignment));
           assertSame(form.level("L4-5"), form.targetAt(level));
+        });
+  }
+
+  @Test
+  void pinnedSectionSharesUndoAndEscapeReleasesIt() throws Exception {
+    edt(
+        () -> {
+          Fixture f = new Fixture(SpineRegion.LUMBAR, "L4-5");
+          AtomicInteger changes = new AtomicInteger();
+          f.commands.setStateListener(changes::incrementAndGet);
+          f.commands.pin(f.form.level("L4-5"));
+          assertSame(f.form.level("L4-5"), f.commands.pinned());
+          assertTrue(changes.get() > 0);
+          f.commands.editPinned(() -> f.form.level("L4-5").toggle('B'));
+          assertTrue(f.level().bulge());
+          f.command(KeyEvent.VK_Z);
+          assertFalse(f.level().bulge());
+          f.press('L');
+          assertTrue(f.commands.hasPending());
+          f.press(KeyEvent.VK_ESCAPE);
+          assertFalse(f.commands.hasPending());
+          assertSame(f.form.level("L4-5"), f.commands.pinned());
+          f.press(KeyEvent.VK_ESCAPE);
+          assertNull(f.commands.pinned());
+        });
+  }
+
+  @Test
+  void pinnedEditsNeverReachADisabledForm() throws Exception {
+    edt(
+        () -> {
+          Fixture f = new Fixture(SpineRegion.LUMBAR, "L4-5");
+          f.commands.pin(f.form.level("L4-5"));
+          f.form.setEnabled(false);
+          f.commands.editPinned(() -> f.form.level("L4-5").toggle('B'));
+          assertFalse(f.level().bulge());
         });
   }
 

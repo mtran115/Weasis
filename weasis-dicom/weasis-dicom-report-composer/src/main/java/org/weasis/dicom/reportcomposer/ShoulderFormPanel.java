@@ -141,6 +141,11 @@ final class ShoulderFormPanel extends JPanel {
         .orElseThrow();
   }
 
+  /** Sections in form order. */
+  List<ShortcutTarget> targets() {
+    return List.copyOf(shortcutTargets);
+  }
+
   void setKeyboardHovered(ShortcutTarget target) {
     if (keyboardHovered != target) {
       keyboardHovered = target;
@@ -410,6 +415,22 @@ final class ShoulderFormPanel extends JPanel {
 
     boolean hasDegree() {
       return degree != null;
+    }
+
+    Degree currentDegree() {
+      return degree == null ? Degree.NONE : degree.selectionOr(Degree.NONE);
+    }
+
+    boolean hasTear() {
+      return tear != null;
+    }
+
+    CuffTearSelection tearSelection() {
+      return tear == null ? CuffTearSelection.empty() : tear.selection();
+    }
+
+    boolean isLabrum() {
+      return labrum;
     }
 
     Rectangle bounds() {

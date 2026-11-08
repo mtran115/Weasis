@@ -38,7 +38,10 @@ import org.weasis.dicom.reportcomposer.SpineFormPanel.LevelControls;
 import org.weasis.dicom.reportcomposer.SpineFormPanel.SectionControls;
 import org.weasis.dicom.reportcomposer.SpineFormPanel.ShortcutTarget;
 
-/** Hover-scoped form commands. No bindings are installed on the image viewer or text documents. */
+/**
+ * Hover-scoped form commands. A section pinned from the viewport HUD also receives them while the
+ * pointer is on an image. No bindings are installed on the image viewer or text documents.
+ */
 final class SpineFormShortcuts implements KeyEventDispatcher {
   static final String IDLE_HELP =
       "Hover a section: S Straightening / Spondylosis\n"
@@ -53,8 +56,10 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
   private Consumer<String> help = text -> {};
   private Predicate<KeyEvent> viewerShortcut = event -> false;
   private Predicate<Window> viewerWindow = window -> false;
+  private final HudPin<ShortcutTarget> pin = new HudPin<>();
   private ShortcutTarget hovered;
   private Window pointerWindow;
+  private String helpText = IDLE_HELP;
   private char pending;
   private EnumSet<ProtrusionLocation> discChoices;
   private boolean firstDiscChoice;
@@ -81,6 +86,37 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
 
   void setViewerWindowPredicate(Predicate<Window> predicate) {
     viewerWindow = predicate;
+  }
+
+  /** Notified when the pinned section, pending command, or help text changes. */
+  void setStateListener(Runnable listener) {
+    pin.setListener(listener);
+  }
+
+  ShortcutTarget pinned() {
+    return pin.target();
+  }
+
+  void pin(ShortcutTarget target) {
+    if (!pin.set(target)) return;
+    cancelPending();
+    pin.notifyListener();
+    queueHoverUpdate();
+  }
+
+  boolean hasPending() {
+    return pending != 0;
+  }
+
+  String helpText() {
+    return helpText;
+  }
+
+  /** Applies a HUD click to the pinned section, sharing the keyboard undo history. */
+  void editPinned(Runnable action) {
+    if (pin.target() == null || !form.isEnabled()) return;
+    cancelPending();
+    edit(pin.target(), action);
   }
 
   void install() {
@@ -121,6 +157,7 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
   void observeInteraction(AWTEvent event) {
     if (event instanceof MouseEvent mouse) {
       pointerWindow = SwingUtilities.getWindowAncestor(mouse.getComponent());
+      pin.observe(mouse);
       if (mouse.getID() == MouseEvent.MOUSE_PRESSED) cancelPending();
       if (ComposerHoverFocus.isHoverMotion(mouse) && activeWindow()) {
         ShortcutTarget target = targetUnderPointer();
@@ -145,7 +182,8 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
   boolean activeWindow() {
     Window owner = SwingUtilities.getWindowAncestor(form);
     Window active = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-    return form.isShowing()
+    boolean formReachable = form.isShowing() || (pin.target() != null && form.isVisible());
+    return formReachable
         && form.isEnabled()
         && owner != null
         && active != null
@@ -154,6 +192,11 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
   }
 
   ShortcutTarget targetUnderPointer() {
+    ShortcutTarget target = formTargetUnderPointer();
+    return target != null || !form.isVisible() ? target : pin.onImage();
+  }
+
+  private ShortcutTarget formTargetUnderPointer() {
     // A detached composer can be behind the active viewer at the same screen coordinates.
     // Use the actual mouse-event window as well as coordinates so it cannot edit through it.
     if (pointerWindow != null && pointerWindow != SwingUtilities.getWindowAncestor(form))
@@ -200,6 +243,8 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
     // Resolve from the current pointer, including after a scroll/layout change without mouse
     // motion.
     setHovered(targetUnderPointer());
+    // Zoom keys (e.g. a TourBox knob) always reach the image, even while a section is pinned.
+    if (pin.yieldsToViewer(event)) return false;
     Component focus = focusOwner();
     boolean handled = handleKey(event, focus);
     if (!handled
@@ -259,7 +304,9 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
     }
     if (modifiers != 0) return false;
     if (key == KeyEvent.VK_ESCAPE) {
-      cancelPending();
+      // With nothing pending, Escape releases a pinned section so viewer letters work again.
+      if (pending == 0 && hovered == pin.target()) pin(null);
+      else cancelPending();
       return true;
     }
     if (hovered instanceof SectionControls section) {
@@ -292,13 +339,9 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
     }
     if ("CLRFHD".indexOf(letter) >= 0 && letter != 0) {
       cancelPending();
-      if (letter == 'C' && !level.hasCanalControl()) {
-        help.accept(hovered.name() + " — this form has no canal stenosis control.");
-        return true;
-      }
       if (letter == 'D') {
         if (!level.hasDiscHerniation()) {
-          help.accept(hovered.name() + " — select P Protrusion or E Extrusion first.");
+          publish(hovered.name() + " — select P Protrusion or E Extrusion first.");
           return true;
         }
         var selected = level.selection();
@@ -376,7 +419,10 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
   }
 
   private void edit(Runnable action) {
-    ShortcutTarget target = hovered;
+    edit(hovered, action);
+  }
+
+  private void edit(ShortcutTarget target, Runnable action) {
     JsonNode before = ComposerFormState.capture(target.panel());
     action.run();
     JsonNode after = ComposerFormState.capture(target.panel());
@@ -397,14 +443,20 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
     ComposerFormState.restore(edit.target().panel(), edit.before());
   }
 
+  private void publish(String text) {
+    helpText = text;
+    help.accept(text);
+    pin.notifyListener();
+  }
+
   private void updateHelp() {
     if (hovered == null) {
-      help.accept(IDLE_HELP);
+      publish(IDLE_HELP);
       return;
     }
     String prefix = hovered.name() + " — ";
     if (hovered instanceof SectionControls section) {
-      help.accept(
+      publish(
           prefix
               + (section.toggle() == null
                   ? "no straightening control in this form"
@@ -417,7 +469,7 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
           discChoices.stream()
               .map(location -> Integer.toString(location.ordinal() + 1))
               .collect(Collectors.joining(", "));
-      help.accept(
+      publish(
           prefix
               + "disc location (numpad); Enter apply / Esc cancel\n"
               + "1 Central · 2 Broad · 3 L central · 4 R central\n"
@@ -426,7 +478,7 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
               + selected
               + " · first replaces; next toggles");
     } else if (pending == 'F' || pending == 'H') {
-      help.accept(
+      publish(
           prefix
               + (pending == 'F' ? "facet arthrosis" : "posterior-element hypertrophy")
               + "\nL Left · R Right · B Bilateral · Numpad 0 Clear · Esc Cancel");
@@ -437,10 +489,9 @@ final class SpineFormShortcuts implements KeyEventDispatcher {
             case 'L' -> "left foraminal stenosis";
             default -> "right foraminal stenosis";
           };
-      help.accept(
-          prefix + target + "\nNumpad: 1 Mild · 2 Moderate · 3 Severe · 0 Clear\nEsc Cancel");
+      publish(prefix + target + "\nNumpad: 1 Mild · 2 Moderate · 3 Severe · 0 Clear\nEsc Cancel");
     } else {
-      help.accept(prefix + IDLE_HELP.substring(IDLE_HELP.indexOf('\n') + 1));
+      publish(prefix + IDLE_HELP.substring(IDLE_HELP.indexOf('\n') + 1));
     }
   }
 

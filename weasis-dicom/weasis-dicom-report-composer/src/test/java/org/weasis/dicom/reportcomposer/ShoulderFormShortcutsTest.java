@@ -576,6 +576,26 @@ class ShoulderFormShortcutsTest {
     SwingUtilities.invokeAndWait(runnable);
   }
 
+  @Test
+  void pinnedSectionSharesUndoAndEscapeReleasesIt() throws Exception {
+    edt(
+        () -> {
+          Fixture f = new Fixture("Supraspinatus");
+          f.commands.pin(f.target());
+          f.commands.editPinned(() -> f.target().button('A').doClick(0));
+          assertTrue(f.target().tearSelection().hasFinding());
+          assertTrue(
+              f.handle(
+                  KeyEvent.VK_Z,
+                  KeyEvent.KEY_LOCATION_STANDARD,
+                  InputEvent.META_DOWN_MASK,
+                  f.form));
+          assertFalse(f.target().tearSelection().hasFinding());
+          f.press(KeyEvent.VK_ESCAPE);
+          assertNull(f.commands.pinned());
+        });
+  }
+
   private static class Fixture {
     final ShoulderFormPanel form = new ShoulderFormPanel();
     final ShoulderFormShortcuts commands = form.shortcuts();

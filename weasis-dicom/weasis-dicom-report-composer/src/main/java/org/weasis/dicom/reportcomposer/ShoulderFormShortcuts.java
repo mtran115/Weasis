@@ -34,7 +34,10 @@ import javax.swing.text.JTextComponent;
 import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.Degree;
 import org.weasis.dicom.reportcomposer.ShoulderFormPanel.ShortcutTarget;
 
-/** Hover-scoped form commands. No bindings are installed on the image viewer or text documents. */
+/**
+ * Hover-scoped form commands. A section pinned from the viewport HUD also receives them while the
+ * pointer is on an image. No bindings are installed on the image viewer or text documents.
+ */
 final class ShoulderFormShortcuts implements KeyEventDispatcher {
   static final String COMMON_HELP = "Cmd+Enter Add findings · Cmd+Z Undo field edit";
   static final String IDLE_HELP =
@@ -50,8 +53,10 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
   private Consumer<String> help = text -> {};
   private Predicate<KeyEvent> viewerShortcut = event -> false;
   private Predicate<Window> viewerWindow = window -> false;
+  private final HudPin<ShortcutTarget> pin = new HudPin<>();
   private ShortcutTarget hovered;
   private Window pointerWindow;
+  private String helpText = IDLE_HELP;
   private boolean installed;
   private boolean updateQueued;
   private boolean swallowTyped;
@@ -75,6 +80,31 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
 
   void setViewerWindowPredicate(Predicate<Window> predicate) {
     viewerWindow = predicate;
+  }
+
+  /** Notified when the pinned section or help text changes. */
+  void setStateListener(Runnable listener) {
+    pin.setListener(listener);
+  }
+
+  ShortcutTarget pinned() {
+    return pin.target();
+  }
+
+  void pin(ShortcutTarget target) {
+    if (!pin.set(target)) return;
+    pin.notifyListener();
+    queueHoverUpdate();
+  }
+
+  String helpText() {
+    return helpText;
+  }
+
+  /** Applies a HUD click to the pinned section, sharing the keyboard undo history. */
+  void editPinned(Runnable action) {
+    if (pin.target() == null || !form.isEnabled()) return;
+    edit(pin.target(), action);
   }
 
   void install() {
@@ -114,6 +144,7 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
   void observeInteraction(AWTEvent event) {
     if (event instanceof MouseEvent mouse) {
       pointerWindow = SwingUtilities.getWindowAncestor(mouse.getComponent());
+      pin.observe(mouse);
       if (ComposerHoverFocus.isHoverMotion(mouse) && activeWindow()) {
         ShortcutTarget target = targetUnderPointer();
         setHovered(target);
@@ -137,7 +168,8 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
   boolean activeWindow() {
     Window owner = SwingUtilities.getWindowAncestor(form);
     Window active = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-    return form.isShowing()
+    boolean formReachable = form.isShowing() || (pin.target() != null && form.isVisible());
+    return formReachable
         && form.isEnabled()
         && owner != null
         && active != null
@@ -146,6 +178,11 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
   }
 
   ShortcutTarget targetUnderPointer() {
+    ShortcutTarget target = formTargetUnderPointer();
+    return target != null || !form.isVisible() ? target : pin.onImage();
+  }
+
+  private ShortcutTarget formTargetUnderPointer() {
     // A detached composer can be behind the active viewer at the same screen coordinates.
     // Use the actual mouse-event window as well as coordinates so it cannot edit through it.
     if (pointerWindow != null && pointerWindow != SwingUtilities.getWindowAncestor(form))
@@ -188,6 +225,8 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
     // Resolve from the current pointer, including after a scroll/layout change without mouse
     // motion.
     setHovered(targetUnderPointer());
+    // Zoom keys (e.g. a TourBox knob) always reach the image, even while a section is pinned.
+    if (pin.yieldsToViewer(event)) return false;
     Component focus = focusOwner();
     boolean handled = handleKey(event, focus);
     if (!handled
@@ -259,10 +298,14 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
       edit(() -> hovered.setDegree(Degree.MINIMAL));
       return true;
     }
-    if (key == KeyEvent.VK_ESCAPE) return true;
+    if (key == KeyEvent.VK_ESCAPE) {
+      // Escape releases a pinned section so viewer letters work again.
+      if (hovered == pin.target()) pin(null);
+      return true;
+    }
     if (key == KeyEvent.VK_T) {
       if (hovered.textField().isEnabled()) hovered.editText();
-      else help.accept(hovered.name() + " — select a tear before entering tear details.");
+      else publish(hovered.name() + " — select a tear before entering tear details.");
       return true;
     }
     char letter = key >= KeyEvent.VK_A && key <= KeyEvent.VK_Z ? (char) key : 0;
@@ -270,7 +313,7 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
     if (button == null) return false;
     if (button.isEnabled()) edit(() -> button.doClick(0));
     else
-      help.accept(
+      publish(
           hovered.name()
               + (letter == 'H'
                   ? " — select a partial/interstitial tear for high-grade."
@@ -289,7 +332,10 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
   }
 
   private void edit(Runnable action) {
-    ShortcutTarget target = hovered;
+    edit(hovered, action);
+  }
+
+  private void edit(ShortcutTarget target, Runnable action) {
     JsonNode before = ComposerFormState.capture(target.panel());
     action.run();
     JsonNode after = ComposerFormState.capture(target.panel());
@@ -310,8 +356,14 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
     ComposerFormState.restore(edit.target().panel(), edit.before());
   }
 
+  private void publish(String text) {
+    helpText = text;
+    help.accept(text);
+    pin.notifyListener();
+  }
+
   private void updateHelp() {
-    help.accept(hovered == null ? IDLE_HELP : hovered.help());
+    publish(hovered == null ? IDLE_HELP : hovered.help());
   }
 
   private record Edit(ShortcutTarget target, JsonNode before, JsonNode after) {}

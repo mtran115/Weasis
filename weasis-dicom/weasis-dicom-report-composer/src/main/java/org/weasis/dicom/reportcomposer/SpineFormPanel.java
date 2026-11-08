@@ -176,6 +176,15 @@ final class SpineFormPanel extends JPanel {
     return levelControls.get(name);
   }
 
+  /** Alignment, degenerative changes, then each level, in form order. */
+  List<ShortcutTarget> targets() {
+    List<ShortcutTarget> targets = new ArrayList<>();
+    targets.add(alignmentSection);
+    targets.add(degenerativeSection);
+    targets.addAll(levelControls.values());
+    return targets;
+  }
+
   void submitFromKeyboard() {
     addButton.doClick(0);
   }
@@ -551,15 +560,11 @@ final class SpineFormPanel extends JPanel {
       addChoiceRow(6, "Facet arthrosis", facetArthrosis);
       addChoiceRow(7, region.posteriorElementLabel(), posteriorElementHypertrophy);
 
-      int row = 8;
-      if (region == SpineRegion.CERVICAL || region == SpineRegion.LUMBAR) {
-        addChoiceRow(row++, "Spinal canal stenosis", spinalCanalSeverity);
-      }
+      addChoiceRow(8, "Spinal canal stenosis", spinalCanalSeverity);
+      addChoiceRow(9, "Foraminal stenosis - left", leftForaminalSeverity);
+      addChoiceRow(10, "Foraminal stenosis - right", rightForaminalSeverity);
 
-      addChoiceRow(row++, "Foraminal stenosis - left", leftForaminalSeverity);
-      addChoiceRow(row++, "Foraminal stenosis - right", rightForaminalSeverity);
-
-      constraints = constraints(row);
+      constraints = constraints(11);
       panel.add(new JLabel("Free text"), constraints);
       constraints.gridx = 1;
       constraints.gridwidth = 2;
@@ -602,10 +607,6 @@ final class SpineFormPanel extends JPanel {
       button.doClick(0);
     }
 
-    boolean hasCanalControl() {
-      return region == SpineRegion.CERVICAL || region == SpineRegion.LUMBAR;
-    }
-
     void setSeverity(char target, int number) {
       DirectChoiceControl<Severity> control =
           switch (target) {
@@ -641,10 +642,6 @@ final class SpineFormPanel extends JPanel {
     }
 
     LevelSelection selection() {
-      Severity canalSeverity =
-          region == SpineRegion.CERVICAL || region == SpineRegion.LUMBAR
-              ? spinalCanalSeverity.selectionOr(Severity.NONE)
-              : Severity.NONE;
       List<ProtrusionLocation> selectedDiscLocations = selectedDiscLocations();
       return new LevelSelection(
           level,
@@ -658,7 +655,7 @@ final class SpineFormPanel extends JPanel {
           freeText.getText(),
           facetArthrosis.selectionOr(Laterality.NONE),
           posteriorElementHypertrophy.selectionOr(Laterality.NONE),
-          canalSeverity,
+          spinalCanalSeverity.selectionOr(Severity.NONE),
           leftForaminalSeverity.selectionOr(Severity.NONE),
           rightForaminalSeverity.selectionOr(Severity.NONE));
     }

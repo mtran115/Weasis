@@ -180,6 +180,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JComboBox<FindingChoice> findingCombo = new JComboBox<>();
   private final Map<SpineRegion, SpineFormPanel> spineForms = new EnumMap<>(SpineRegion.class);
   private final ShoulderFormPanel shoulderForm = new ShoulderFormPanel();
+  private final FormHud formHud = new FormHud();
+  private final Map<SpineRegion, SpineHudModel> spineHudModels = new EnumMap<>(SpineRegion.class);
+  private final ShoulderHudModel shoulderHudModel = new ShoulderHudModel(shoulderForm);
   private final KneeFormPanel kneeForm = new KneeFormPanel();
   private final BrainFormPanel brainForm = new BrainFormPanel();
   private final WristFormPanel wristForm = new WristFormPanel();
@@ -307,11 +310,13 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       canvasInteractionListenerInstalled = true;
     }
     SwingUtilities.invokeLater(this::installNativePopOutWindow);
+    SwingUtilities.invokeLater(this::updateFormHud);
   }
 
   @Override
   public void removeNotify() {
     cancelKeyImagePreview();
+    formHud.setModel(null);
     navigationShortcuts.uninstall();
     markingMode.uninstall();
     persistCurrentDraft();
@@ -1172,6 +1177,24 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     updateCatalogControls();
   }
 
+  private void updateFormHud() {
+    FormHud.Model model = null;
+    if (isDisplayable() && shoulderForm.isVisible()) {
+      model = shoulderHudModel;
+    } else if (isDisplayable()) {
+      model =
+          spineForms.entrySet().stream()
+              .filter(entry -> entry.getValue().isVisible())
+              .map(
+                  entry ->
+                      spineHudModels.computeIfAbsent(
+                          entry.getKey(), region -> new SpineHudModel(entry.getValue())))
+              .findFirst()
+              .orElse(null);
+    }
+    formHud.setModel(model);
+  }
+
   private void updateFindingBuilderVisibility() {
     if (genericFindingBuilder == null) {
       return;
@@ -1202,6 +1225,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         (showStructuredSpine || showStructuredShoulder)
             && views.isVisible(ComposerViewLayout.COMPOSE));
     shoulderForm.setVisible(showStructuredShoulder);
+    updateFormHud();
     kneeForm.setVisible(showStructuredKnee);
     SectionJumpBar jumpBar =
         showStructuredSpine
@@ -1601,6 +1625,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       editingFindingId = null;
       pendingGenericInput = false;
       spineForms.values().forEach(SpineFormPanel::clearSelections);
+      spineForms.values().forEach(form -> form.shortcuts().pin(null));
+      shoulderForm.shortcuts().pin(null);
       shoulderForm.clearSelections();
       kneeForm.clearSelections();
       brainForm.clearSelections();
