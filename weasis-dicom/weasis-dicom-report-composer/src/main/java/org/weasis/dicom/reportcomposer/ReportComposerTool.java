@@ -47,6 +47,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -77,6 +78,7 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
+import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.slf4j.Logger;
@@ -180,6 +182,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JComboBox<FindingChoice> findingCombo = new JComboBox<>();
   private final Map<SpineRegion, SpineFormPanel> spineForms = new EnumMap<>(SpineRegion.class);
   private final ShoulderFormPanel shoulderForm = new ShoulderFormPanel();
+  // The viewport HUD is archived: off unless started with -Dweasis.reportcomposer.formHud=true.
+  private static final boolean FORM_HUD_ENABLED =
+      Boolean.getBoolean("weasis.reportcomposer.formHud");
   private final FormHud formHud = new FormHud();
   private final Map<SpineRegion, SpineHudModel> spineHudModels = new EnumMap<>(SpineRegion.class);
   private final ShoulderHudModel shoulderHudModel = new ShoulderHudModel(shoulderForm);
@@ -213,6 +218,11 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final JToggleButton markingButton = new JToggleButton("Mark Findings");
   private final JButton clearRingsButton = new JButton("Clear Rings");
   private AiMarkingMode markingMode;
+  private ChordMode chordMode;
+  private final Map<Component, ChordGrammar> chordGrammars = new IdentityHashMap<>();
+  private final JTextArea chordReference = new JTextArea();
+  private final JScrollPane chordReferenceScroll = new JScrollPane(chordReference);
+  private final TitledBorder chordReferenceBorder = BorderFactory.createTitledBorder("Chord keys");
   private final JButton openExportButton =
       iconButton(ActionIcon.OPEN_EXTERNAL, "Open exported case folder");
   private final AWTEventListener canvasInteractionListener = this::trackCanvasInteraction;
@@ -300,6 +310,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     super.addNotify();
     navigationShortcuts.install();
     markingMode.install();
+    chordMode.install();
     if (!canvasInteractionListenerInstalled) {
       Toolkit.getDefaultToolkit()
           .addAWTEventListener(
@@ -319,6 +330,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     formHud.setModel(null);
     navigationShortcuts.uninstall();
     markingMode.uninstall();
+    chordMode.uninstall();
     persistCurrentDraft();
     if (canvasInteractionListenerInstalled) {
       Toolkit.getDefaultToolkit().removeAWTEventListener(canvasInteractionListener);
@@ -501,6 +513,12 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     return false;
   }
 
+  private boolean isViewerWindow(Window window) {
+    return lastActiveCanvas != null
+        && lastActiveCanvas.isShowing()
+        && SwingUtilities.getWindowAncestor(lastActiveCanvas) == window;
+  }
+
   private boolean isNavigationViewerFocus(Component component) {
     return lastActiveCanvas != null
         && lastActiveCanvas.isShowing()
@@ -547,6 +565,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     markingMode =
         new AiMarkingMode(
             this, navigationShortcuts::acceptsFocus, aiMarks, this::updateMarkingControls);
+    chordMode = new ChordMode(this, this::visibleChordGrammar, this::isViewerWindow);
     views.addVisibilityListener(
         () -> {
           cancelKeyImagePreview();
@@ -819,12 +838,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
                   shortcutHelp.setText(text);
               });
       form.shortcuts().setViewerShortcutHandler(this::forwardComposerViewerShortcut);
-      form.shortcuts()
-          .setViewerWindowPredicate(
-              window ->
-                  lastActiveCanvas != null
-                      && lastActiveCanvas.isShowing()
-                      && SwingUtilities.getWindowAncestor(lastActiveCanvas) == window);
+      form.shortcuts().setViewerWindowPredicate(this::isViewerWindow);
       spineForms.put(region, form);
       content.add(fillWidth(form));
     }
@@ -1015,8 +1029,11 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     captureViewportCombo.setMaximumRowCount(4);
     captureViewportCombo.addActionListener(event -> updateCaptureViewportTooltip());
     captureControls.add(GuiUtils.getFlowLayoutPanel(FlowLayout.TRAILING, 0, 4, captureButton));
-    content.add(captureControls, BorderLayout.NORTH);
+    // The key image controls keep to the top; the rest of the view is the chord key reference.
+    JPanel keyImages = new JPanel(new BorderLayout(5, 5));
+    keyImages.add(captureControls, BorderLayout.NORTH);
 
+    keyImageList.setVisibleRowCount(4);
     keyImageList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     keyImageList.setCellRenderer(new TooltipListRenderer());
     keyImageList.addListSelectionListener(
@@ -1031,7 +1048,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
           }
           refreshFindingLink();
         });
-    content.add(new JScrollPane(keyImageList), BorderLayout.CENTER);
+    keyImages.add(new JScrollPane(keyImageList), BorderLayout.CENTER);
 
     JPanel captionPanel = new JPanel(new BorderLayout(4, 4));
     captionPanel.setBorder(BorderFactory.createTitledBorder("Arrow instruction"));
@@ -1050,8 +1067,52 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     captionPanel.add(
         GuiUtils.getFlowLayoutPanel(FlowLayout.TRAILING, 4, 2, remove, updateCaption),
         BorderLayout.SOUTH);
-    content.add(captionPanel, BorderLayout.SOUTH);
+    keyImages.add(captionPanel, BorderLayout.SOUTH);
+    content.add(keyImages, BorderLayout.NORTH);
+    content.add(buildChordReference(), BorderLayout.CENTER);
     return content;
+  }
+
+  private Component buildChordReference() {
+    chordReference.setEditable(false);
+    // Focus in a text component would switch chord mode off.
+    chordReference.setFocusable(false);
+    chordReference.setFont(
+        new Font(Font.MONOSPACED, Font.PLAIN, chordReference.getFont().getSize()));
+    chordReferenceScroll.setBorder(chordReferenceBorder);
+    updateChordReference(Optional.empty(), false);
+    return chordReferenceScroll;
+  }
+
+  /** The chords of the structured form on screen, if it has any. */
+  private ChordGrammar visibleChordGrammar() {
+    if (shoulderForm.isVisible()) {
+      return chordGrammars.computeIfAbsent(
+          shoulderForm, form -> new ShoulderChordEngine(shoulderForm));
+    }
+    return spineForms.values().stream()
+        .filter(Component::isVisible)
+        .findFirst()
+        .map(form -> chordGrammars.computeIfAbsent(form, key -> new ChordEngine(form)))
+        .orElse(null);
+  }
+
+  private void updateChordReference(String form, String text) {
+    if (text.equals(chordReference.getText())) return;
+    chordReferenceBorder.setTitle(form.isEmpty() ? "Chord keys" : "Chord keys · " + form);
+    chordReference.setText(text);
+    chordReference.setCaretPosition(0);
+    chordReferenceScroll.repaint();
+  }
+
+  private void updateChordReference(Optional<SpineRegion> region, boolean shoulder) {
+    if (shoulder) {
+      updateChordReference("Shoulder", ShoulderChordEngine.REFERENCE);
+    } else if (region.isPresent()) {
+      updateChordReference(region.get().formLabel(), ChordEngine.reference(region.get()));
+    } else {
+      updateChordReference("", "Chord keys work on the structured spine and shoulder forms.");
+    }
   }
 
   private Component buildPreviewTab() {
@@ -1179,6 +1240,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
 
   private void updateFormHud() {
     FormHud.Model model = null;
+    if (!FORM_HUD_ENABLED) {
+      formHud.setModel(null);
+      return;
+    }
     if (isDisplayable() && shoulderForm.isVisible()) {
       model = shoulderHudModel;
     } else if (isDisplayable()) {
@@ -1225,6 +1290,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         (showStructuredSpine || showStructuredShoulder)
             && views.isVisible(ComposerViewLayout.COMPOSE));
     shoulderForm.setVisible(showStructuredShoulder);
+    updateChordReference(
+        showStructuredSpine ? selectedRegion : Optional.empty(), showStructuredShoulder);
     updateFormHud();
     kneeForm.setVisible(showStructuredKnee);
     SectionJumpBar jumpBar =
@@ -1544,6 +1611,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       markingMode.showMarks();
       updateMarkingControls();
     }
+    if (chordMode != null) chordMode.showLine();
     setComposerInputEnabled(false);
     if (context == null) {
       localSaveLabel.setText(idleSaveText());
@@ -1626,6 +1694,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       pendingGenericInput = false;
       spineForms.values().forEach(SpineFormPanel::clearSelections);
       spineForms.values().forEach(form -> form.shortcuts().pin(null));
+      chordGrammars.values().forEach(ChordGrammar::reset);
+      if (chordMode != null) chordMode.showLine();
       shoulderForm.shortcuts().pin(null);
       shoulderForm.clearSelections();
       kneeForm.clearSelections();

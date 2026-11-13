@@ -35,12 +35,14 @@ import org.weasis.dicom.reportcomposer.MriFindingCatalog.KeyedFinding;
 
 /**
  * Section buttons for a structured form, mounted as the Compose scroll pane's fixed header so they
- * stay visible while the form scrolls. The buttons wrap into more rows as the pane narrows. A dot
- * marks sections whose generated findings are present.
+ * stay visible while the form scrolls. The first button goes back to the quick phrase box at the
+ * very top. The buttons wrap into more rows as the pane narrows. A dot marks sections whose
+ * generated findings are present.
  */
 final class SectionJumpBar extends JPanel implements Scrollable {
-  private static final int MAX_COLUMNS = 8;
+  private static final int MAX_COLUMNS = 9;
   private static final int GAP = 3;
+  static final String TOP_LABEL = "Phrases";
 
   /** A form section and the finding-key prefixes generated from its controls. */
   record Section(String label, Component target, List<String> keyPrefixes) {
@@ -52,10 +54,12 @@ final class SectionJumpBar extends JPanel implements Scrollable {
   private final List<Section> sections;
   private final Supplier<Set<String>> findingKeys;
   private final List<JButton> buttons = new ArrayList<>();
+  private final JButton topButton =
+      jumpButton(TOP_LABEL, "Jump to the quick phrase box at the top");
   private final GridLayout grid;
 
   SectionJumpBar(List<Section> sections, Supplier<Set<String>> findingKeys) {
-    super(new GridLayout(0, Math.min(sections.size(), MAX_COLUMNS), GAP, GAP));
+    super(new GridLayout(0, Math.min(sections.size() + 1, MAX_COLUMNS), GAP, GAP));
     this.grid = (GridLayout) getLayout();
     this.sections = List.copyOf(sections);
     this.findingKeys = findingKeys;
@@ -63,13 +67,10 @@ final class SectionJumpBar extends JPanel implements Scrollable {
         BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY),
             BorderFactory.createEmptyBorder(4, 4, 4, 4)));
+    topButton.addActionListener(event -> jumpToTop());
+    add(topButton);
     for (Section section : this.sections) {
-      JButton button = new JButton(section.label());
-      button.setFont(button.getFont().deriveFont(11f));
-      button.setMargin(new Insets(2, 3, 2, 3));
-      // Keep the caret and hover-driven form shortcuts where they are.
-      button.setFocusable(false);
-      button.setToolTipText("Jump to " + section.label());
+      JButton button = jumpButton(section.label(), "Jump to " + section.label());
       button.addActionListener(event -> jumpTo(section));
       buttons.add(button);
       add(button);
@@ -85,14 +86,28 @@ final class SectionJumpBar extends JPanel implements Scrollable {
         });
   }
 
+  private static JButton jumpButton(String label, String toolTip) {
+    JButton button = new JButton(label);
+    button.setFont(button.getFont().deriveFont(11f));
+    button.setMargin(new Insets(2, 3, 2, 3));
+    // Keep the caret and hover-driven form shortcuts where they are.
+    button.setFocusable(false);
+    button.setToolTipText(toolTip);
+    return button;
+  }
+
   /** The most columns that fit {@code width}, spread so the last row is not left nearly empty. */
   int columnsFor(int width) {
-    int max = Math.min(buttons.size(), MAX_COLUMNS);
-    if (max <= 1 || width <= 0) return Math.max(1, max);
+    int count = buttons.size() + 1;
+    int max = Math.min(count, MAX_COLUMNS);
+    if (width <= 0) return max;
     Insets insets = getInsets();
-    int cell = buttons.stream().mapToInt(button -> button.getPreferredSize().width).max().orElse(1);
+    int cell =
+        Math.max(
+            topButton.getPreferredSize().width,
+            buttons.stream().mapToInt(button -> button.getPreferredSize().width).max().orElse(1));
     int fit = Math.clamp((width - insets.left - insets.right + GAP) / (cell + GAP), 1, max);
-    return Math.ceilDiv(buttons.size(), Math.ceilDiv(buttons.size(), fit));
+    return Math.ceilDiv(count, Math.ceilDiv(count, fit));
   }
 
   @Override
@@ -152,6 +167,15 @@ final class SectionJumpBar extends JPanel implements Scrollable {
 
   List<String> labels() {
     return buttons.stream().map(JButton::getText).toList();
+  }
+
+  /** Scrolls the form back to its very top, where the quick phrase box is. */
+  void jumpToTop() {
+    if (sections.isEmpty()) return;
+    if (SwingUtilities.getAncestorOfClass(JViewport.class, sections.getFirst().target())
+        instanceof JViewport viewport) {
+      viewport.setViewPosition(new Point(viewport.getViewPosition().x, 0));
+    }
   }
 
   /** Scrolls so the section's top sits just below this bar. */

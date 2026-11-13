@@ -86,8 +86,7 @@ final class SpineFormPanel extends JPanel {
     add(stretch(buildActions()));
     List<SectionJumpBar.Section> sections = new ArrayList<>();
     sections.add(new SectionJumpBar.Section("Alignment", alignment, List.of("alignment:")));
-    sections.add(
-        new SectionJumpBar.Section("Degenerative", overview, List.of("overview:", "degenerative")));
+    sections.add(new SectionJumpBar.Section("Degenerative", overview, List.of("overview:")));
     levelControls.forEach(
         (level, controls) ->
             sections.add(
@@ -174,6 +173,60 @@ final class SpineFormPanel extends JPanel {
 
   LevelControls level(String name) {
     return levelControls.get(name);
+  }
+
+  List<String> levelNames() {
+    return List.copyOf(levelControls.keySet());
+  }
+
+  /** Reversal of the cervical lordosis; only the cervical form has it. */
+  boolean hasReversal() {
+    return alignmentControls.containsKey(AlignmentFinding.CERVICAL_REVERSAL);
+  }
+
+  boolean reversal() {
+    return hasReversal() && alignmentControls.get(AlignmentFinding.CERVICAL_REVERSAL).isSelected();
+  }
+
+  void setReversal(boolean selected) {
+    if (hasReversal() && reversal() != selected) {
+      alignmentControls.get(AlignmentFinding.CERVICAL_REVERSAL).doClick(0);
+    }
+  }
+
+  boolean hasStraightening() {
+    return alignmentSection.toggle() != null;
+  }
+
+  boolean straightening() {
+    return hasStraightening() && alignmentSection.toggle().isSelected();
+  }
+
+  void setStraightening(boolean selected) {
+    if (hasStraightening() && straightening() != selected) alignmentSection.toggle().doClick(0);
+  }
+
+  /** Ticks or unticks spondylosis itself; with no level it is reported unlocalized. */
+  void setSpondylosis(boolean selected) {
+    OverviewControls spondylosis = overviewControls.get(OverviewFinding.SPONDYLOSIS);
+    if (!selected) spondylosis.levels.forEach(box -> box.setSelected(false));
+    if (spondylosis.isSelected() != selected) spondylosis.enabled.doClick(0);
+  }
+
+  /** The levels ticked under spondylosis, in spine order; none while it is unticked. */
+  List<String> spondylosisLevels() {
+    OverviewControls spondylosis = overviewControls.get(OverviewFinding.SPONDYLOSIS);
+    if (!spondylosis.isSelected()) return List.of();
+    return spondylosis.levels.stream()
+        .filter(JCheckBox::isSelected)
+        .map(JCheckBox::getText)
+        .toList();
+  }
+
+  void setSpondylosisAt(String level, boolean selected) {
+    if (selected) setSpondylosis(true);
+    JCheckBox box = overviewControls.get(OverviewFinding.SPONDYLOSIS).level(level);
+    if (box.isSelected() != selected) box.doClick(0);
   }
 
   /** Alignment, degenerative changes, then each level, in form order. */
@@ -324,10 +377,13 @@ final class SpineFormPanel extends JPanel {
       overviewControls.put(finding, controls);
       panel.add(stretch(controls.panel()));
     }
-    if (region == SpineRegion.LUMBAR) {
+    if (region.spondylosisOnly()) {
       JPanel details = new JPanel(new BorderLayout(6, 0));
       details.setBorder(GuiUtils.getEmptyBorder(3, 3, 3, 3));
-      details.add(new JLabel("Details"), BorderLayout.WEST);
+      details.add(new JLabel("with"), BorderLayout.WEST);
+      degenerativeDetails.setToolTipText(
+          "Added to the spondylosis finding, e.g. \"disc height loss\"; "
+              + "text here reports spondylosis even when it is not ticked");
       details.add(degenerativeDetails, BorderLayout.CENTER);
       panel.add(stretch(details));
     }
@@ -405,6 +461,10 @@ final class SpineFormPanel extends JPanel {
 
     JPanel panel() {
       return panel;
+    }
+
+    JCheckBox level(String name) {
+      return levels.stream().filter(box -> box.getText().equals(name)).findFirst().orElseThrow();
     }
 
     boolean isSelected() {
@@ -595,16 +655,24 @@ final class SpineFormPanel extends JPanel {
     }
 
     void toggle(char key) {
-      JCheckBox button =
-          switch (key) {
-            case 'B' -> bulge;
-            case 'P' -> protrusion;
-            case 'E' -> extrusion;
-            case 'A' -> annularFissure;
-            case 'V' -> ventralEpiduralLipomatosis;
-            default -> throw new IllegalArgumentException("Unknown finding shortcut");
-          };
-      button.doClick(0);
+      findingBox(key).doClick(0);
+    }
+
+    /** Ticks or clears a finding by its shortcut letter, leaving it alone if already so. */
+    void set(char key, boolean selected) {
+      JCheckBox box = findingBox(key);
+      if (box.isSelected() != selected) box.doClick(0);
+    }
+
+    private JCheckBox findingBox(char key) {
+      return switch (key) {
+        case 'B' -> bulge;
+        case 'P' -> protrusion;
+        case 'E' -> extrusion;
+        case 'A' -> annularFissure;
+        case 'V' -> ventralEpiduralLipomatosis;
+        default -> throw new IllegalArgumentException("Unknown finding shortcut");
+      };
     }
 
     void setSeverity(char target, int number) {

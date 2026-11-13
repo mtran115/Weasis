@@ -228,6 +228,7 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
     // Zoom keys (e.g. a TourBox knob) always reach the image, even while a section is pinned.
     if (pin.yieldsToViewer(event)) return false;
     Component focus = focusOwner();
+    if (ChordMode.claims(event)) return false;
     boolean handled = handleKey(event, focus);
     if (!handled
         && !(focus instanceof JTextComponent)

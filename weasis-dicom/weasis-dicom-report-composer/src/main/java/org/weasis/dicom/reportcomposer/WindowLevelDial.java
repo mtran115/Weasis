@@ -91,6 +91,7 @@ final class WindowLevelDial {
 
   private static boolean dispatch(KeyEvent event) {
     if (event.getID() != KeyEvent.KEY_PRESSED || event.isConsumed()) return false;
+    if (ChordMode.claims(event)) return false;
     ShortcutManager shortcuts = ShortcutManager.getInstance();
     for (Action action : Action.values()) {
       if (!shortcuts.matches(action.shortcut, event.getKeyCode(), event.getModifiers())) {

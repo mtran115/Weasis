@@ -50,29 +50,23 @@ final class SpineFindingBuilder {
                 new KeyedFinding("listhesis:" + listhesis.level(), generateListhesis(listhesis)))
         .forEach(findings::add);
 
+    // The details belong to spondylosis, so text there reports spondylosis even when unticked.
+    String details = selection.degenerativeDetails();
     for (OverviewFinding overview : OverviewFinding.values()) {
-      if (selection.overviewLevels().containsKey(overview)) {
-        List<String> levels = selection.overviewLevels().get(overview);
+      boolean detailed = overview == OverviewFinding.SPONDYLOSIS && ComposerText.hasText(details);
+      if (selection.overviewLevels().containsKey(overview) || detailed) {
+        List<String> levels = selection.overviewLevels().getOrDefault(overview, List.of());
         String text =
             levels.isEmpty()
                 ? overview.generalizedText(region)
                 : overview.localizedText(region) + " at " + joinList(levels);
-        String findingText = ComposerText.sentence(text);
+        String summary = ComposerText.sentence(text);
+        String findingText = detailed ? ComposerText.sentence(withDetails(text, details)) : summary;
         findings.add(
             new KeyedFinding(
                 "overview:" + overview.name(),
-                new GeneratedFinding(
-                    findingText, overview.includeInImpression() ? findingText : "")));
+                new GeneratedFinding(findingText, overview.includeInImpression() ? summary : "")));
       }
-    }
-
-    if (ComposerText.hasText(selection.degenerativeDetails())) {
-      findings.add(
-          new KeyedFinding(
-              "degenerative",
-              new GeneratedFinding(
-                  ComposerText.sentence("Degenerative changes: " + selection.degenerativeDetails()),
-                  "")));
     }
 
     selection.levelSelections().stream()
@@ -259,6 +253,15 @@ final class SpineFindingBuilder {
     return sides.isEmpty() ? "" : joinList(sides) + " neural foraminal stenosis";
   }
 
+  /**
+   * Joins typed details onto a finding with "with", unless they already start with a joining word.
+   */
+  private static String withDetails(String finding, String details) {
+    String text = ComposerText.clean(details);
+    boolean joined = text.matches("(?i)(with|and|including|,|;|:|\\().*");
+    return finding + (joined ? (text.startsWith(",") ? "" : " ") : " with ") + text;
+  }
+
   private static String joinList(List<String> values) {
     return switch (values.size()) {
       case 0 -> "";
@@ -354,9 +357,14 @@ final class SpineFindingBuilder {
       return alignmentFindings;
     }
 
+    /** The cervical and lumbar forms offer spondylosis alone, with typed details attached to it. */
+    boolean spondylosisOnly() {
+      return this != THORACIC;
+    }
+
     List<OverviewFinding> overviewFindings() {
-      if (this == LUMBAR) {
-        return List.of(OverviewFinding.SPONDYLOSIS, OverviewFinding.DISC_DEGENERATION);
+      if (spondylosisOnly()) {
+        return List.of(OverviewFinding.SPONDYLOSIS);
       }
       return List.of(
           OverviewFinding.SPONDYLOSIS,

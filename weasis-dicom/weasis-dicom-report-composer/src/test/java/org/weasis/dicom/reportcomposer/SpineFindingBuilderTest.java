@@ -226,12 +226,8 @@ class SpineFindingBuilderTest {
             List.of(AlignmentFinding.LUMBAR_STRAIGHTENING, AlignmentFinding.LUMBAR_DEXTROSCOLIOSIS),
             Severity.MODERATE,
             "18",
-            Map.of(
-                OverviewFinding.SPONDYLOSIS,
-                List.of(),
-                OverviewFinding.DISC_DEGENERATION,
-                List.of("L4-5", "L5-S1")),
-            "Most advanced at L5-S1",
+            Map.of(OverviewFinding.SPONDYLOSIS, List.of("L4-5", "L5-S1")),
+            "disc height loss, most advanced at L5-S1",
             List.of());
 
     List<GeneratedFinding> findings = SpineFindingBuilder.generate(selection);
@@ -243,11 +239,48 @@ class SpineFindingBuilderTest {
             new GeneratedFinding(
                 "Moderate lumbar dextroscoliosis measuring 18 degrees.",
                 "Moderate lumbar dextroscoliosis measuring 18 degrees."),
-            new GeneratedFinding("Lumbar spondylosis.", "Lumbar spondylosis."),
             new GeneratedFinding(
-                "Disc degeneration at L4-5 and L5-S1.", "Disc degeneration at L4-5 and L5-S1."),
-            new GeneratedFinding("Degenerative changes: Most advanced at L5-S1.", "")),
+                "Lumbar spondylosis at L4-5 and L5-S1 with disc height loss, most advanced at"
+                    + " L5-S1.",
+                "Lumbar spondylosis at L4-5 and L5-S1.")),
         findings);
+  }
+
+  @Test
+  void spondylosisDetailsAloneReportSpondylosisAndKeepTheirOwnJoiningWord() {
+    assertEquals(
+        List.of(new GeneratedFinding("Lumbar spondylosis, mild.", "Lumbar spondylosis.")),
+        SpineFindingBuilder.generate(
+            new Selection(
+                SpineRegion.LUMBAR, List.of(), Severity.MILD, "", Map.of(), ", mild", List.of())));
+    assertEquals(
+        List.of(new GeneratedFinding("Lumbar spondylosis and DISH.", "Lumbar spondylosis.")),
+        SpineFindingBuilder.generate(
+            new Selection(
+                SpineRegion.LUMBAR,
+                List.of(),
+                Severity.MILD,
+                "",
+                Map.of(),
+                "and DISH",
+                List.of())));
+    assertEquals(List.of(OverviewFinding.SPONDYLOSIS), SpineRegion.LUMBAR.overviewFindings());
+    assertEquals(List.of(OverviewFinding.SPONDYLOSIS), SpineRegion.CERVICAL.overviewFindings());
+    assertEquals(5, SpineRegion.THORACIC.overviewFindings().size());
+    assertEquals(
+        List.of(
+            new GeneratedFinding(
+                "Cervical spondylosis at C5-6 with disc height loss.",
+                "Cervical spondylosis at C5-6.")),
+        SpineFindingBuilder.generate(
+            new Selection(
+                SpineRegion.CERVICAL,
+                List.of(),
+                Severity.MILD,
+                "",
+                Map.of(OverviewFinding.SPONDYLOSIS, List.of("C5-6")),
+                "disc height loss",
+                List.of())));
   }
 
   @Test

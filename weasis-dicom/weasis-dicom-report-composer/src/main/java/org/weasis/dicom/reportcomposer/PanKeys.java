@@ -65,6 +65,7 @@ final class PanKeys {
 
   private static boolean dispatch(KeyEvent event) {
     if (event.getID() != KeyEvent.KEY_PRESSED || event.isConsumed()) return false;
+    if (ChordMode.claims(event)) return false;
     ShortcutManager shortcuts = ShortcutManager.getInstance();
     for (Direction direction : Direction.values()) {
       if (!shortcuts.matches(direction.shortcut, event.getKeyCode(), event.getModifiers())) {

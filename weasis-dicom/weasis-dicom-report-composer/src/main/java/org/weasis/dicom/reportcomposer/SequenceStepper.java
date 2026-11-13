@@ -220,6 +220,7 @@ final class SequenceStepper {
     if (event.getID() != KeyEvent.KEY_PRESSED || event.isConsumed() || isEditingText()) {
       return false;
     }
+    if (ChordMode.claims(event)) return false;
     ShortcutManager shortcuts = ShortcutManager.getInstance();
     int keyCode = shortcutKeyCode(event);
     int modifiers = event.getModifiers();

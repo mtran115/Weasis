@@ -74,6 +74,8 @@ class SectionJumpBarTest {
           assertEquals(600, viewport.getViewPosition().y);
           bar.jumpTo(new SectionJumpBar.Section("Last", last, List.of()));
           assertEquals(800, viewport.getViewPosition().y);
+          bar.jumpToTop();
+          assertEquals(0, viewport.getViewPosition().y);
         });
   }
 
@@ -94,7 +96,8 @@ class SectionJumpBarTest {
             assertTrue(button.getX() + button.getWidth() <= bar.getWidth());
             assertTrue(button.getY() + button.getHeight() <= bar.getHeight());
           }
-          assertEquals(4, bar.columnsFor(wide * 4 / 7));
+          // Nine buttons with room for five across: 5 + 4.
+          assertEquals(5, bar.columnsFor(wide * 4 / 7));
         });
   }
 

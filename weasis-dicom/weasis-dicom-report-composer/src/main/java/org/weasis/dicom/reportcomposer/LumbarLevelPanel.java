@@ -12,6 +12,8 @@ package org.weasis.dicom.reportcomposer;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -28,11 +30,17 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.border.TitledBorder;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.ExamTemplate;
 
-/** A quiet, optional pilot: asynchronous results never focus, scroll, or change the report. */
+/**
+ * A quiet, optional pilot: asynchronous results never focus, scroll, or change the report. The
+ * section is collapsed to its title until the title is clicked.
+ */
 final class LumbarLevelPanel extends JPanel implements AutoCloseable {
   static final int REVIEW_QUEUE_SIZE = 20;
+  private static final String TITLE = "Lumbar level mapping · pilot";
+  private static final String COLLAPSED_KEY = "lumbar.collapsed";
   private final LumbarLevelService service;
   private final Supplier<Optional<DicomContextReader.Selection>> selection;
   private final LumbarLevelNavigation navigation = new LumbarLevelNavigation();
@@ -46,6 +54,7 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
   private final JButton retry = new JButton("Retry");
   private final JButton reviewQueue = new JButton("Review queue…");
   private final JButton[] levels = new JButton[LumbarLevelMap.MAX_POINTS];
+  private final JPanel body = new JPanel(new BorderLayout(3, 3));
   private final Timer debounce;
   private String studyKey;
   private String studyUid;
@@ -65,7 +74,17 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
     super(new BorderLayout(3, 3));
     this.selection = selection;
     this.service = service;
-    setBorder(BorderFactory.createTitledBorder("Lumbar level mapping · pilot"));
+    setBorder(BorderFactory.createTitledBorder(TITLE));
+    setToolTipText("Click the title to show or hide this section");
+    addMouseListener(
+        new MouseAdapter() {
+          @Override
+          public void mousePressed(MouseEvent event) {
+            if (event.getY() > getInsets().top) return;
+            showCollapsed(!isCollapsed());
+            preferences.putBoolean(COLLAPSED_KEY, isCollapsed());
+          }
+        });
     var top = new JPanel(new GridLayout(0, 1));
     var options = new JPanel(new FlowLayout(FlowLayout.LEADING, 3, 0));
     automatic.setSelected(preferences.getBoolean("lumbar.background", true));
@@ -73,7 +92,7 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
     options.add(overlay);
     top.add(options);
     top.add(status);
-    add(top, BorderLayout.NORTH);
+    body.add(top, BorderLayout.NORTH);
     var actions = new JPanel(new FlowLayout(FlowLayout.LEADING, 3, 0));
     reviewQueue.setToolTipText(
         "Review up to "
@@ -87,7 +106,7 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
     }
     confirm.setToolTipText(
         "Confirm the displayed map using your reporting convention; Review offers other numbering bases.");
-    add(actions, BorderLayout.CENTER);
+    body.add(actions, BorderLayout.CENTER);
     var jumps = new JPanel(new GridLayout(2, 5, 3, 3));
     for (int i = 0; i < levels.length; i++) {
       int index = i;
@@ -104,7 +123,9 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
           });
       jumps.add(levels[i]);
     }
-    add(jumps, BorderLayout.SOUTH);
+    body.add(jumps, BorderLayout.SOUTH);
+    add(body, BorderLayout.CENTER);
+    showCollapsed(preferences.getBoolean(COLLAPSED_KEY, true));
     debounce = new Timer(1500, event -> request());
     debounce.setRepeats(false);
     automatic.addActionListener(
@@ -149,6 +170,18 @@ final class LumbarLevelPanel extends JPanel implements AutoCloseable {
             save(new LumbarLevelReview.Decision("skipped", "uncertain", result.map().points())));
     setVisible(false);
     updateControls();
+  }
+
+  boolean isCollapsed() {
+    return !body.isVisible();
+  }
+
+  /** Hides everything but the title, or shows it again. */
+  void showCollapsed(boolean collapsed) {
+    body.setVisible(!collapsed);
+    ((TitledBorder) getBorder()).setTitle((collapsed ? "▸ " : "▾ ") + TITLE);
+    revalidate();
+    repaint();
   }
 
   void setContext(ExamTemplate exam, String key, String uid) {

@@ -131,6 +131,23 @@ class LumbarLevelPanelTest {
         });
   }
 
+  @Test
+  void collapsingLeavesOnlyTheTitle() throws Exception {
+    var service = mock(LumbarLevelService.class);
+    SwingUtilities.invokeAndWait(
+        () -> {
+          var panel = new LumbarLevelPanel(Optional::empty, service);
+          panel.showCollapsed(false);
+          int open = panel.getPreferredSize().height;
+          assertTrue(button(panel, "Retry").getParent().getParent().isVisible());
+          panel.showCollapsed(true);
+          assertTrue(panel.isCollapsed());
+          assertFalse(button(panel, "Retry").getParent().getParent().isVisible());
+          assertTrue(panel.getPreferredSize().height < open / 2);
+          panel.close();
+        });
+  }
+
   private static LumbarLevelService.Result result(String key) {
     return new LumbarLevelService.Result(
         LumbarLevelMapTest.map(key, "a".repeat(64)),
