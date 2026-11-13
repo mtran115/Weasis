@@ -52,7 +52,6 @@ cd "$ROOT/weasis-launcher"
 exec "$JAVA_CMD" \
   -Xms64m \
   -XX:MaxRAMPercentage=25 \
-  -XX:G1PeriodicGCInterval=300000 \
   -XX:+HeapDumpOnOutOfMemoryError \
   "-XX:HeapDumpPath=$JAVA_USER_HOME/.weasis/log" \
   "-Duser.home=$JAVA_USER_HOME" \
