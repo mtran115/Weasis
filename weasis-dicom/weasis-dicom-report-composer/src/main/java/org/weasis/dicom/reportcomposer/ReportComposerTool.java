@@ -162,6 +162,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       wristFindingTracker =
           new StructuredFindingDraftTracker<>(
               selection -> ExamTemplate.WRIST, WristFindingBuilder::generateKeyed);
+  private final StructuredFindingDraftTracker<ExamTemplate, AnkleFindingBuilder.Selection>
+      ankleFindingTracker =
+          new StructuredFindingDraftTracker<>(
+              selection -> ExamTemplate.ANKLE, AnkleFindingBuilder::generateKeyed);
+  private final StructuredFindingDraftTracker<ExamTemplate, HipFindingBuilder.Selection>
+      hipFindingTracker =
+          new StructuredFindingDraftTracker<>(
+              selection -> ExamTemplate.HIP, HipFindingBuilder::generateKeyed);
   private final ViewerEventState viewerEventState = new ViewerEventState();
   private final AtomicBoolean studySynchronizationQueued = new AtomicBoolean();
   private final AtomicBoolean studySynchronizationRequested = new AtomicBoolean();
@@ -191,6 +199,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
   private final KneeFormPanel kneeForm = new KneeFormPanel();
   private final BrainFormPanel brainForm = new BrainFormPanel();
   private final WristFormPanel wristForm = new WristFormPanel();
+  private final AnkleFormPanel ankleForm = new AnkleFormPanel();
+  private final HipFormPanel hipForm = new HipFormPanel();
   private final JTextArea reportInstructions = textArea(4);
   private final QuickPhraseBar reportQuickPhrases = new QuickPhraseBar(reportInstructions);
   private final LumbarLevelPanel lumbarLevels = new LumbarLevelPanel(this::activeSelection);
@@ -874,6 +884,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     wristForm.addSubmitListener(event -> saveWristFindings());
     wristForm.addOtherFindingListener(event -> showOtherStructuredFinding());
     content.add(fillWidth(wristForm));
+    ankleForm.setVisible(false);
+    ankleForm.addSubmitListener(event -> saveAnkleFindings());
+    ankleForm.addOtherFindingListener(event -> showOtherStructuredFinding());
+    content.add(fillWidth(ankleForm));
+    hipForm.setVisible(false);
+    hipForm.addSubmitListener(event -> saveHipFindings());
+    hipForm.addOtherFindingListener(event -> showOtherStructuredFinding());
+    content.add(fillWidth(hipForm));
     genericFindingBuilder = buildFindingBuilder();
     content.add(fillWidth(genericFindingBuilder));
     content.add(fillWidth(buildFindingList()));
@@ -1080,7 +1098,7 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     chordReference.setFont(
         new Font(Font.MONOSPACED, Font.PLAIN, chordReference.getFont().getSize()));
     chordReferenceScroll.setBorder(chordReferenceBorder);
-    updateChordReference(Optional.empty(), false);
+    refreshChordReference();
     return chordReferenceScroll;
   }
 
@@ -1089,6 +1107,18 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (shoulderForm.isVisible()) {
       return chordGrammars.computeIfAbsent(
           shoulderForm, form -> new ShoulderChordEngine(shoulderForm));
+    }
+    if (kneeForm.isVisible()) {
+      return chordGrammars.computeIfAbsent(kneeForm, form -> new FormChordEngine(kneeForm));
+    }
+    if (ankleForm.isVisible()) {
+      return chordGrammars.computeIfAbsent(ankleForm, form -> new FormChordEngine(ankleForm));
+    }
+    if (hipForm.isVisible()) {
+      return chordGrammars.computeIfAbsent(hipForm, form -> new FormChordEngine(hipForm));
+    }
+    if (wristForm.isVisible()) {
+      return chordGrammars.computeIfAbsent(wristForm, form -> new FormChordEngine(wristForm));
     }
     return spineForms.values().stream()
         .filter(Component::isVisible)
@@ -1105,13 +1135,27 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     chordReferenceScroll.repaint();
   }
 
-  private void updateChordReference(Optional<SpineRegion> region, boolean shoulder) {
-    if (shoulder) {
+  /** Shows the chord keys of the structured form on screen. */
+  private void refreshChordReference() {
+    Optional<SpineRegion> region =
+        spineForms.entrySet().stream()
+            .filter(entry -> entry.getValue().isVisible())
+            .map(Map.Entry::getKey)
+            .findFirst();
+    if (shoulderForm.isVisible()) {
       updateChordReference("Shoulder", ShoulderChordEngine.REFERENCE);
+    } else if (kneeForm.isVisible()) {
+      updateChordReference("Knee", KneeFormPanel.CHORD_REFERENCE);
+    } else if (ankleForm.isVisible()) {
+      updateChordReference("Ankle", AnkleFormPanel.CHORD_REFERENCE);
+    } else if (hipForm.isVisible()) {
+      updateChordReference("Hip", HipFormPanel.CHORD_REFERENCE);
+    } else if (wristForm.isVisible()) {
+      updateChordReference("Wrist", WristFormPanel.CHORD_REFERENCE);
     } else if (region.isPresent()) {
       updateChordReference(region.get().formLabel(), ChordEngine.reference(region.get()));
     } else {
-      updateChordReference("", "Chord keys work on the structured spine and shoulder forms.");
+      updateChordReference("", "Chord keys work on the structured spine and joint forms.");
     }
   }
 
@@ -1283,6 +1327,14 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         selectedExamTemplate() == ExamTemplate.WRIST
             && structuredFormMode
             && editingFindingId == null;
+    boolean showStructuredHip =
+        selectedExamTemplate() == ExamTemplate.HIP
+            && structuredFormMode
+            && editingFindingId == null;
+    boolean showStructuredAnkle =
+        selectedExamTemplate() == ExamTemplate.ANKLE
+            && structuredFormMode
+            && editingFindingId == null;
     spineForms.forEach(
         (region, form) ->
             form.setVisible(showStructuredSpine && region == selectedRegion.orElse(null)));
@@ -1290,8 +1342,6 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         (showStructuredSpine || showStructuredShoulder)
             && views.isVisible(ComposerViewLayout.COMPOSE));
     shoulderForm.setVisible(showStructuredShoulder);
-    updateChordReference(
-        showStructuredSpine ? selectedRegion : Optional.empty(), showStructuredShoulder);
     updateFormHud();
     kneeForm.setVisible(showStructuredKnee);
     SectionJumpBar jumpBar =
@@ -1299,7 +1349,11 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             ? spineForms.get(selectedRegion.get()).jumpBar()
             : showStructuredShoulder
                 ? shoulderForm.jumpBar()
-                : showStructuredKnee ? kneeForm.jumpBar() : null;
+                : showStructuredKnee
+                    ? kneeForm.jumpBar()
+                    : showStructuredAnkle
+                        ? ankleForm.jumpBar()
+                        : showStructuredHip ? hipForm.jumpBar() : null;
     // As the scroll pane's column header, the bar stays put while the form scrolls.
     if (composeScrollPane.getColumnHeader() == null
         || composeScrollPane.getColumnHeader().getView() != jumpBar) {
@@ -1308,12 +1362,12 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     refreshJumpBar();
     brainForm.setVisible(showStructuredBrain);
     wristForm.setVisible(showStructuredWrist);
+    ankleForm.setVisible(showStructuredAnkle);
+    hipForm.setVisible(showStructuredHip);
+    refreshChordReference();
+    // The phrase editor opens only to edit a finding or from a form's Other Finding button.
     genericFindingBuilder.setVisible(
-        !showStructuredSpine
-            && !showStructuredShoulder
-            && !showStructuredKnee
-            && !showStructuredBrain
-            && !showStructuredWrist);
+        editingFindingId != null || (selectedExamHasStructuredForm() && !structuredFormMode));
     backToStructuredFormButton.setVisible(
         selectedExamHasStructuredForm()
             && !showStructuredSpine
@@ -1321,6 +1375,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
             && !showStructuredKnee
             && !showStructuredBrain
             && !showStructuredWrist
+            && !showStructuredAnkle
+            && !showStructuredHip
             && editingFindingId == null);
     if (selectedRegion.isPresent()) {
       backToStructuredFormButton.setText(selectedRegion.get().formLabel() + " Form");
@@ -1332,6 +1388,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       backToStructuredFormButton.setText("Brain Form");
     } else if (selectedExamTemplate() == ExamTemplate.WRIST) {
       backToStructuredFormButton.setText("Wrist Form");
+    } else if (selectedExamTemplate() == ExamTemplate.ANKLE) {
+      backToStructuredFormButton.setText("Ankle Form");
+    } else if (selectedExamTemplate() == ExamTemplate.HIP) {
+      backToStructuredFormButton.setText("Hip Form");
     }
     revalidate();
     repaint();
@@ -1350,6 +1410,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         || exam == ExamTemplate.KNEE
         || exam == ExamTemplate.BRAIN
         || exam == ExamTemplate.WRIST
+        || exam == ExamTemplate.ANKLE
+        || exam == ExamTemplate.HIP
         || SpineRegion.fromExam(exam).isPresent();
   }
 
@@ -1396,6 +1458,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     ComposerFormState.watch(kneeForm, this::scheduleDraftSave);
     ComposerFormState.watch(brainForm, this::scheduleDraftSave);
     ComposerFormState.watch(wristForm, this::scheduleDraftSave);
+    ComposerFormState.watch(ankleForm, this::scheduleDraftSave);
+    ComposerFormState.watch(hipForm, this::scheduleDraftSave);
     Runnable genericChanged =
         () -> {
           if (!updatingGenericInput && !updatingTrainingState && currentDraft != null) {
@@ -1499,12 +1563,16 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     forms.set("KNEE", ComposerFormState.capture(kneeForm));
     forms.set("BRAIN", ComposerFormState.capture(brainForm));
     forms.set("WRIST", ComposerFormState.capture(wristForm));
+    forms.set("ANKLE", ComposerFormState.capture(ankleForm));
+    forms.set("HIP", ComposerFormState.capture(hipForm));
     ObjectNode trackers = state.putObject("trackers");
     trackers.set("spine", spineFindingTracker.captureState(currentDraft));
     trackers.set("shoulder", shoulderFindingTracker.captureState(currentDraft));
     trackers.set("knee", kneeFindingTracker.captureState(currentDraft));
     trackers.set("brain", brainFindingTracker.captureState(currentDraft));
     trackers.set("wrist", wristFindingTracker.captureState(currentDraft));
+    trackers.set("ankle", ankleFindingTracker.captureState(currentDraft));
+    trackers.set("hip", hipFindingTracker.captureState(currentDraft));
     state.put("findingText", findingText.getText());
     state.put("impressionText", impressionText.getText());
     state.put("includeInImpression", includeInImpression.isSelected());
@@ -1523,6 +1591,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     ComposerFormState.restore(kneeForm, forms.path("KNEE"));
     ComposerFormState.restore(brainForm, forms.path("BRAIN"));
     ComposerFormState.restore(wristForm, forms.path("WRIST"));
+    ComposerFormState.restore(ankleForm, forms.path("ANKLE"));
+    ComposerFormState.restore(hipForm, forms.path("HIP"));
     findingText.setText(state.path("findingText").asText());
     impressionText.setText(state.path("impressionText").asText());
     includeInImpression.setSelected(state.path("includeInImpression").asBoolean());
@@ -1551,6 +1621,9 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
         currentDraft, brainForm.selection(), trackers.path("brain"));
     wristFindingTracker.restoreSelection(
         currentDraft, wristForm.selection(), trackers.path("wrist"));
+    ankleFindingTracker.restoreSelection(
+        currentDraft, ankleForm.selection(), trackers.path("ankle"));
+    hipFindingTracker.restoreSelection(currentDraft, hipForm.selection(), trackers.path("hip"));
   }
 
   private void synchronizeStudy() {
@@ -1701,6 +1774,8 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       kneeForm.clearSelections();
       brainForm.clearSelections();
       wristForm.clearSelections();
+      ankleForm.clearSelections();
+      hipForm.clearSelections();
       ExamTemplate template =
           draftExamTemplates.computeIfAbsent(
               context.draftKey(),
@@ -1830,6 +1905,20 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     synchronizeWristFindings(true, true);
   }
 
+  private void saveAnkleFindings() {
+    if (!requireActiveDraft()) {
+      return;
+    }
+    synchronizeAnkleFindings(true, true);
+  }
+
+  private void saveHipFindings() {
+    if (!requireActiveDraft()) {
+      return;
+    }
+    synchronizeHipFindings(true, true);
+  }
+
   private void savePendingStructuredFindings() {
     Optional<SpineRegion> region = selectedSpineRegion();
     if (updatingTrainingState || currentDraft == null || editingFindingId != null) {
@@ -1845,6 +1934,10 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
       synchronizeBrainFindings(false, false);
     } else if (selectedExamTemplate() == ExamTemplate.WRIST) {
       synchronizeWristFindings(false, false);
+    } else if (selectedExamTemplate() == ExamTemplate.ANKLE) {
+      synchronizeAnkleFindings(false, false);
+    } else if (selectedExamTemplate() == ExamTemplate.HIP) {
+      synchronizeHipFindings(false, false);
     }
   }
 
@@ -1981,6 +2074,58 @@ public class ReportComposerTool extends PluginTool implements SeriesViewerListen
     if (clearAfterSave) {
       wristFindingTracker.finalizeSelection(currentDraft, ExamTemplate.WRIST);
       wristForm.clearSelections();
+    }
+    if (result.changed()) {
+      refreshAll();
+    }
+    if ((warnWhenEmpty || clearAfterSave) && result.lastFinding() != null) {
+      findingList.setSelectedValue(result.lastFinding(), true);
+    }
+    return true;
+  }
+
+  private boolean synchronizeAnkleFindings(boolean warnWhenEmpty, boolean clearAfterSave) {
+    var result = ankleFindingTracker.synchronize(currentDraft, ankleForm.selection());
+    reportKeptEdits(result);
+    if (!result.hasFindings()) {
+      if (warnWhenEmpty) {
+        showWarning("Select at least one ankle finding.");
+      }
+      if (result.changed()) {
+        refreshAll();
+      }
+      return false;
+    }
+
+    if (clearAfterSave) {
+      ankleFindingTracker.finalizeSelection(currentDraft, ExamTemplate.ANKLE);
+      ankleForm.clearSelections();
+    }
+    if (result.changed()) {
+      refreshAll();
+    }
+    if ((warnWhenEmpty || clearAfterSave) && result.lastFinding() != null) {
+      findingList.setSelectedValue(result.lastFinding(), true);
+    }
+    return true;
+  }
+
+  private boolean synchronizeHipFindings(boolean warnWhenEmpty, boolean clearAfterSave) {
+    var result = hipFindingTracker.synchronize(currentDraft, hipForm.selection());
+    reportKeptEdits(result);
+    if (!result.hasFindings()) {
+      if (warnWhenEmpty) {
+        showWarning("Select at least one hip finding.");
+      }
+      if (result.changed()) {
+        refreshAll();
+      }
+      return false;
+    }
+
+    if (clearAfterSave) {
+      hipFindingTracker.finalizeSelection(currentDraft, ExamTemplate.HIP);
+      hipForm.clearSelections();
     }
     if (result.changed()) {
       refreshAll();

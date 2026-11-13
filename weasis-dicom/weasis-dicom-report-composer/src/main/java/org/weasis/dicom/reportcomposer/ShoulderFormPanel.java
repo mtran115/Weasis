@@ -506,16 +506,7 @@ final class ShoulderFormPanel extends JPanel {
     }
 
     void editText() {
-      JTextComponent text = textField();
-      java.awt.Window window = SwingUtilities.getWindowAncestor(text);
-      if (window != null && !window.isFocused()) {
-        window.toFront();
-        window.requestFocus();
-        SwingUtilities.invokeLater(text::requestFocusInWindow);
-      }
-      text.scrollRectToVisible(new Rectangle(0, 0, text.getWidth(), text.getHeight()));
-      text.requestFocusInWindow();
-      text.setCaretPosition(text.getDocument().getLength());
+      ComposerTextEditing.edit(textField());
     }
 
     String help() {

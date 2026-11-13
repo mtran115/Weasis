@@ -17,7 +17,9 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.event.ActionListener;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.swing.BorderFactory;
@@ -28,7 +30,9 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.JToggleButton;
+import javax.swing.text.JTextComponent;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
@@ -42,22 +46,55 @@ import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MarrowFindingType;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MarrowLocation;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MarrowSelection;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.Meniscus;
+import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MeniscusFinding;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MeniscusRegion;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MeniscusSelection;
-import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MeniscusTearType;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.Selection;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.SoftTissueLocation;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.TendonStatus;
 
-final class KneeFormPanel extends JPanel {
-  private static final List<MeniscusTearType> MENISCUS_TEAR_TYPES =
-      List.of(
-          MeniscusTearType.TEAR,
-          MeniscusTearType.HORIZONTAL,
-          MeniscusTearType.VERTICAL,
-          MeniscusTearType.RADIAL,
-          MeniscusTearType.COMPLEX,
-          MeniscusTearType.ROOT);
+final class KneeFormPanel extends JPanel implements ChordForm {
+  static final String CHORD_REFERENCE =
+      """
+      ~           chord mode on / off
+
+      Structure; stays until the next one
+        1 Medial meniscus    2 Lateral meniscus
+        3 Quadriceps tendon  4 Patellar tendon
+        5 Joint effusion
+        6 Prepatellar/pretibial soft tissue edema
+        7 Popliteal cyst
+        8 Lateral femoral condyle friction
+            (the digit alone sets it)
+        0 Free text box
+
+      On a meniscus (1, 2)
+      i t         intrasubstance degeneration, tear
+      a b p       anterior horn, body, posterior horn
+      r           extending to the posterior root
+                    (tear only)
+      x           extras text
+
+      d#          on a tendon (3, 4): tendinosis
+                    1 mild  2 moderate  3 severe
+                    4 minimal  0 clear
+                  on effusion or cyst (5, 7)
+                    1 small  2 moderate  3 large
+                    4 trace  0 clear
+                  on soft tissue edema (6)
+                    1 mild  2 moderate  3 severe
+                    4 minimal  0 clear
+
+      On soft tissue edema (6)
+      p t         prepatellar, pretibial
+
+      Backspace   remove the last key or token
+      Esc         drop a half-typed token
+
+      M, the numpad and arrows still go to the viewer.
+      The other knee findings are buttons only.
+      """;
+
   private static final List<LigamentStatus> LIGAMENT_STATUSES =
       List.of(
           LigamentStatus.MILD_SPRAIN,
@@ -103,6 +140,8 @@ final class KneeFormPanel extends JPanel {
   private final DirectChoiceControl<Degree> softTissueEdema = new DirectChoiceControl<>(DEGREES, 2);
   private final Map<SoftTissueLocation, JToggleButton> softTissueLocations =
       new EnumMap<>(SoftTissueLocation.class);
+  private final JToggleButton lateralCondyleFriction =
+      new FindingToggleButton("Lateral femoral condyle friction");
   private final JTextArea freeText = ComposerTextEditing.install(new JTextArea(3, 24));
   private final JButton resetButton = iconButton(ActionIcon.RESET, "Clear knee form");
   private final JButton otherFindingButton = new JButton("Other Finding");
@@ -152,7 +191,8 @@ final class KneeFormPanel extends JPanel {
                         "synovitis",
                         "popliteal-cyst",
                         "prepatellar-bursitis",
-                        "soft-tissue-edema")),
+                        "soft-tissue-edema",
+                        "condyle-friction")),
                 new SectionJumpBar.Section("Free text", freeTextPanel, List.of("free-text"))),
             () -> SectionJumpBar.keys(KneeFindingBuilder.generateKeyed(selection())));
     setAlignmentX(LEFT_ALIGNMENT);
@@ -180,6 +220,49 @@ final class KneeFormPanel extends JPanel {
 
   SectionJumpBar jumpBar() {
     return jumpBar;
+  }
+
+  @Override
+  public List<Target> chordTargets() {
+    List<Target> targets = new ArrayList<>();
+    menisci.forEach(
+        (meniscus, controls) -> targets.add(controls.chordTarget(meniscus + " meniscus")));
+    extensorMechanism.forEach(
+        (tendon, control) ->
+            targets.add(
+                new Target(
+                    tendon + " tendon",
+                    buttons(
+                        control,
+                        TendonStatus.MILD_TENDINOSIS,
+                        TendonStatus.MODERATE_TENDINOSIS,
+                        TendonStatus.SEVERE_TENDINOSIS,
+                        TendonStatus.MINIMAL_TENDINOSIS),
+                    Map.of(),
+                    null)));
+    targets.add(new Target("Joint effusion", fluidButtons(effusion), Map.of(), null));
+    Map<Character, JToggleButton> edemaLocations = new LinkedHashMap<>();
+    edemaLocations.put('p', softTissueLocations.get(SoftTissueLocation.PREPATELLAR));
+    edemaLocations.put('t', softTissueLocations.get(SoftTissueLocation.PRETIBIAL));
+    targets.add(
+        new Target(
+            "Soft tissue edema",
+            buttons(softTissueEdema, Degree.MILD, Degree.MODERATE, Degree.SEVERE, Degree.MINIMAL),
+            edemaLocations,
+            null));
+    targets.add(new Target("Popliteal cyst", fluidButtons(poplitealCyst), Map.of(), null));
+    targets.add(
+        new Target(
+            lateralCondyleFriction.getText(),
+            List.of(),
+            Map.of(FormChordEngine.WHOLE, lateralCondyleFriction),
+            null));
+    return targets;
+  }
+
+  @Override
+  public JTextComponent freeText() {
+    return freeText;
   }
 
   Selection selection() {
@@ -236,6 +319,7 @@ final class KneeFormPanel extends JPanel {
         prepatellarBursitis.selectionOr(Degree.NONE),
         softTissueEdema.selectionOr(Degree.NONE),
         selectedSoftTissueLocations,
+        lateralCondyleFriction.isSelected(),
         freeText.getText());
   }
 
@@ -262,6 +346,7 @@ final class KneeFormPanel extends JPanel {
     prepatellarBursitis.clear();
     softTissueEdema.clear();
     softTissueLocations.values().forEach(button -> button.setSelected(false));
+    lateralCondyleFriction.setSelected(false);
   }
 
   private JPanel buildNormalPanel() {
@@ -369,6 +454,12 @@ final class KneeFormPanel extends JPanel {
     constraints.gridx = 1;
     constraints.gridwidth = 2;
     panel.add(synovitis, constraints);
+
+    lateralCondyleFriction.setMargin(new Insets(2, 7, 2, 7));
+    constraints = constraints(11);
+    constraints.gridx = 1;
+    constraints.gridwidth = 2;
+    panel.add(lateralCondyleFriction, constraints);
     return panel;
   }
 
@@ -405,6 +496,7 @@ final class KneeFormPanel extends JPanel {
     prepatellarBursitis.addActionListener(clearNormal);
     softTissueEdema.addActionListener(clearNormal);
     softTissueLocations.values().forEach(button -> button.addActionListener(clearNormal));
+    lateralCondyleFriction.addActionListener(clearNormal);
   }
 
   private static JPanel verticalPanel(String title) {
@@ -454,6 +546,16 @@ final class KneeFormPanel extends JPanel {
     return panel;
   }
 
+  @SafeVarargs
+  private static <T> List<JToggleButton> buttons(DirectChoiceControl<T> control, T... choices) {
+    return List.of(choices).stream().map(control::button).toList();
+  }
+
+  private static List<JToggleButton> fluidButtons(DirectChoiceControl<FluidAmount> control) {
+    return buttons(
+        control, FluidAmount.SMALL, FluidAmount.MODERATE, FluidAmount.LARGE, FluidAmount.TRACE);
+  }
+
   private static <T> List<T> selected(Map<T, JToggleButton> buttons) {
     return buttons.entrySet().stream()
         .filter(entry -> entry.getValue().isSelected())
@@ -477,36 +579,36 @@ final class KneeFormPanel extends JPanel {
 
   private static final class MeniscusControls {
     private final JPanel panel = new JPanel();
-    private final JToggleButton intrasubstanceDegeneration =
-        new FindingToggleButton("Intrasubstance degeneration");
+    private final DirectChoiceControl<MeniscusFinding> finding =
+        new DirectChoiceControl<>(List.of(MeniscusFinding.DEGENERATION, MeniscusFinding.TEAR), 2);
     private final Map<MeniscusRegion, JToggleButton> regions = new EnumMap<>(MeniscusRegion.class);
-    private final DirectChoiceControl<MeniscusTearType> tearType =
-        new DirectChoiceControl<>(MENISCUS_TEAR_TYPES, 2);
-    private final JToggleButton maceration = new FindingToggleButton("Maceration");
-    private final JToggleButton extrusion = new FindingToggleButton("Extrusion");
-    private final JToggleButton parameniscalCyst = new FindingToggleButton("Parameniscal cyst");
+    private final JToggleButton posteriorRoot =
+        new FindingToggleButton("Extending to the posterior root");
+    private final JTextField extras = ComposerTextEditing.install(new JTextField(10));
 
     MeniscusControls(Meniscus meniscus) {
       panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
       panel.setBorder(BorderFactory.createTitledBorder(meniscus + " meniscus"));
-
-      JPanel common = new JPanel(new GridLayout(0, 2, 4, 2));
-      for (JToggleButton button :
-          List.of(intrasubstanceDegeneration, maceration, extrusion, parameniscalCyst)) {
-        button.setMargin(new Insets(2, 7, 2, 7));
-        common.add(button);
-      }
-      panel.add(common);
-
-      JPanel tearPanel = new JPanel(new BorderLayout(4, 2));
-      tearPanel.setBorder(GuiUtils.getTitledBorder("Tear type"));
-      tearPanel.add(tearType.panel(), BorderLayout.CENTER);
-      panel.add(tearPanel);
+      panel.add(finding.panel());
 
       JPanel regionPanel = new JPanel(new BorderLayout(4, 2));
-      regionPanel.setBorder(GuiUtils.getTitledBorder("Involved portion"));
-      regionPanel.add(toggleGrid(MeniscusRegion.values(), regions, 2), BorderLayout.CENTER);
+      regionPanel.setBorder(GuiUtils.getEmptyBorder(2, 0, 2, 0));
+      regionPanel.add(toggleGrid(MeniscusRegion.values(), regions, 3), BorderLayout.CENTER);
       panel.add(regionPanel);
+
+      JPanel rootPanel = new JPanel(new GridLayout(1, 1));
+      posteriorRoot.setMargin(new Insets(2, 7, 2, 7));
+      rootPanel.add(posteriorRoot);
+      panel.add(rootPanel);
+
+      JPanel extrasRow = new JPanel(new BorderLayout(4, 0));
+      extrasRow.setBorder(GuiUtils.getEmptyBorder(2, 0, 0, 0));
+      extrasRow.add(new JLabel("Extras"), BorderLayout.WEST);
+      extrasRow.add(extras, BorderLayout.CENTER);
+      panel.add(extrasRow);
+
+      finding.addActionListener(event -> refresh());
+      refresh();
     }
 
     JPanel panel() {
@@ -515,30 +617,45 @@ final class KneeFormPanel extends JPanel {
 
     MeniscusSelection selection() {
       return new MeniscusSelection(
-          intrasubstanceDegeneration.isSelected(),
+          finding.selectionOr(MeniscusFinding.NONE),
           selected(regions),
-          tearType.selectionOr(MeniscusTearType.NONE),
-          maceration.isSelected(),
-          extrusion.isSelected(),
-          parameniscalCyst.isSelected());
+          posteriorRoot.isSelected(),
+          extras.getText());
+    }
+
+    Target chordTarget(String name) {
+      Map<Character, JToggleButton> keys = new LinkedHashMap<>();
+      keys.put('i', finding.button(MeniscusFinding.DEGENERATION));
+      keys.put('t', finding.button(MeniscusFinding.TEAR));
+      keys.put('a', regions.get(MeniscusRegion.ANTERIOR_HORN));
+      keys.put('b', regions.get(MeniscusRegion.BODY));
+      keys.put('p', regions.get(MeniscusRegion.POSTERIOR_HORN));
+      keys.put('r', posteriorRoot);
+      return new Target(name, List.of(), keys, extras);
     }
 
     void clear() {
-      intrasubstanceDegeneration.setSelected(false);
+      finding.clear();
       regions.values().forEach(button -> button.setSelected(false));
-      tearType.clear();
-      maceration.setSelected(false);
-      extrusion.setSelected(false);
-      parameniscalCyst.setSelected(false);
+      extras.setText("");
+      refresh();
     }
 
     void addActionListener(ActionListener listener) {
-      intrasubstanceDegeneration.addActionListener(listener);
+      finding.addActionListener(listener);
       regions.values().forEach(button -> button.addActionListener(listener));
-      tearType.addActionListener(listener);
-      maceration.addActionListener(listener);
-      extrusion.addActionListener(listener);
-      parameniscalCyst.addActionListener(listener);
+      posteriorRoot.addActionListener(listener);
+    }
+
+    /** The root extension needs a tear, and the extras a finding to follow. */
+    private void refresh() {
+      MeniscusFinding selected = finding.selectionOr(MeniscusFinding.NONE);
+      boolean tear = selected == MeniscusFinding.TEAR;
+      if (!tear) {
+        posteriorRoot.setSelected(false);
+      }
+      posteriorRoot.setEnabled(tear);
+      extras.setEnabled(selected != MeniscusFinding.NONE);
     }
   }
 }

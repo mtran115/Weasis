@@ -35,7 +35,8 @@ final class DirectChoiceControl<T> {
     for (T choice : choices) {
       JToggleButton button = new FindingToggleButton(choice.toString());
       button.setMargin(new Insets(2, 7, 2, 7));
-      button.addActionListener(
+      // An item listener runs before any action listener, which then sees a single selection.
+      button.addItemListener(
           event -> {
             if (button.isSelected()) {
               buttons.values().stream()
@@ -58,6 +59,10 @@ final class DirectChoiceControl<T> {
         .map(Map.Entry::getKey)
         .findFirst()
         .orElse(fallback);
+  }
+
+  JToggleButton button(T choice) {
+    return buttons.get(choice);
   }
 
   void select(T choice) {

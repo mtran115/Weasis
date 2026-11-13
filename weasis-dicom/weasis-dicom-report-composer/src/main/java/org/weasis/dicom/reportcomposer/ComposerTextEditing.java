@@ -11,6 +11,8 @@ package org.weasis.dicom.reportcomposer;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Rectangle;
+import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -19,6 +21,7 @@ import javax.swing.AbstractAction;
 import javax.swing.InputMap;
 import javax.swing.JComponent;
 import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.UndoableEditEvent;
 import javax.swing.text.DefaultEditorKit;
@@ -83,6 +86,19 @@ final class ComposerTextEditing {
   }
 
   /** Drops a box's undo history, so Cmd+Z cannot bring back text from another study or finding. */
+  /** Brings the field's window forward and puts the caret at the end of its text. */
+  static void edit(JTextComponent text) {
+    Window window = SwingUtilities.getWindowAncestor(text);
+    if (window != null && !window.isFocused()) {
+      window.toFront();
+      window.requestFocus();
+      SwingUtilities.invokeLater(text::requestFocusInWindow);
+    }
+    text.scrollRectToVisible(new Rectangle(0, 0, text.getWidth(), text.getHeight()));
+    text.requestFocusInWindow();
+    text.setCaretPosition(text.getDocument().getLength());
+  }
+
   static void forgetHistory(JTextComponent text) {
     if (text.getClientProperty(TypingHistory.class) instanceof TypingHistory history) {
       history.discardAllEdits();

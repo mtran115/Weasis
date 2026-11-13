@@ -13,15 +13,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Pattern;
+import java.util.function.Predicate;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.GeneratedFinding;
 import org.weasis.dicom.reportcomposer.MriFindingCatalog.KeyedFinding;
 
 final class WristFindingBuilder {
-  private static final Pattern BARE_NUMBER = Pattern.compile("[0-9]+(?:\\.[0-9]+)?");
+  private static final String EDEMA_CAUSE = " may be related to bony contusion or osteoarthrosis";
 
   private WristFindingBuilder() {}
 
@@ -32,35 +31,35 @@ final class WristFindingBuilder {
   static List<KeyedFinding> generateKeyed(Selection selection) {
     Objects.requireNonNull(selection);
     List<KeyedFinding> findings = new ArrayList<>();
-
-    if (selection.motionArtifact()) {
-      addFinding(findings, "motion", "Multiple sequences are degraded by motion artifact");
-    }
-    if (selection.normal() && !selection.hasClinicalPositiveFinding()) {
+    if (selection.normal() && !selection.hasStructuredPositiveFinding()) {
       addFinding(findings, "normal", "Normal MRI of the wrist");
     }
-    for (Ligament ligament : Ligament.values()) {
-      LigamentSelection injury =
-          selection.ligaments().getOrDefault(ligament, LigamentSelection.empty());
-      if (injury.hasFinding()) {
-        addFinding(findings, "ligament:" + ligament.name(), ligamentDescription(ligament, injury));
-      }
+    if (selection.limitedExam() != LimitedExam.NONE) {
+      addFinding(findings, "limited", selection.limitedExam().phrase());
     }
-    if (selection.tfccFinding() != TfccFinding.NONE) {
-      addFinding(findings, "tfcc", selection.tfccFinding().phrase());
+    selection
+        .ligaments()
+        .forEach(
+            (ligament, tear) ->
+                addFinding(
+                    findings,
+                    "ligament:" + ligament.name(),
+                    possible(tear.possible(), tear.status().phrase())
+                        + " of the "
+                        + ligament.phrase()));
+    if (selection.tfcc() != TfccTear.NONE) {
+      addFinding(findings, "tfcc", possible(selection.tfccPossible(), selection.tfcc().phrase()));
     }
-    for (Tendon tendon : Tendon.values()) {
-      addTendonFindings(
-          findings, tendon, selection.tendons().getOrDefault(tendon, TendonSelection.empty()));
+    selection.tendons().forEach((tendon, finding) -> addTendonFindings(findings, tendon, finding));
+    selection.bones().forEach((bone, finding) -> addBoneFindings(findings, bone, finding));
+    if (selection.cyst().hasFinding()) {
+      addFinding(findings, "cyst", cystDescription(selection.cyst()));
     }
-    if (selection.bone().hasFinding()) {
-      addFinding(findings, "bone", boneDescription(selection.bone()));
-    }
-    if (selection.ganglion().hasFinding()) {
-      addFinding(findings, "ganglion", ganglionDescription(selection.ganglion()));
-    }
-    if (selection.fluid().hasFinding()) {
-      addFinding(findings, "fluid", fluidDescription(selection.fluid()));
+    if (!selection.swelling().isEmpty()) {
+      addFinding(
+          findings,
+          "swelling",
+          "Soft tissue swelling along the " + sides(selection.swelling()) + " wrist");
     }
     if (ComposerText.hasText(selection.freeText())) {
       findings.add(
@@ -70,101 +69,89 @@ final class WristFindingBuilder {
     return List.copyOf(findings);
   }
 
-  private static String ligamentDescription(Ligament ligament, LigamentSelection injury) {
-    StringBuilder description = new StringBuilder();
-    if (injury.status() != LigamentStatus.NONE) {
-      description.append(injury.status().phrase()).append(" of the ").append(ligament.phrase());
-    }
-    if (injury.intervalWidening()) {
-      if (!description.isEmpty()) {
-        description.append(" with widening of the scapholunate interval");
-      } else {
-        description.append("Widening of the scapholunate interval");
-      }
-      String measurement = measurement(injury.intervalMeasurement(), "mm");
-      if (!measurement.isBlank()) {
-        description.append(" measuring ").append(measurement);
-      }
-    }
-    return description.toString();
-  }
-
   private static void addTendonFindings(
-      List<KeyedFinding> findings, Tendon tendon, TendonSelection selection) {
-    String key = "tendon:" + tendon.name() + ":";
-    if (selection.tear() != TendonTear.NONE) {
-      StringBuilder tear =
-          new StringBuilder(selection.tear().phrase()).append(" of the ").append(tendon.phrase());
-      if (selection.tendinosis() != Degree.NONE) {
-        tear.append(" on a background of ")
-            .append(selection.tendinosis().lowerPhrase())
-            .append(" tendinosis");
+      List<KeyedFinding> findings, Tendon tendon, TendonSelection finding) {
+    if (finding.tenosynovitis() != Degree.NONE) {
+      addFinding(
+          findings,
+          "tenosynovitis:" + tendon.name(),
+          finding.tenosynovitis().phrase() + " tenosynovitis of the " + tendon.phrase());
+    }
+    if (finding.tear() != TendonTear.NONE) {
+      addFinding(
+          findings,
+          "tendon-tear:" + tendon.name(),
+          finding.tear().phrase() + " of the " + tendon.phrase());
+    }
+  }
+
+  /** The extras follow the bone's first sentence. */
+  private static void addBoneFindings(
+      List<KeyedFinding> findings, Bone bone, BoneSelection finding) {
+    List<Map.Entry<String, String>> sentences = new ArrayList<>();
+    String degree = finding.degree() == Degree.NONE ? "" : finding.degree().phrase() + " ";
+    if (finding.fracture()) {
+      sentences.add(
+          Map.entry(
+              "fracture",
+              "Nondisplaced fracture of the "
+                  + bone.phrase()
+                  + " with surrounding bone marrow edema"));
+    }
+    if (finding.edema()) {
+      String changes =
+          finding.cysticChange() ? "bone marrow edema and cystic change" : "bone marrow edema";
+      sentences.add(
+          Map.entry("edema", degree + changes + " involving the " + bone.phrase() + EDEMA_CAUSE));
+    } else {
+      if (finding.degree() != Degree.NONE) {
+        sentences.add(Map.entry("contusion", degree + "bony contusion of the " + bone.phrase()));
       }
-      addFinding(findings, key + "tear-or-tendinosis", tear.toString());
-    } else if (selection.tendinosis() != Degree.NONE) {
+      if (finding.cysticChange()) {
+        sentences.add(Map.entry("cystic", "Cystic changes of the " + bone.phrase()));
+      }
+    }
+    for (var sentence : sentences) {
+      boolean first = sentence == sentences.getFirst();
       addFinding(
           findings,
-          key + "tear-or-tendinosis",
-          selection.tendinosis().phrase() + " tendinosis of the " + tendon.phrase());
-    }
-    if (selection.tenosynovitis() != Degree.NONE) {
-      addFinding(
-          findings,
-          key + "tenosynovitis",
-          selection.tenosynovitis().phrase() + " tenosynovitis of the " + tendon.phrase());
+          "bone:" + bone.name() + ":" + sentence.getKey(),
+          first ? withExtras(sentence.getValue(), finding.extras()) : sentence.getValue());
     }
   }
 
-  private static String boneDescription(BoneSelection selection) {
-    List<String> locations = selection.locations().stream().map(BoneLocation::phrase).toList();
-    String location = locations.isEmpty() ? "carpal bones" : joinList(locations);
-    String degree = selection.degree() == Degree.NONE ? "" : selection.degree().phrase() + " ";
-    String size = measurement(selection.cystSize(), "mm");
-    return switch (selection.type()) {
-      case MARROW_EDEMA -> degree + "bone marrow edema involving the " + location;
-      case CONTUSION ->
-          degree
-              + (locations.size() > 1 ? "bone contusions of the " : "bone contusion of the ")
-              + location;
-      case CYSTIC_CHANGES ->
-          degree
-              + "cystic changes of the "
-              + location
-              + (size.isBlank() ? "" : " measuring up to " + size);
-      case INTRAOSSEOUS_CYST ->
-          (size.isBlank() ? degree : (locations.size() > 1 ? "" : "A ") + size + " ")
-              + (locations.size() > 1 ? "intraosseous cysts in the " : "intraosseous cyst in the ")
-              + location;
-      case NONE -> "";
-    };
-  }
-
-  private static String ganglionDescription(GanglionSelection selection) {
-    String size = measurement(selection.size(), "mm");
-    StringBuilder description =
-        new StringBuilder(size.isBlank() ? "Ganglion cyst" : "A " + size + " ganglion cyst")
-            .append(" along the ")
-            .append(selection.location().phrase());
-    if (ComposerText.hasText(selection.additionalLocation())) {
-      description.append(' ').append(selection.additionalLocation());
+  private static String cystDescription(CystSelection cyst) {
+    String size = cyst.size();
+    String article = size.matches("(8|11|18).*") ? "An " : "A ";
+    StringBuilder text =
+        new StringBuilder(article)
+            .append(size.isEmpty() ? "" : size + " ")
+            .append("ganglion or synovial cyst along the ")
+            .append(sides(cyst.sides()))
+            .append(" wrist");
+    if (!cyst.level().isEmpty()) {
+      boolean hasArticle = cyst.level().toLowerCase().startsWith("the ");
+      text.append(" at the level of ").append(hasArticle ? "" : "the ").append(cyst.level());
     }
-    return description.toString();
+    return text.toString();
   }
 
-  private static String fluidDescription(FluidSelection selection) {
-    String amount =
-        selection.amount() == FluidAmount.NONE
-            ? "Fluid"
-            : selection.amount().phrase() + " amount of fluid";
-    return amount
-        + " in the "
-        + selection.location().phrase()
-        + (selection.likelyInflammatory() ? ", likely inflammatory" : "");
+  /** Extras typed in lower case continue the sentence; a capital starts a new one. */
+  private static String withExtras(String text, String extras) {
+    if (!ComposerText.hasText(extras)) {
+      return text;
+    }
+    return text + (Character.isLowerCase(extras.charAt(0)) ? ", " : ". ") + extras;
   }
 
-  private static String measurement(String value, String defaultUnit) {
-    String clean = ComposerText.clean(value);
-    return BARE_NUMBER.matcher(clean).matches() ? clean + " " + defaultUnit : clean;
+  private static String possible(boolean possible, String phrase) {
+    return possible
+        ? "Possible " + Character.toLowerCase(phrase.charAt(0)) + phrase.substring(1)
+        : phrase;
+  }
+
+  private static String sides(List<WristSide> sides) {
+    return String.join(" and ", sides.stream().map(WristSide::phrase).toList());
   }
 
   private static void addFinding(List<KeyedFinding> findings, String key, String text) {
@@ -176,35 +163,46 @@ final class WristFindingBuilder {
     return value.isEmpty() ? value : Character.toUpperCase(value.charAt(0)) + value.substring(1);
   }
 
-  private static String joinList(List<String> values) {
-    return switch (values.size()) {
-      case 0 -> "";
-      case 1 -> values.getFirst();
-      case 2 -> values.getFirst() + " and " + values.getLast();
-      default ->
-          String.join(", ", values.subList(0, values.size() - 1)) + ", and " + values.getLast();
-    };
-  }
-
   enum Degree {
-    NONE("None"),
-    MINIMAL("Minimal"),
-    MILD("Mild"),
-    MODERATE("Moderate"),
-    SEVERE("Severe");
+    NONE("None", ""),
+    MINIMAL("Min", "Minimal"),
+    MILD("Mild", "Mild"),
+    MODERATE("Mod", "Moderate"),
+    SEVERE("Severe", "Severe");
 
     private final String label;
+    private final String phrase;
 
-    Degree(String label) {
+    Degree(String label, String phrase) {
       this.label = label;
+      this.phrase = phrase;
     }
 
     String phrase() {
-      return label;
+      return phrase;
     }
 
-    String lowerPhrase() {
-      return label.toLowerCase(Locale.ROOT);
+    @Override
+    public String toString() {
+      return label;
+    }
+  }
+
+  enum LimitedExam {
+    NONE("None", ""),
+    MOTION("Motion", "Limited exam due to motion"),
+    ARTIFACT("Artifact", "Multiple sequences are degraded due to artifact");
+
+    private final String label;
+    private final String phrase;
+
+    LimitedExam(String label, String phrase) {
+      this.label = label;
+      this.phrase = phrase;
+    }
+
+    String phrase() {
+      return phrase;
     }
 
     @Override
@@ -214,8 +212,8 @@ final class WristFindingBuilder {
   }
 
   enum Ligament {
-    SCAPHOLUNATE("Scapholunate", "scapholunate ligament"),
-    LUNOTRIQUETRAL("Lunotriquetral", "lunotriquetral ligament");
+    SCAPHOLUNATE("Scapholunate ligament", "scapholunate ligament"),
+    LUNOTRIQUETRAL("Lunotriquetral ligament", "lunotriquetral ligament");
 
     private final String label;
     private final String phrase;
@@ -237,11 +235,8 @@ final class WristFindingBuilder {
 
   enum LigamentStatus {
     NONE("None", ""),
-    DEGENERATION("Degeneration", "Degeneration"),
-    SPRAIN("Sprain", "Sprain"),
-    PARTIAL_TEAR("Partial tear", "Partial tear"),
     TEAR("Tear", "Tear"),
-    COMPLETE_TEAR("Complete tear", "Complete tear");
+    PARTIAL_TEAR("Partial tear", "Partial tear");
 
     private final String label;
     private final String phrase;
@@ -261,20 +256,16 @@ final class WristFindingBuilder {
     }
   }
 
-  enum TfccFinding {
+  enum TfccTear {
     NONE("None", ""),
-    DEGENERATION("Degeneration", "Degeneration of the triangular fibrocartilage complex"),
-    CENTRAL_PERFORATION(
-        "Central perforation", "Central perforation of the triangular fibrocartilage complex"),
-    RADIAL_ATTACHMENT_TEAR("Radial attachment tear", "Tear of the radial attachment of the TFCC"),
-    ULNAR_ATTACHMENT_TEAR("Ulnar attachment tear", "Tear of the ulnar attachment of the TFCC"),
-    PERIPHERAL_TEAR("Peripheral tear", "Peripheral tear of the TFCC"),
-    TEAR("Tear", "Tear of the triangular fibrocartilage complex");
+    TEAR("Tear", "Tear of the triangular fibrocartilage complex"),
+    RADIAL_ATTACHMENT("Radial attachment", "Tear of the radial attachment of the TFCC"),
+    ULNAR_ATTACHMENT("Ulnar attachment", "Tear of the ulnar attachment of the TFCC");
 
     private final String label;
     private final String phrase;
 
-    TfccFinding(String label, String phrase) {
+    TfccTear(String label, String phrase) {
       this.label = label;
       this.phrase = phrase;
     }
@@ -289,9 +280,15 @@ final class WristFindingBuilder {
     }
   }
 
+  /** In extensor compartment order, which is the order of the tendon chords e1 to e7. */
   enum Tendon {
-    EXTENSOR_CARPI_ULNARIS("ECU", "extensor carpi ulnaris tendon"),
-    EXTENSOR_CARPI_RADIALIS_BREVIS("ECRB", "extensor carpi radialis brevis tendon");
+    ABDUCTOR_POLLICIS_LONGUS("APL", "abductor pollicis longus tendon"),
+    EXTENSOR_POLLICIS_BREVIS("EPB", "extensor pollicis brevis tendon"),
+    EXTENSOR_CARPI_RADIALIS_LONGUS("ECRL", "extensor carpi radialis longus tendon"),
+    EXTENSOR_CARPI_RADIALIS_BREVIS("ECRB", "extensor carpi radialis brevis tendon"),
+    EXTENSOR_POLLICIS_LONGUS("EPL", "extensor pollicis longus tendon"),
+    EXTENSOR_DIGITORUM("Ext digitorum", "extensor digitorum tendons"),
+    EXTENSOR_CARPI_ULNARIS("ECU", "extensor carpi ulnaris tendon");
 
     private final String label;
     private final String phrase;
@@ -335,30 +332,8 @@ final class WristFindingBuilder {
     }
   }
 
-  enum BoneFindingType {
-    NONE("None"),
-    MARROW_EDEMA("Marrow edema"),
-    CONTUSION("Bone contusion"),
-    CYSTIC_CHANGES("Cystic changes"),
-    INTRAOSSEOUS_CYST("Intraosseous cyst");
-
-    private final String label;
-
-    BoneFindingType(String label) {
-      this.label = label;
-    }
-
-    boolean isCystic() {
-      return this == CYSTIC_CHANGES || this == INTRAOSSEOUS_CYST;
-    }
-
-    @Override
-    public String toString() {
-      return label;
-    }
-  }
-
-  enum BoneLocation {
+  /** In the order of the bone chords: b1 to b9, then b0. */
+  enum Bone {
     DISTAL_RADIUS("Distal radius", "distal radius"),
     DISTAL_ULNA("Distal ulna", "distal ulna"),
     SCAPHOID("Scaphoid", "scaphoid"),
@@ -373,7 +348,7 @@ final class WristFindingBuilder {
     private final String label;
     private final String phrase;
 
-    BoneLocation(String label, String phrase) {
+    Bone(String label, String phrase) {
       this.label = label;
       this.phrase = phrase;
     }
@@ -388,21 +363,19 @@ final class WristFindingBuilder {
     }
   }
 
-  enum GanglionLocation {
-    NONE("None", ""),
-    DORSAL("Dorsal wrist", "dorsal aspect of the wrist"),
-    VOLAR("Volar wrist", "volar aspect of the wrist");
+  enum WristSide {
+    VOLAR("Volar"),
+    DORSAL("Dorsal"),
+    RADIAL("Radial");
 
     private final String label;
-    private final String phrase;
 
-    GanglionLocation(String label, String phrase) {
+    WristSide(String label) {
       this.label = label;
-      this.phrase = phrase;
     }
 
     String phrase() {
-      return phrase;
+      return label.toLowerCase();
     }
 
     @Override
@@ -411,202 +384,115 @@ final class WristFindingBuilder {
     }
   }
 
-  enum FluidAmount {
-    NONE("None", ""),
-    TRACE("Trace", "Trace"),
-    SMALL("Small", "Small"),
-    MODERATE("Moderate", "Moderate"),
-    LARGE("Large", "Large");
-
-    private final String label;
-    private final String phrase;
-
-    FluidAmount(String label, String phrase) {
-      this.label = label;
-      this.phrase = phrase;
-    }
-
-    String phrase() {
-      return phrase;
-    }
-
-    @Override
-    public String toString() {
-      return label;
-    }
-  }
-
-  enum FluidLocation {
-    NONE("None", ""),
-    PISOTRIQUETRAL_RECESS("Pisotriquetral recess", "pisotriquetral recess"),
-    DORSAL_RADIOCARPAL_JOINT("Dorsal radiocarpal", "dorsal radiocarpal joint"),
-    RADIOCARPAL_JOINT("Radiocarpal joint", "radiocarpal joint"),
-    MIDCARPAL_JOINT("Midcarpal joint", "midcarpal joint"),
-    DISTAL_RADIOULNAR_JOINT("Distal radioulnar", "distal radioulnar joint"),
-    ULNAR_STYLOID("Along ulnar styloid", "soft tissues along the ulnar styloid");
-
-    private final String label;
-    private final String phrase;
-
-    FluidLocation(String label, String phrase) {
-      this.label = label;
-      this.phrase = phrase;
-    }
-
-    String phrase() {
-      return phrase;
-    }
-
-    @Override
-    public String toString() {
-      return label;
-    }
-  }
-
-  record LigamentSelection(
-      LigamentStatus status, boolean intervalWidening, String intervalMeasurement) {
-    LigamentSelection {
+  record LigamentTear(LigamentStatus status, boolean possible) {
+    LigamentTear {
       status = Objects.requireNonNullElse(status, LigamentStatus.NONE);
-      intervalMeasurement = intervalWidening ? ComposerText.clean(intervalMeasurement) : "";
-    }
-
-    static LigamentSelection empty() {
-      return new LigamentSelection(LigamentStatus.NONE, false, "");
-    }
-
-    boolean hasFinding() {
-      return status != LigamentStatus.NONE || intervalWidening;
     }
   }
 
-  record TendonSelection(Degree tendinosis, Degree tenosynovitis, TendonTear tear) {
+  record TendonSelection(Degree tenosynovitis, TendonTear tear) {
     TendonSelection {
-      tendinosis = Objects.requireNonNullElse(tendinosis, Degree.NONE);
       tenosynovitis = Objects.requireNonNullElse(tenosynovitis, Degree.NONE);
       tear = Objects.requireNonNullElse(tear, TendonTear.NONE);
     }
 
-    static TendonSelection empty() {
-      return new TendonSelection(Degree.NONE, Degree.NONE, TendonTear.NONE);
-    }
-
     boolean hasFinding() {
-      return tendinosis != Degree.NONE || tenosynovitis != Degree.NONE || tear != TendonTear.NONE;
+      return tenosynovitis != Degree.NONE || tear != TendonTear.NONE;
     }
   }
 
+  /**
+   * The degree is that of a bony contusion, or of the marrow edema when {@code edema} is set. Edema
+   * with no stated degree is still a finding.
+   */
   record BoneSelection(
-      BoneFindingType type, Degree degree, List<BoneLocation> locations, String cystSize) {
+      Degree degree, boolean fracture, boolean cysticChange, boolean edema, String extras) {
     BoneSelection {
-      type = Objects.requireNonNullElse(type, BoneFindingType.NONE);
       degree = Objects.requireNonNullElse(degree, Degree.NONE);
-      List<BoneLocation> requestedLocations = locations == null ? List.of() : locations;
-      locations =
-          List.of(BoneLocation.values()).stream().filter(requestedLocations::contains).toList();
-      cystSize = type.isCystic() ? ComposerText.clean(cystSize) : "";
-    }
-
-    static BoneSelection empty() {
-      return new BoneSelection(BoneFindingType.NONE, Degree.NONE, List.of(), "");
+      extras = ComposerText.clean(extras);
     }
 
     boolean hasFinding() {
-      return type != BoneFindingType.NONE && !locations.isEmpty();
+      return degree != Degree.NONE || fracture || cysticChange || edema;
     }
   }
 
-  record GanglionSelection(GanglionLocation location, String size, String additionalLocation) {
-    GanglionSelection {
-      location = Objects.requireNonNullElse(location, GanglionLocation.NONE);
-      size = location == GanglionLocation.NONE ? "" : ComposerText.clean(size);
-      additionalLocation =
-          location == GanglionLocation.NONE ? "" : ComposerText.clean(additionalLocation);
+  /** A cyst is reported once it has a side; the size and level are optional. */
+  record CystSelection(List<WristSide> sides, String size, String level) {
+    CystSelection {
+      sides = inOrder(sides);
+      size = ComposerText.clean(size);
+      level = ComposerText.clean(level);
     }
 
-    static GanglionSelection empty() {
-      return new GanglionSelection(GanglionLocation.NONE, "", "");
+    static CystSelection empty() {
+      return new CystSelection(List.of(), "", "");
     }
 
     boolean hasFinding() {
-      return location != GanglionLocation.NONE;
+      return !sides.isEmpty();
     }
   }
 
-  record FluidSelection(FluidLocation location, FluidAmount amount, boolean likelyInflammatory) {
-    FluidSelection {
-      location = Objects.requireNonNullElse(location, FluidLocation.NONE);
-      amount = Objects.requireNonNullElse(amount, FluidAmount.NONE);
-      if (location == FluidLocation.NONE) {
-        amount = FluidAmount.NONE;
-        likelyInflammatory = false;
-      }
-    }
-
-    static FluidSelection empty() {
-      return new FluidSelection(FluidLocation.NONE, FluidAmount.NONE, false);
-    }
-
-    boolean hasFinding() {
-      return location != FluidLocation.NONE;
-    }
-  }
-
+  /** The maps hold only the structures with a finding, in form order. */
   record Selection(
       boolean normal,
-      Map<Ligament, LigamentSelection> ligaments,
-      TfccFinding tfccFinding,
+      LimitedExam limitedExam,
+      Map<Ligament, LigamentTear> ligaments,
+      TfccTear tfcc,
+      boolean tfccPossible,
       Map<Tendon, TendonSelection> tendons,
-      BoneSelection bone,
-      GanglionSelection ganglion,
-      FluidSelection fluid,
-      boolean motionArtifact,
+      Map<Bone, BoneSelection> bones,
+      CystSelection cyst,
+      List<WristSide> swelling,
       String freeText) {
 
     Selection {
-      EnumMap<Ligament, LigamentSelection> selectedLigaments = new EnumMap<>(Ligament.class);
-      if (ligaments != null) {
-        for (Ligament ligament : Ligament.values()) {
-          LigamentSelection injury = ligaments.get(ligament);
-          if (injury != null && injury.hasFinding()) {
-            if (ligament != Ligament.SCAPHOLUNATE && injury.intervalWidening()) {
-              throw new IllegalArgumentException(
-                  "Interval widening is only supported for the scapholunate ligament.");
-            }
-            selectedLigaments.put(ligament, injury);
-          }
-        }
-      }
-      ligaments = Collections.unmodifiableMap(selectedLigaments);
-      tfccFinding = Objects.requireNonNullElse(tfccFinding, TfccFinding.NONE);
-
-      EnumMap<Tendon, TendonSelection> selectedTendons = new EnumMap<>(Tendon.class);
-      if (tendons != null) {
-        for (Tendon tendon : Tendon.values()) {
-          TendonSelection finding = tendons.get(tendon);
-          if (finding != null && finding.hasFinding()) {
-            selectedTendons.put(tendon, finding);
-          }
-        }
-      }
-      tendons = Collections.unmodifiableMap(selectedTendons);
-      bone = Objects.requireNonNullElseGet(bone, BoneSelection::empty);
-      ganglion = Objects.requireNonNullElseGet(ganglion, GanglionSelection::empty);
-      fluid = Objects.requireNonNullElseGet(fluid, FluidSelection::empty);
+      limitedExam = Objects.requireNonNullElse(limitedExam, LimitedExam.NONE);
+      ligaments =
+          withFindings(Ligament.class, ligaments, tear -> tear.status() != LigamentStatus.NONE);
+      tfcc = Objects.requireNonNullElse(tfcc, TfccTear.NONE);
+      tendons = withFindings(Tendon.class, tendons, TendonSelection::hasFinding);
+      bones = withFindings(Bone.class, bones, BoneSelection::hasFinding);
+      cyst = Objects.requireNonNullElseGet(cyst, CystSelection::empty);
+      swelling = inOrder(swelling);
       freeText = ComposerText.clean(freeText);
     }
 
-    boolean hasClinicalPositiveFinding() {
-      return !ligaments.isEmpty()
-          || tfccFinding != TfccFinding.NONE
-          || !tendons.isEmpty()
-          || bone.hasFinding()
-          || ganglion.hasFinding()
-          || fluid.hasFinding()
+    boolean hasFinding() {
+      return normal
+          || limitedExam != LimitedExam.NONE
+          || hasStructuredPositiveFinding()
           || ComposerText.hasText(freeText);
     }
 
-    boolean hasFinding() {
-      return normal || motionArtifact || hasClinicalPositiveFinding();
+    boolean hasStructuredPositiveFinding() {
+      return !ligaments.isEmpty()
+          || tfcc != TfccTear.NONE
+          || !tendons.isEmpty()
+          || !bones.isEmpty()
+          || cyst.hasFinding()
+          || !swelling.isEmpty();
     }
+
+    private static <K extends Enum<K>, V> Map<K, V> withFindings(
+        Class<K> keyType, Map<K, V> requested, Predicate<V> hasFinding) {
+      EnumMap<K, V> findings = new EnumMap<>(keyType);
+      if (requested != null) {
+        requested.forEach(
+            (key, value) -> {
+              if (value != null && hasFinding.test(value)) {
+                findings.put(key, value);
+              }
+            });
+      }
+      return Collections.unmodifiableMap(findings);
+    }
+  }
+
+  private static List<WristSide> inOrder(List<WristSide> requested) {
+    return requested == null
+        ? List.of()
+        : List.of(WristSide.values()).stream().filter(requested::contains).toList();
   }
 }

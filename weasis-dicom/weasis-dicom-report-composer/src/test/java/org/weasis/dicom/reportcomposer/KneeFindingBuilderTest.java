@@ -25,9 +25,9 @@ import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MarrowFindingType;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MarrowLocation;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MarrowSelection;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.Meniscus;
+import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MeniscusFinding;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MeniscusRegion;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MeniscusSelection;
-import org.weasis.dicom.reportcomposer.KneeFindingBuilder.MeniscusTearType;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.Selection;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.SoftTissueLocation;
 import org.weasis.dicom.reportcomposer.KneeFindingBuilder.TendonStatus;
@@ -42,23 +42,19 @@ class KneeFindingBuilderTest {
             Map.of(
                 Meniscus.MEDIAL,
                 new MeniscusSelection(
-                    true,
+                    MeniscusFinding.DEGENERATION,
                     List.of(MeniscusRegion.POSTERIOR_HORN),
-                    MeniscusTearType.NONE,
-                    false,
-                    false,
-                    false),
+                    true,
+                    "with extrusion"),
                 Meniscus.LATERAL,
                 new MeniscusSelection(
-                    false,
+                    MeniscusFinding.TEAR,
                     List.of(
                         MeniscusRegion.POSTERIOR_HORN,
                         MeniscusRegion.ANTERIOR_HORN,
                         MeniscusRegion.BODY),
-                    MeniscusTearType.COMPLEX,
-                    false,
-                    false,
-                    true)),
+                    true,
+                    "Associated parameniscal cyst")),
             Map.of(
                 Ligament.MCL,
                 LigamentStatus.MILD_SPRAIN,
@@ -78,10 +74,12 @@ class KneeFindingBuilderTest {
 
     assertEquals(
         List.of(
-            finding("Intrasubstance degeneration of the posterior horn of the medial meniscus."),
             finding(
-                "Complex tear of the anterior horn, body, and posterior horn of the lateral "
-                    + "meniscus with an associated parameniscal cyst."),
+                "Intrasubstance degeneration of the posterior horn of the medial meniscus, with "
+                    + "extrusion."),
+            finding(
+                "Tear of the anterior horn, body, and posterior horn of the lateral meniscus, "
+                    + "extending to the posterior root. Associated parameniscal cyst."),
             finding("Complete tear of the anterior cruciate ligament."),
             finding("Mild sprain of the medial collateral ligament.")),
         KneeFindingBuilder.generate(selection));
@@ -115,7 +113,7 @@ class KneeFindingBuilderTest {
             finding("Mild tendinosis of the quadriceps tendon."),
             finding("Moderate osteoarthrosis of the medial femorotibial compartment."),
             finding("Moderate bone contusions of the lateral femoral condyle and proximal tibia."),
-            finding("Small knee joint effusion."),
+            finding("Small knee joint effusion, nonspecific and potentially inflammatory."),
             finding("Knee joint synovitis."),
             finding("Moderate popliteal cyst."),
             finding("Mild prepatellar bursitis."),
@@ -183,40 +181,26 @@ class KneeFindingBuilderTest {
   }
 
   @Test
-  void rootTearFollowsTheSelectedHorn() {
-    for (var test :
-        Map.of(
-                List.<MeniscusRegion>of(),
-                "Posterior root tear of the lateral meniscus.",
-                List.of(MeniscusRegion.POSTERIOR_HORN),
-                "Posterior root tear of the lateral meniscus.",
-                List.of(MeniscusRegion.ANTERIOR_HORN),
-                "Anterior root tear of the lateral meniscus.",
-                List.of(MeniscusRegion.ANTERIOR_HORN, MeniscusRegion.POSTERIOR_HORN),
-                "Anterior and posterior root tears of the lateral meniscus.")
-            .entrySet()) {
-      Selection selection =
-          selection(
-              false,
-              Map.of(
-                  Meniscus.LATERAL,
-                  new MeniscusSelection(
-                      false, test.getKey(), MeniscusTearType.ROOT, false, false, false)),
-              Map.of(),
-              false,
-              Map.of(),
-              Map.of(),
-              MarrowSelection.empty(),
-              FluidAmount.NONE,
-              false,
-              FluidAmount.NONE,
-              Degree.NONE,
-              Degree.NONE,
-              List.of(),
-              "");
+  void edemaLocationAloneReportsEdemaWithoutADegree() {
+    Selection selection =
+        selection(
+            false,
+            Map.of(),
+            Map.of(),
+            false,
+            Map.of(),
+            Map.of(),
+            MarrowSelection.empty(),
+            FluidAmount.NONE,
+            false,
+            FluidAmount.NONE,
+            Degree.NONE,
+            Degree.NONE,
+            List.of(SoftTissueLocation.PREPATELLAR),
+            "");
 
-      assertEquals(List.of(finding(test.getValue())), KneeFindingBuilder.generate(selection));
-    }
+    assertEquals(
+        List.of(finding("Prepatellar soft tissue edema.")), KneeFindingBuilder.generate(selection));
   }
 
   private static Selection selection(
@@ -248,6 +232,7 @@ class KneeFindingBuilderTest {
         prepatellarBursitis,
         softTissueEdema,
         softTissueLocations,
+        false,
         freeText);
   }
 

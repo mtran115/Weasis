@@ -66,7 +66,11 @@ final class KneeFindingBuilder {
     }
     addMarrowFinding(findings, selection.marrow());
     if (selection.effusion() != FluidAmount.NONE) {
-      addFinding(findings, "effusion", selection.effusion().phrase() + " knee joint effusion");
+      addFinding(
+          findings,
+          "effusion",
+          selection.effusion().phrase()
+              + " knee joint effusion, nonspecific and potentially inflammatory");
     }
     if (selection.synovitis()) {
       addFinding(findings, "synovitis", "Knee joint synovitis");
@@ -81,7 +85,11 @@ final class KneeFindingBuilder {
           "prepatellar-bursitis",
           selection.prepatellarBursitis().phrase() + " prepatellar bursitis");
     }
-    if (selection.softTissueEdema() != Degree.NONE) {
+    if (selection.hasSoftTissueEdema()) {
+      String degree =
+          selection.softTissueEdema() == Degree.NONE
+              ? ""
+              : selection.softTissueEdema().phrase() + " ";
       String locations =
           selection.softTissueLocations().isEmpty()
               ? "anterior knee"
@@ -89,10 +97,10 @@ final class KneeFindingBuilder {
                   selection.softTissueLocations().stream()
                       .map(SoftTissueLocation::phrase)
                       .toList());
-      addFinding(
-          findings,
-          "soft-tissue-edema",
-          selection.softTissueEdema().phrase() + " " + locations + " soft tissue edema");
+      addFinding(findings, "soft-tissue-edema", degree + locations + " soft tissue edema");
+    }
+    if (selection.lateralCondyleFriction()) {
+      addFinding(findings, "condyle-friction", "Lateral femoral condyle friction");
     }
     if (ComposerText.hasText(selection.freeText())) {
       findings.add(
@@ -104,50 +112,23 @@ final class KneeFindingBuilder {
 
   private static void addMeniscusFindings(
       List<KeyedFinding> findings, Meniscus meniscus, MeniscusSelection selection) {
-    String involvedStructure = meniscusStructure(meniscus, selection.regions());
-    String key = "meniscus:" + meniscus.name() + ":";
-    if (selection.intrasubstanceDegeneration()) {
-      addFinding(
-          findings,
-          key + "degeneration",
-          "Intrasubstance degeneration of the " + involvedStructure);
+    if (selection.finding() == MeniscusFinding.NONE) {
+      return;
     }
-    if (selection.tearType() != MeniscusTearType.NONE) {
-      String tear =
-          selection.tearType() == MeniscusTearType.ROOT
-              ? rootTearDescription(selection.regions())
-                  + " of the "
-                  + meniscus.phrase()
-                  + " meniscus"
-              : selection.tearType().phrase() + " of the " + involvedStructure;
-      if (selection.parameniscalCyst()) {
-        tear += " with an associated parameniscal cyst";
-      }
-      addFinding(findings, key + "tear", tear);
+    StringBuilder text =
+        new StringBuilder(selection.finding().phrase())
+            .append(" of the ")
+            .append(meniscusStructure(meniscus, selection.regions()));
+    if (selection.posteriorRoot()) {
+      text.append(", extending to the posterior root");
     }
-    if (selection.maceration()) {
-      addFinding(findings, key + "maceration", "Maceration of the " + involvedStructure);
+    if (ComposerText.hasText(selection.extras())) {
+      // Extras typed in lower case continue the sentence; a capital starts a new one.
+      boolean continues = Character.isLowerCase(selection.extras().charAt(0));
+      text.append(continues ? ", " : ". ").append(selection.extras());
     }
-    if (selection.extrusion()) {
-      addFinding(
-          findings, key + "extrusion", "Extrusion of the " + meniscus.phrase() + " meniscus");
-    }
-    if (selection.parameniscalCyst() && selection.tearType() == MeniscusTearType.NONE) {
-      addFinding(
-          findings,
-          key + "cyst",
-          "Parameniscal cyst adjacent to the " + meniscus.phrase() + " meniscus");
-    }
-  }
-
-  /** Posterior root tears are the default; the anterior horn selects an anterior root. */
-  private static String rootTearDescription(List<MeniscusRegion> regions) {
-    boolean anterior = regions.contains(MeniscusRegion.ANTERIOR_HORN);
-    boolean posterior = regions.contains(MeniscusRegion.POSTERIOR_HORN);
-    if (anterior && posterior) {
-      return "Anterior and posterior root tears";
-    }
-    return anterior ? "Anterior root tear" : "Posterior root tear";
+    addFinding(
+        findings, "meniscus:" + meniscus.name() + ":" + selection.finding().key(), text.toString());
   }
 
   private static String meniscusStructure(Meniscus meniscus, List<MeniscusRegion> regions) {
@@ -266,25 +247,27 @@ final class KneeFindingBuilder {
     }
   }
 
-  enum MeniscusTearType {
-    NONE("None", ""),
-    TEAR("Tear", "Tear"),
-    HORIZONTAL("Horizontal", "Horizontal tear"),
-    VERTICAL("Vertical", "Vertical tear"),
-    RADIAL("Radial", "Radial tear"),
-    COMPLEX("Complex", "Complex tear"),
-    ROOT("Root", "Root tear");
+  enum MeniscusFinding {
+    NONE("None", "", ""),
+    DEGENERATION("Intrasubstance degeneration", "Intrasubstance degeneration", "degeneration"),
+    TEAR("Tear", "Tear", "tear");
 
     private final String label;
     private final String phrase;
+    private final String key;
 
-    MeniscusTearType(String label, String phrase) {
+    MeniscusFinding(String label, String phrase, String key) {
       this.label = label;
       this.phrase = phrase;
+      this.key = key;
     }
 
     String phrase() {
       return phrase;
+    }
+
+    String key() {
+      return key;
     }
 
     @Override
@@ -531,31 +514,25 @@ final class KneeFindingBuilder {
     }
   }
 
+  /** The posterior root extension applies to a tear only. */
   record MeniscusSelection(
-      boolean intrasubstanceDegeneration,
-      List<MeniscusRegion> regions,
-      MeniscusTearType tearType,
-      boolean maceration,
-      boolean extrusion,
-      boolean parameniscalCyst) {
+      MeniscusFinding finding, List<MeniscusRegion> regions, boolean posteriorRoot, String extras) {
 
     MeniscusSelection {
+      finding = Objects.requireNonNullElse(finding, MeniscusFinding.NONE);
       List<MeniscusRegion> requestedRegions = regions == null ? List.of() : regions;
       regions =
           List.of(MeniscusRegion.values()).stream().filter(requestedRegions::contains).toList();
-      tearType = Objects.requireNonNullElse(tearType, MeniscusTearType.NONE);
+      posteriorRoot = posteriorRoot && finding == MeniscusFinding.TEAR;
+      extras = ComposerText.clean(extras);
     }
 
     static MeniscusSelection empty() {
-      return new MeniscusSelection(false, List.of(), MeniscusTearType.NONE, false, false, false);
+      return new MeniscusSelection(MeniscusFinding.NONE, List.of(), false, "");
     }
 
     boolean hasFinding() {
-      return intrasubstanceDegeneration
-          || tearType != MeniscusTearType.NONE
-          || maceration
-          || extrusion
-          || parameniscalCyst;
+      return finding != MeniscusFinding.NONE;
     }
   }
 
@@ -593,6 +570,7 @@ final class KneeFindingBuilder {
       Degree prepatellarBursitis,
       Degree softTissueEdema,
       List<SoftTissueLocation> softTissueLocations,
+      boolean lateralCondyleFriction,
       String freeText) {
 
     Selection {
@@ -633,7 +611,13 @@ final class KneeFindingBuilder {
           || synovitis
           || poplitealCyst != FluidAmount.NONE
           || prepatellarBursitis != Degree.NONE
-          || softTissueEdema != Degree.NONE;
+          || hasSoftTissueEdema()
+          || lateralCondyleFriction;
+    }
+
+    /** A location alone reports the edema without a degree. */
+    boolean hasSoftTissueEdema() {
+      return softTissueEdema != Degree.NONE || !softTissueLocations.isEmpty();
     }
 
     private static Map<Meniscus, MeniscusSelection> normalizeMenisci(

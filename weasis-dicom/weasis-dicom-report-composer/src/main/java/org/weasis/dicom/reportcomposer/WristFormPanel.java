@@ -12,138 +12,165 @@ package org.weasis.dicom.reportcomposer;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.event.ActionListener;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
+import javax.swing.text.JTextComponent;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
-import org.weasis.dicom.reportcomposer.WristFindingBuilder.BoneFindingType;
-import org.weasis.dicom.reportcomposer.WristFindingBuilder.BoneLocation;
+import org.weasis.dicom.reportcomposer.WristFindingBuilder.Bone;
 import org.weasis.dicom.reportcomposer.WristFindingBuilder.BoneSelection;
+import org.weasis.dicom.reportcomposer.WristFindingBuilder.CystSelection;
 import org.weasis.dicom.reportcomposer.WristFindingBuilder.Degree;
-import org.weasis.dicom.reportcomposer.WristFindingBuilder.FluidAmount;
-import org.weasis.dicom.reportcomposer.WristFindingBuilder.FluidLocation;
-import org.weasis.dicom.reportcomposer.WristFindingBuilder.FluidSelection;
-import org.weasis.dicom.reportcomposer.WristFindingBuilder.GanglionLocation;
-import org.weasis.dicom.reportcomposer.WristFindingBuilder.GanglionSelection;
 import org.weasis.dicom.reportcomposer.WristFindingBuilder.Ligament;
-import org.weasis.dicom.reportcomposer.WristFindingBuilder.LigamentSelection;
 import org.weasis.dicom.reportcomposer.WristFindingBuilder.LigamentStatus;
+import org.weasis.dicom.reportcomposer.WristFindingBuilder.LigamentTear;
+import org.weasis.dicom.reportcomposer.WristFindingBuilder.LimitedExam;
 import org.weasis.dicom.reportcomposer.WristFindingBuilder.Selection;
 import org.weasis.dicom.reportcomposer.WristFindingBuilder.Tendon;
 import org.weasis.dicom.reportcomposer.WristFindingBuilder.TendonSelection;
 import org.weasis.dicom.reportcomposer.WristFindingBuilder.TendonTear;
-import org.weasis.dicom.reportcomposer.WristFindingBuilder.TfccFinding;
+import org.weasis.dicom.reportcomposer.WristFindingBuilder.TfccTear;
+import org.weasis.dicom.reportcomposer.WristFindingBuilder.WristSide;
 
-final class WristFormPanel extends JPanel {
+final class WristFormPanel extends JPanel implements ChordForm {
+  static final String CHORD_REFERENCE =
+      """
+      ~           chord mode on / off
+
+      Structure; stays until the next one
+        1 Scapholunate ligament
+        2 TFCC
+        3 Ganglion or synovial cyst
+        4 Soft tissue swelling
+        5 Limited exam
+        0 Free text box
+
+      On the scapholunate ligament (1)
+      t p         tear, partial tear
+      On the TFCC (2)
+      t r u       tear, radial attachment tear,
+                    ulnar attachment tear
+      On the cyst (3)
+      v d r       volar, dorsal, radial
+      x           size box; Tab goes on to level
+      On soft tissue swelling (4)
+      d v         dorsal, volar
+      On limited exam (5)
+      m a         motion, artifact
+
+      A bone: b and a digit
+        b1 Distal radius   b2 Distal ulna
+        b3 Scaphoid        b4 Lunate
+        b5 Triquetrum      b6 Trapezium
+        b7 Trapezoid       b8 Capitate
+        b9 Hamate          b0 2nd metacarpal base
+      d#          bony contusion
+                    1 mild  2 moderate  3 severe
+                    4 minimal  0 clear
+      f           nondisplaced fracture
+      c           cystic changes
+      o           marrow edema, may be related to
+                    contusion or osteoarthrosis
+      x           extras text
+
+      An extensor tendon: e and a digit
+        e1 APL    e2 EPB    e3 ECRL   e4 ECRB
+        e5 EPL    e6 Extensor digitorum
+        e7 ECU
+      d#          tenosynovitis, as for a bone
+      s p         split tear, partial tear (ECU)
+
+      Backspace   remove the last key or token
+      Esc         drop a half-typed token
+
+      M, the numpad and arrows still go to the viewer.
+      """;
+
   private static final List<Degree> DEGREES =
       List.of(Degree.MINIMAL, Degree.MILD, Degree.MODERATE, Degree.SEVERE);
-  private static final List<LigamentStatus> LIGAMENT_STATUSES =
-      List.of(
-          LigamentStatus.DEGENERATION,
-          LigamentStatus.SPRAIN,
-          LigamentStatus.PARTIAL_TEAR,
-          LigamentStatus.TEAR,
-          LigamentStatus.COMPLETE_TEAR);
-  private static final List<TfccFinding> TFCC_FINDINGS =
-      List.of(
-          TfccFinding.DEGENERATION,
-          TfccFinding.CENTRAL_PERFORATION,
-          TfccFinding.RADIAL_ATTACHMENT_TEAR,
-          TfccFinding.ULNAR_ATTACHMENT_TEAR,
-          TfccFinding.PERIPHERAL_TEAR,
-          TfccFinding.TEAR);
-  private static final List<TendonTear> TENDON_TEARS =
-      List.of(TendonTear.SPLIT, TendonTear.PARTIAL, TendonTear.COMPLETE);
-  private static final List<BoneFindingType> BONE_FINDINGS =
-      List.of(
-          BoneFindingType.MARROW_EDEMA,
-          BoneFindingType.CONTUSION,
-          BoneFindingType.CYSTIC_CHANGES,
-          BoneFindingType.INTRAOSSEOUS_CYST);
-  private static final List<GanglionLocation> GANGLION_LOCATIONS =
-      List.of(GanglionLocation.DORSAL, GanglionLocation.VOLAR);
-  private static final List<FluidLocation> FLUID_LOCATIONS =
-      List.of(
-          FluidLocation.PISOTRIQUETRAL_RECESS,
-          FluidLocation.DORSAL_RADIOCARPAL_JOINT,
-          FluidLocation.RADIOCARPAL_JOINT,
-          FluidLocation.MIDCARPAL_JOINT,
-          FluidLocation.DISTAL_RADIOULNAR_JOINT,
-          FluidLocation.ULNAR_STYLOID);
-  private static final List<FluidAmount> FLUID_AMOUNTS =
-      List.of(FluidAmount.TRACE, FluidAmount.SMALL, FluidAmount.MODERATE, FluidAmount.LARGE);
+  private static final List<WristSide> SWELLING_SIDES = List.of(WristSide.DORSAL, WristSide.VOLAR);
 
   private final JToggleButton normal = new FindingToggleButton("Normal wrist MRI");
-  private final Map<Ligament, LigamentControls> ligaments = new EnumMap<>(Ligament.class);
-  private final DirectChoiceControl<TfccFinding> tfccFinding =
-      new DirectChoiceControl<>(TFCC_FINDINGS, 2);
-  private final Map<Tendon, TendonControls> tendons = new EnumMap<>(Tendon.class);
-  private final DirectChoiceControl<BoneFindingType> boneType =
-      new DirectChoiceControl<>(BONE_FINDINGS, 2);
-  private final DirectChoiceControl<Degree> boneDegree = new DirectChoiceControl<>(DEGREES, 2);
-  private final Map<BoneLocation, JToggleButton> boneLocations = new EnumMap<>(BoneLocation.class);
-  private final JTextField cystSize = new JTextField(6);
-  private final DirectChoiceControl<GanglionLocation> ganglionLocation =
-      new DirectChoiceControl<>(GANGLION_LOCATIONS, 2);
-  private final JTextField ganglionSize = new JTextField(6);
-  private final JTextField ganglionAdditionalLocation = new JTextField();
-  private final DirectChoiceControl<FluidLocation> fluidLocation =
-      new DirectChoiceControl<>(FLUID_LOCATIONS, 2);
-  private final DirectChoiceControl<FluidAmount> fluidAmount =
-      new DirectChoiceControl<>(FLUID_AMOUNTS, 2);
-  private final JToggleButton likelyInflammatory = new FindingToggleButton("Likely inflammatory");
-  private final JToggleButton motionArtifact = new FindingToggleButton("Motion artifact");
+  private final DirectChoiceControl<LimitedExam> limitedExam =
+      new DirectChoiceControl<>(List.of(LimitedExam.MOTION, LimitedExam.ARTIFACT), 2);
+  private final Map<Ligament, TearControls<LigamentStatus>> ligaments =
+      new EnumMap<>(Ligament.class);
+  private final TearControls<TfccTear> tfcc =
+      new TearControls<>(
+          List.of(TfccTear.TEAR, TfccTear.RADIAL_ATTACHMENT, TfccTear.ULNAR_ATTACHMENT), 3);
+  private final Map<Tendon, DirectChoiceControl<Degree>> tenosynovitis =
+      new EnumMap<>(Tendon.class);
+  private final DirectChoiceControl<TendonTear> ecuTear =
+      new DirectChoiceControl<>(
+          List.of(TendonTear.SPLIT, TendonTear.PARTIAL, TendonTear.COMPLETE), 3);
+  private final Map<Bone, BoneControls> bones = new EnumMap<>(Bone.class);
+  private final Map<WristSide, JToggleButton> cystSides = new EnumMap<>(WristSide.class);
+  private final JTextField cystSize = ComposerTextEditing.install(new JTextField(5));
+  private final JTextField cystLevel = ComposerTextEditing.install(new JTextField(12));
+  private final Map<WristSide, JToggleButton> swelling = new EnumMap<>(WristSide.class);
   private final JTextArea freeText = ComposerTextEditing.install(new JTextArea(3, 24));
-  private final JButton resetButton = iconButton(ActionIcon.RESET, "Clear wrist form");
+  private final JButton resetButton = new JButton(ResourceUtil.getIcon(ActionIcon.RESET));
   private final JButton otherFindingButton = new JButton("Other Finding");
   private final JButton addButton = new JButton("Add Selected Findings");
 
   WristFormPanel() {
     setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
     setBorder(BorderFactory.createTitledBorder("Structured wrist findings"));
-    add(stretch(buildNormalPanel()));
-    add(stretch(buildLigamentPanel()));
-    add(stretch(buildTfccPanel()));
-    add(stretch(buildTendonPanel()));
-    add(stretch(buildBonePanel()));
-    add(stretch(buildGanglionPanel()));
-    add(stretch(buildFluidPanel()));
-    add(stretch(buildTechnicalPanel()));
-    add(stretch(buildFreeTextPanel()));
-    add(stretch(buildActions()));
+    JPanel top = FormRows.rowsPanel("Overall");
+    normal.setMargin(new Insets(2, 7, 2, 7));
+    JPanel normalRow = new JPanel(new FlowLayout(FlowLayout.LEADING, 0, 0));
+    normalRow.add(normal);
+    FormRows.addRow(top, 0, "Normal", normalRow);
+    FormRows.addRow(top, 1, "Limited exam", limitedExam.panel());
+    for (JPanel section :
+        List.of(
+            top,
+            buildLigamentsPanel(),
+            buildTendonsPanel(),
+            buildBonesPanel(),
+            buildSoftTissuePanel(),
+            buildFreeTextPanel())) {
+      add(FormRows.stretch(section));
+    }
+    otherFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.DRAW_TEXT));
+    addButton.setIcon(ResourceUtil.getIcon(ActionIcon.PLUS));
+    add(
+        FormRows.stretch(
+            GuiUtils.getFlowLayoutPanel(
+                FlowLayout.TRAILING, 5, 5, resetButton, otherFindingButton, addButton)));
     setAlignmentX(LEFT_ALIGNMENT);
-    Dimension preferred = getPreferredSize();
-    setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
+    setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
 
-    boneType.select(BoneFindingType.CONTUSION);
-    updateCystSizeState();
-    updateGanglionState();
-    updateFluidState();
-    registerPositiveSelectionListeners();
+    ActionListener clearNormal = event -> normal.setSelected(false);
+    positiveChoices().forEach(control -> control.addActionListener(clearNormal));
+    positiveToggles().forEach(button -> button.addActionListener(clearNormal));
+    cystSides.values().forEach(button -> button.addActionListener(event -> refreshCyst()));
     normal.addActionListener(
         event -> {
           if (normal.isSelected()) {
             clearPositiveSelections();
           }
         });
+    resetButton.setToolTipText("Clear wrist form");
+    resetButton.setPreferredSize(new Dimension(30, 28));
     resetButton.addActionListener(event -> clearSelections());
+    refreshCyst();
   }
 
   void addSubmitListener(ActionListener listener) {
@@ -154,158 +181,196 @@ final class WristFormPanel extends JPanel {
     otherFindingButton.addActionListener(listener);
   }
 
-  Selection selection() {
-    EnumMap<Ligament, LigamentSelection> selectedLigaments = new EnumMap<>(Ligament.class);
-    ligaments.forEach(
-        (ligament, controls) -> {
-          LigamentSelection selection = controls.selection();
-          if (selection.hasFinding()) {
-            selectedLigaments.put(ligament, selection);
-          }
-        });
-    EnumMap<Tendon, TendonSelection> selectedTendons = new EnumMap<>(Tendon.class);
-    tendons.forEach(
-        (tendon, controls) -> {
-          TendonSelection selection = controls.selection();
-          if (selection.hasFinding()) {
-            selectedTendons.put(tendon, selection);
-          }
-        });
+  @Override
+  public List<Target> chordTargets() {
+    TearControls<LigamentStatus> scapholunate = ligaments.get(Ligament.SCAPHOLUNATE);
+    return List.of(
+        new Target(
+            "Scapholunate ligament",
+            List.of(),
+            keys(
+                't', scapholunate.tear.button(LigamentStatus.TEAR),
+                'p', scapholunate.tear.button(LigamentStatus.PARTIAL_TEAR)),
+            null),
+        new Target(
+            "TFCC",
+            List.of(),
+            keys(
+                't', tfcc.tear.button(TfccTear.TEAR),
+                'r', tfcc.tear.button(TfccTear.RADIAL_ATTACHMENT),
+                'u', tfcc.tear.button(TfccTear.ULNAR_ATTACHMENT)),
+            null),
+        new Target(
+            "Ganglion or synovial cyst",
+            List.of(),
+            keys(
+                'v', cystSides.get(WristSide.VOLAR),
+                'd', cystSides.get(WristSide.DORSAL),
+                'r', cystSides.get(WristSide.RADIAL)),
+            cystSize),
+        new Target(
+            "Soft tissue swelling",
+            List.of(),
+            keys('d', swelling.get(WristSide.DORSAL), 'v', swelling.get(WristSide.VOLAR)),
+            null),
+        new Target(
+            "Limited exam",
+            List.of(),
+            keys(
+                'm', limitedExam.button(LimitedExam.MOTION),
+                'a', limitedExam.button(LimitedExam.ARTIFACT)),
+            null));
+  }
 
+  @Override
+  public Map<Character, List<Target>> prefixedTargets() {
+    List<Target> boneTargets = new ArrayList<>();
+    bones.forEach((bone, controls) -> boneTargets.add(controls.chordTarget(bone)));
+    List<Target> tendonTargets = new ArrayList<>();
+    tenosynovitis.forEach(
+        (tendon, control) ->
+            tendonTargets.add(
+                new Target(
+                    tendon + " tendon",
+                    degreeButtons(control),
+                    tendon == Tendon.EXTENSOR_CARPI_ULNARIS
+                        ? keys(
+                            's', ecuTear.button(TendonTear.SPLIT),
+                            'p', ecuTear.button(TendonTear.PARTIAL))
+                        : Map.of(),
+                    null)));
+    return Map.of('b', boneTargets, 'e', tendonTargets);
+  }
+
+  @Override
+  public JTextComponent freeText() {
+    return freeText;
+  }
+
+  Selection selection() {
+    Map<Ligament, LigamentTear> selectedLigaments = new EnumMap<>(Ligament.class);
+    ligaments.forEach(
+        (ligament, controls) ->
+            selectedLigaments.put(
+                ligament,
+                new LigamentTear(
+                    controls.tear.selectionOr(LigamentStatus.NONE),
+                    controls.possible.isSelected())));
+    Map<Tendon, TendonSelection> selectedTendons = new EnumMap<>(Tendon.class);
+    tenosynovitis.forEach(
+        (tendon, control) ->
+            selectedTendons.put(
+                tendon,
+                new TendonSelection(
+                    control.selectionOr(Degree.NONE),
+                    tendon == Tendon.EXTENSOR_CARPI_ULNARIS
+                        ? ecuTear.selectionOr(TendonTear.NONE)
+                        : TendonTear.NONE)));
+    Map<Bone, BoneSelection> selectedBones = new EnumMap<>(Bone.class);
+    bones.forEach((bone, controls) -> selectedBones.put(bone, controls.selection()));
     return new Selection(
         normal.isSelected(),
+        limitedExam.selectionOr(LimitedExam.NONE),
         selectedLigaments,
-        tfccFinding.selectionOr(TfccFinding.NONE),
+        tfcc.tear.selectionOr(TfccTear.NONE),
+        tfcc.possible.isSelected(),
         selectedTendons,
-        new BoneSelection(
-            boneType.selectionOr(BoneFindingType.NONE),
-            boneDegree.selectionOr(Degree.NONE),
-            selected(boneLocations),
-            cystSize.getText()),
-        new GanglionSelection(
-            ganglionLocation.selectionOr(GanglionLocation.NONE),
-            ganglionSize.getText(),
-            ganglionAdditionalLocation.getText()),
-        new FluidSelection(
-            fluidLocation.selectionOr(FluidLocation.NONE),
-            fluidAmount.selectionOr(FluidAmount.NONE),
-            likelyInflammatory.isSelected()),
-        motionArtifact.isSelected(),
+        selectedBones,
+        new CystSelection(FormRows.selected(cystSides), cystSize.getText(), cystLevel.getText()),
+        FormRows.selected(swelling),
         freeText.getText());
   }
 
   void clearSelections() {
     normal.setSelected(false);
-    motionArtifact.setSelected(false);
+    limitedExam.clear();
     clearPositiveSelections();
     freeText.setText("");
   }
 
   private void clearPositiveSelections() {
-    ligaments.values().forEach(LigamentControls::clear);
-    tfccFinding.clear();
-    tendons.values().forEach(TendonControls::clear);
-    boneType.clear();
-    boneType.select(BoneFindingType.CONTUSION);
-    boneDegree.clear();
-    boneLocations.values().forEach(button -> button.setSelected(false));
+    positiveChoices().forEach(DirectChoiceControl::clear);
+    positiveToggles().forEach(button -> button.setSelected(false));
+    bones.values().forEach(BoneControls::refresh);
+    bones.values().forEach(controls -> controls.extras.setText(""));
     cystSize.setText("");
-    ganglionLocation.clear();
-    ganglionSize.setText("");
-    ganglionAdditionalLocation.setText("");
-    fluidLocation.clear();
-    fluidAmount.clear();
-    likelyInflammatory.setSelected(false);
-    updateCystSizeState();
-    updateGanglionState();
-    updateFluidState();
+    cystLevel.setText("");
+    refreshCyst();
   }
 
-  private JPanel buildNormalPanel() {
-    JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 2));
-    normal.setMargin(new Insets(2, 7, 2, 7));
-    panel.add(normal);
-    return panel;
+  private List<DirectChoiceControl<?>> positiveChoices() {
+    List<DirectChoiceControl<?>> controls = new ArrayList<>(tenosynovitis.values());
+    ligaments.values().forEach(ligament -> controls.add(ligament.tear));
+    controls.add(tfcc.tear);
+    controls.add(ecuTear);
+    bones.values().forEach(bone -> controls.add(bone.contusion));
+    return controls;
   }
 
-  private JPanel buildLigamentPanel() {
-    JPanel panel = verticalPanel("Intrinsic ligaments");
+  private List<JToggleButton> positiveToggles() {
+    List<JToggleButton> buttons = new ArrayList<>(cystSides.values());
+    buttons.addAll(swelling.values());
+    buttons.add(tfcc.possible);
+    ligaments.values().forEach(ligament -> buttons.add(ligament.possible));
+    bones.values().forEach(bone -> buttons.addAll(bone.toggles()));
+    return buttons;
+  }
+
+  private JPanel buildLigamentsPanel() {
+    JPanel panel = FormRows.rowsPanel("Ligaments and TFCC");
+    int row = 0;
     for (Ligament ligament : Ligament.values()) {
-      LigamentControls controls = new LigamentControls(ligament);
+      TearControls<LigamentStatus> controls =
+          new TearControls<>(List.of(LigamentStatus.TEAR, LigamentStatus.PARTIAL_TEAR), 2);
       ligaments.put(ligament, controls);
-      panel.add(stretch(controls.panel()));
+      FormRows.addRow(panel, row++, ligament.toString(), controls.panel);
     }
+    FormRows.addRow(panel, row, "TFCC tear", tfcc.panel);
     return panel;
   }
 
-  private JPanel buildTfccPanel() {
-    JPanel panel = choicePanel("TFCC");
-    addChoiceRow(panel, 0, "Finding", tfccFinding);
-    return panel;
-  }
-
-  private JPanel buildTendonPanel() {
-    JPanel panel = verticalPanel("Frequently used tendons");
+  private JPanel buildTendonsPanel() {
+    JPanel panel = FormRows.rowsPanel("Extensor tenosynovitis");
+    int row = 0;
     for (Tendon tendon : Tendon.values()) {
-      TendonControls controls = new TendonControls(tendon);
-      tendons.put(tendon, controls);
-      panel.add(stretch(controls.panel()));
+      DirectChoiceControl<Degree> control = new DirectChoiceControl<>(DEGREES, 4);
+      tenosynovitis.put(tendon, control);
+      FormRows.addInlineRow(panel, row++, tendon.toString(), control.panel());
+    }
+    FormRows.addInlineRow(panel, row, "ECU tear", ecuTear.panel());
+    return panel;
+  }
+
+  private JPanel buildBonesPanel() {
+    JPanel panel = FormRows.rowsPanel("Bones");
+    int row = 0;
+    for (Bone bone : Bone.values()) {
+      BoneControls controls = new BoneControls();
+      bones.put(bone, controls);
+      FormRows.addInlineRow(panel, row++, bone.toString(), controls.contusion.panel());
+      FormRows.addInlineRow(panel, row++, "", controls.detailRow);
     }
     return panel;
   }
 
-  private JPanel buildBonePanel() {
-    JPanel panel = choicePanel("Bone findings");
-    addChoiceRow(panel, 0, "Finding", boneType);
-    addChoiceRow(panel, 1, "Degree", boneDegree);
-
-    GridBagConstraints constraints = constraints(4);
-    constraints.gridwidth = 2;
-    panel.add(new JLabel("Location"), constraints);
-    constraints = constraints(5);
-    constraints.gridwidth = 2;
-    constraints.weightx = 1.0;
-    constraints.fill = GridBagConstraints.HORIZONTAL;
-    constraints.insets = new Insets(0, 15, 4, 3);
-    panel.add(toggleGrid(BoneLocation.values(), boneLocations, 2), constraints);
-
-    constraints = constraints(6);
-    panel.add(new JLabel("Cyst size"), constraints);
-    constraints.gridx = 1;
-    constraints.weightx = 1.0;
-    constraints.fill = GridBagConstraints.HORIZONTAL;
-    panel.add(cystSize, constraints);
-    boneType.addActionListener(event -> updateCystSizeState());
-    return panel;
-  }
-
-  private JPanel buildGanglionPanel() {
-    JPanel panel = choicePanel("Ganglion cyst");
-    addChoiceRow(panel, 0, "Location", ganglionLocation);
-    addTextRow(panel, 1, "Size", ganglionSize);
-    addTextRow(panel, 2, "Additional location", ganglionAdditionalLocation);
-    ganglionLocation.addActionListener(event -> updateGanglionState());
-    return panel;
-  }
-
-  private JPanel buildFluidPanel() {
-    JPanel panel = choicePanel("Joint and recess fluid");
-    addChoiceRow(panel, 0, "Location", fluidLocation);
-    addChoiceRow(panel, 1, "Amount", fluidAmount);
-    likelyInflammatory.setMargin(new Insets(2, 7, 2, 7));
-    GridBagConstraints constraints = constraints(4);
-    constraints.gridx = 1;
-    constraints.gridwidth = 2;
-    panel.add(likelyInflammatory, constraints);
-    fluidLocation.addActionListener(event -> updateFluidState());
-    return panel;
-  }
-
-  private JPanel buildTechnicalPanel() {
-    JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 2));
-    panel.setBorder(BorderFactory.createTitledBorder("Technical notes"));
-    motionArtifact.setMargin(new Insets(2, 7, 2, 7));
-    panel.add(motionArtifact);
+  private JPanel buildSoftTissuePanel() {
+    JPanel panel = FormRows.rowsPanel("Cyst and soft tissues");
+    FormRows.addRow(
+        panel,
+        0,
+        "Ganglion or synovial cyst",
+        FormRows.toggleRow(List.of(WristSide.values()), cystSides, WristSide::toString));
+    JPanel details = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 0));
+    details.add(new JLabel("Size"));
+    details.add(cystSize);
+    details.add(new JLabel("Level"));
+    details.add(cystLevel);
+    FormRows.addRow(panel, 1, "Cyst size and level, such as 8 mm, radiocarpal joint", details);
+    FormRows.addRow(
+        panel,
+        2,
+        "Soft tissue swelling",
+        FormRows.toggleRow(SWELLING_SIDES, swelling, WristSide::toString));
     return panel;
   }
 
@@ -318,215 +383,90 @@ final class WristFormPanel extends JPanel {
     return panel;
   }
 
-  private JPanel buildActions() {
-    otherFindingButton.setIcon(ResourceUtil.getIcon(ActionIcon.DRAW_TEXT));
-    addButton.setIcon(ResourceUtil.getIcon(ActionIcon.PLUS));
-    return GuiUtils.getFlowLayoutPanel(
-        FlowLayout.TRAILING, 5, 5, resetButton, otherFindingButton, addButton);
+  private void refreshCyst() {
+    boolean hasCyst = cystSides.values().stream().anyMatch(JToggleButton::isSelected);
+    cystSize.setEnabled(hasCyst);
+    cystLevel.setEnabled(hasCyst);
   }
 
-  private void registerPositiveSelectionListeners() {
-    ActionListener clearNormal = event -> normal.setSelected(false);
-    ligaments.values().forEach(controls -> controls.addActionListener(clearNormal));
-    tfccFinding.addActionListener(clearNormal);
-    tendons.values().forEach(controls -> controls.addActionListener(clearNormal));
-    boneType.addActionListener(clearNormal);
-    boneDegree.addActionListener(clearNormal);
-    boneLocations.values().forEach(button -> button.addActionListener(clearNormal));
-    ganglionLocation.addActionListener(clearNormal);
-    fluidLocation.addActionListener(clearNormal);
-    fluidAmount.addActionListener(clearNormal);
-    likelyInflammatory.addActionListener(clearNormal);
-  }
-
-  private void updateCystSizeState() {
-    cystSize.setEnabled(boneType.selectionOr(BoneFindingType.NONE).isCystic());
-  }
-
-  private void updateGanglionState() {
-    boolean enabled = ganglionLocation.selectionOr(GanglionLocation.NONE) != GanglionLocation.NONE;
-    ganglionSize.setEnabled(enabled);
-    ganglionAdditionalLocation.setEnabled(enabled);
-  }
-
-  private void updateFluidState() {
-    boolean enabled = fluidLocation.selectionOr(FluidLocation.NONE) != FluidLocation.NONE;
-    fluidAmount.setEnabled(enabled);
-    likelyInflammatory.setEnabled(enabled);
-  }
-
-  private static JPanel verticalPanel(String title) {
-    JPanel panel = new JPanel();
-    panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-    panel.setBorder(BorderFactory.createTitledBorder(title));
-    return panel;
-  }
-
-  private static JPanel choicePanel(String title) {
-    JPanel panel = new JPanel(new GridBagLayout());
-    panel.setBorder(BorderFactory.createTitledBorder(title));
-    return panel;
-  }
-
-  private static void addChoiceRow(
-      JPanel panel, int row, String label, DirectChoiceControl<?> choice) {
-    GridBagConstraints constraints = constraints(row * 2);
-    constraints.gridwidth = 2;
-    panel.add(new JLabel(label), constraints);
-    constraints = constraints(row * 2 + 1);
-    constraints.gridwidth = 2;
-    constraints.weightx = 1.0;
-    constraints.fill = GridBagConstraints.HORIZONTAL;
-    constraints.insets = new Insets(0, 15, 4, 3);
-    panel.add(choice.panel(), constraints);
-  }
-
-  private static void addTextRow(JPanel panel, int row, String label, JTextField field) {
-    GridBagConstraints constraints = constraints(row * 2);
-    panel.add(new JLabel(label), constraints);
-    constraints = constraints(row * 2 + 1);
-    constraints.gridwidth = 2;
-    constraints.weightx = 1.0;
-    constraints.fill = GridBagConstraints.HORIZONTAL;
-    constraints.insets = new Insets(0, 15, 4, 3);
-    panel.add(field, constraints);
-  }
-
-  private static GridBagConstraints constraints(int row) {
-    GridBagConstraints constraints = new GridBagConstraints();
-    constraints.gridx = 0;
-    constraints.gridy = row;
-    constraints.anchor = GridBagConstraints.LINE_START;
-    constraints.insets = new Insets(2, 3, 2, 3);
-    return constraints;
-  }
-
-  private static <T extends Enum<T>> JPanel toggleGrid(
-      T[] values, Map<T, JToggleButton> buttons, int columns) {
-    JPanel panel = new JPanel(new GridLayout(0, columns, 4, 2));
-    for (T value : values) {
-      JToggleButton button = new FindingToggleButton(value.toString());
-      button.setMargin(new Insets(2, 7, 2, 7));
-      buttons.put(value, button);
-      panel.add(button);
+  private static Map<Character, JToggleButton> keys(Object... keysAndButtons) {
+    Map<Character, JToggleButton> keys = new LinkedHashMap<>();
+    for (int i = 0; i < keysAndButtons.length; i += 2) {
+      keys.put((Character) keysAndButtons[i], (JToggleButton) keysAndButtons[i + 1]);
     }
-    return panel;
+    return keys;
   }
 
-  private static <T> List<T> selected(Map<T, JToggleButton> buttons) {
-    return buttons.entrySet().stream()
-        .filter(entry -> entry.getValue().isSelected())
-        .map(Map.Entry::getKey)
-        .toList();
+  /** The buttons for d1 to d4: mild, moderate, severe, minimal. */
+  private static List<JToggleButton> degreeButtons(DirectChoiceControl<Degree> control) {
+    return List.of(
+        control.button(Degree.MILD),
+        control.button(Degree.MODERATE),
+        control.button(Degree.SEVERE),
+        control.button(Degree.MINIMAL));
   }
 
-  private static JButton iconButton(ActionIcon icon, String tooltip) {
-    JButton button = new JButton(ResourceUtil.getIcon(icon));
-    button.setToolTipText(tooltip);
-    button.setPreferredSize(new Dimension(30, 28));
-    return button;
+  /** A tear choice with a toggle that hedges it as possible. */
+  private static final class TearControls<T> {
+    private final JPanel panel = new JPanel(new BorderLayout(4, 0));
+    private final DirectChoiceControl<T> tear;
+    private final JToggleButton possible = new FindingToggleButton("Possible");
+
+    TearControls(List<T> choices, int columns) {
+      tear = new DirectChoiceControl<>(choices, columns);
+      possible.setMargin(new Insets(2, 7, 2, 7));
+      panel.add(tear.panel(), BorderLayout.CENTER);
+      panel.add(possible, BorderLayout.EAST);
+    }
   }
 
-  private static <T extends JComponent> T stretch(T component) {
-    component.setAlignmentX(LEFT_ALIGNMENT);
-    Dimension preferred = component.getPreferredSize();
-    component.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
-    return component;
-  }
+  private static final class BoneControls {
+    private final DirectChoiceControl<Degree> contusion = new DirectChoiceControl<>(DEGREES, 4);
+    private final JToggleButton fracture = new FindingToggleButton("Fracture");
+    private final JToggleButton cysticChange = new FindingToggleButton("Cystic");
+    private final JToggleButton edema = new FindingToggleButton("Edema/OA");
+    private final JTextField extras = ComposerTextEditing.install(new JTextField(6));
+    private final JPanel detailRow = new JPanel(new BorderLayout(4, 0));
 
-  private static final class LigamentControls {
-    private final Ligament ligament;
-    private final JPanel panel = new JPanel(new GridBagLayout());
-    private final DirectChoiceControl<LigamentStatus> status =
-        new DirectChoiceControl<>(LIGAMENT_STATUSES, 2);
-    private final JToggleButton intervalWidening =
-        new FindingToggleButton("Scapholunate interval widening");
-    private final JTextField intervalMeasurement = new JTextField(6);
-
-    LigamentControls(Ligament ligament) {
-      this.ligament = ligament;
-      panel.setBorder(BorderFactory.createTitledBorder(ligament.toString()));
-      addChoiceRow(panel, 0, "Injury", status);
-      if (ligament == Ligament.SCAPHOLUNATE) {
-        intervalWidening.setMargin(new Insets(2, 7, 2, 7));
-        GridBagConstraints constraints = constraints(2);
-        constraints.gridwidth = 2;
-        panel.add(intervalWidening, constraints);
-        constraints = constraints(3);
-        panel.add(new JLabel("Interval measurement"), constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1.0;
-        constraints.fill = GridBagConstraints.HORIZONTAL;
-        panel.add(intervalMeasurement, constraints);
-        intervalWidening.addActionListener(event -> updateMeasurementState());
-        updateMeasurementState();
+    BoneControls() {
+      JPanel buttons = new JPanel(new GridLayout(1, 0, 4, 2));
+      for (JToggleButton button : toggles()) {
+        button.setMargin(new Insets(2, 5, 2, 5));
+        button.addActionListener(event -> refresh());
+        buttons.add(button);
       }
+      fracture.setToolTipText("Nondisplaced fracture with surrounding bone marrow edema");
+      edema.setToolTipText("Marrow edema, may be related to bony contusion or osteoarthrosis");
+      contusion.addActionListener(event -> refresh());
+      detailRow.add(buttons, BorderLayout.WEST);
+      detailRow.add(extras, BorderLayout.CENTER);
+      refresh();
     }
 
-    JPanel panel() {
-      return panel;
+    List<JToggleButton> toggles() {
+      return List.of(fracture, cysticChange, edema);
     }
 
-    LigamentSelection selection() {
-      return new LigamentSelection(
-          status.selectionOr(LigamentStatus.NONE),
-          ligament == Ligament.SCAPHOLUNATE && intervalWidening.isSelected(),
-          intervalMeasurement.getText());
+    BoneSelection selection() {
+      return new BoneSelection(
+          contusion.selectionOr(Degree.NONE),
+          fracture.isSelected(),
+          cysticChange.isSelected(),
+          edema.isSelected(),
+          extras.getText());
     }
 
-    void clear() {
-      status.clear();
-      intervalWidening.setSelected(false);
-      intervalMeasurement.setText("");
-      updateMeasurementState();
+    Target chordTarget(Bone bone) {
+      return new Target(
+          bone.toString(),
+          degreeButtons(contusion),
+          keys('f', fracture, 'c', cysticChange, 'o', edema),
+          extras);
     }
 
-    void addActionListener(ActionListener listener) {
-      status.addActionListener(listener);
-      if (ligament == Ligament.SCAPHOLUNATE) {
-        intervalWidening.addActionListener(listener);
-      }
-    }
-
-    private void updateMeasurementState() {
-      intervalMeasurement.setEnabled(intervalWidening.isSelected());
-    }
-  }
-
-  private static final class TendonControls {
-    private final JPanel panel = new JPanel(new GridBagLayout());
-    private final DirectChoiceControl<Degree> tendinosis = new DirectChoiceControl<>(DEGREES, 2);
-    private final DirectChoiceControl<Degree> tenosynovitis = new DirectChoiceControl<>(DEGREES, 2);
-    private final DirectChoiceControl<TendonTear> tear = new DirectChoiceControl<>(TENDON_TEARS, 2);
-
-    TendonControls(Tendon tendon) {
-      panel.setBorder(BorderFactory.createTitledBorder(tendon.toString()));
-      addChoiceRow(panel, 0, "Tendinosis", tendinosis);
-      addChoiceRow(panel, 1, "Tenosynovitis", tenosynovitis);
-      addChoiceRow(panel, 2, "Tear", tear);
-    }
-
-    JPanel panel() {
-      return panel;
-    }
-
-    TendonSelection selection() {
-      return new TendonSelection(
-          tendinosis.selectionOr(Degree.NONE),
-          tenosynovitis.selectionOr(Degree.NONE),
-          tear.selectionOr(TendonTear.NONE));
-    }
-
-    void clear() {
-      tendinosis.clear();
-      tenosynovitis.clear();
-      tear.clear();
-    }
-
-    void addActionListener(ActionListener listener) {
-      tendinosis.addActionListener(listener);
-      tenosynovitis.addActionListener(listener);
-      tear.addActionListener(listener);
+    /** The extras follow a finding on the bone. */
+    void refresh() {
+      extras.setEnabled(selection().hasFinding());
     }
   }
 }
