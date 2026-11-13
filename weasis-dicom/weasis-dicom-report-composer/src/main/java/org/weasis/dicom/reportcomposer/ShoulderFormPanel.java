@@ -62,6 +62,8 @@ final class ShoulderFormPanel extends JPanel {
       new EnumMap<>(RotatorCuffTendon.class);
   private final Map<RotatorCuffTendon, CuffTearControls> rotatorCuffTears =
       new EnumMap<>(RotatorCuffTendon.class);
+  private final Map<RotatorCuffTendon, JToggleButton> insertionalCysts =
+      new EnumMap<>(RotatorCuffTendon.class);
   private final Map<LabralLocation, JToggleButton> labralTearLocations =
       new EnumMap<>(LabralLocation.class);
   private final JToggleButton paralabralCyst = new FindingToggleButton("Adjacent paralabral cyst");
@@ -97,7 +99,9 @@ final class ShoulderFormPanel extends JPanel {
                     bursae,
                     List.of("subcoracoid-bursitis", "sasd-bursitis", "ac-joint")),
                 new SectionJumpBar.Section(
-                    "Rotator cuff", cuff, List.of("tendinosis:", "cuff-tear:")),
+                    "Rotator cuff",
+                    cuff,
+                    List.of("tendinosis:", "cuff-tear:", "insertional-cysts:")),
                 new SectionJumpBar.Section("Labrum", labrum, List.of("labrum")),
                 new SectionJumpBar.Section("Biceps", biceps, List.of("biceps-tenosynovitis")),
                 new SectionJumpBar.Section("Free text", freeTextPanel, List.of("free-text"))),
@@ -215,7 +219,11 @@ final class ShoulderFormPanel extends JPanel {
         labralLocations,
         paralabralCyst.isSelected(),
         longHeadBicepsTenosynovitis.selectionOr(Degree.NONE),
-        freeText.getText());
+        freeText.getText(),
+        insertionalCysts.entrySet().stream()
+            .filter(entry -> entry.getValue().isSelected())
+            .map(Map.Entry::getKey)
+            .toList());
   }
 
   void clearSelections() {
@@ -225,6 +233,7 @@ final class ShoulderFormPanel extends JPanel {
     acJointOsteoarthrosis.clear();
     rotatorCuffTendinosis.values().forEach(DirectChoiceControl::clear);
     rotatorCuffTears.values().forEach(CuffTearControls::clear);
+    insertionalCysts.values().forEach(button -> button.setSelected(false));
     labralTearLocations.values().forEach(button -> button.setSelected(false));
     paralabralCyst.setSelected(false);
     longHeadBicepsTenosynovitis.clear();
@@ -258,7 +267,17 @@ final class ShoulderFormPanel extends JPanel {
       constraints.weightx = 1.0;
       constraints.fill = GridBagConstraints.HORIZONTAL;
       tendonPanel.add(tearControls.panel(), constraints);
-      shortcutTargets.add(
+      // Added after the older rows so saved drafts still find those by their paths.
+      JToggleButton cysts = new FindingToggleButton("Insertional cystic changes");
+      cysts.setMargin(new Insets(2, 7, 2, 7));
+      cysts.setToolTipText(
+          "Cystic changes at the insertion of the tendon, related to traction (C)");
+      insertionalCysts.put(tendon, cysts);
+      constraints = constraints(3);
+      constraints.gridx = 1;
+      constraints.gridwidth = 2;
+      tendonPanel.add(cysts, constraints);
+      ShortcutTarget target =
           new ShortcutTarget(
               tendon.toString(),
               tendonPanel,
@@ -266,7 +285,9 @@ final class ShoulderFormPanel extends JPanel {
               tendonPanel,
               control,
               tearControls,
-              false));
+              false);
+      target.insertionalCysts = cysts;
+      shortcutTargets.add(target);
       panel.add(stretch(tendonPanel));
     }
     return panel;
@@ -387,6 +408,7 @@ final class ShoulderFormPanel extends JPanel {
     private final DirectChoiceControl<Degree> degree;
     private final CuffTearControls tear;
     private final boolean labrum;
+    private JToggleButton insertionalCysts;
 
     ShortcutTarget(
         String name,
@@ -462,6 +484,7 @@ final class ShoulderFormPanel extends JPanel {
           case 'H' -> tear.highGrade;
           case 'P' -> tear.atFootprint;
           case 'G' -> tear.backgroundTendinosis;
+          case 'C' -> insertionalCysts;
           default -> null;
         };
       }
@@ -501,7 +524,7 @@ final class ShoulderFormPanel extends JPanel {
             + " · Numpad: 1 Mild · 2 Mod · 3 Severe\n"
             + "Numpad . Minimal · 0 Clear · A Articular · B Bursal\n"
             + "I Interstitial · F Full · H High-grade · P Footprint\n"
-            + "G Background tendinosis · T Details · Cmd+Z Undo";
+            + "G Bkgd tendinosis · C Insertional cysts · T Details · Cmd+Z Undo";
       }
       if (labrum) {
         return name
@@ -543,6 +566,7 @@ final class ShoulderFormPanel extends JPanel {
       for (JToggleButton modifier : List.of(highGrade, atFootprint, backgroundTendinosis)) {
         modifier.setMargin(new Insets(2, 7, 2, 7));
       }
+      highGrade.addActionListener(event -> updateModifierState());
       JPanel modifierRow = new JPanel(new GridLayout(0, 2, 4, 2));
       modifierRow.add(highGrade);
       modifierRow.add(atFootprint);
@@ -585,13 +609,18 @@ final class ShoulderFormPanel extends JPanel {
     }
 
     private void updateModifierState() {
-      boolean enabled = types.values().stream().anyMatch(JToggleButton::isSelected);
-      highGrade.setEnabled(
+      // High-grade stands by itself or grades a partial tear; a full-thickness tear alone has
+      // no grade.
+      boolean fullThicknessOnly =
           types.entrySet().stream()
-              .anyMatch(
+              .allMatch(
                   entry ->
-                      entry.getKey() != CuffTearType.FULL_THICKNESS
-                          && entry.getValue().isSelected()));
+                      entry.getValue().isSelected()
+                          == (entry.getKey() == CuffTearType.FULL_THICKNESS));
+      if (fullThicknessOnly) highGrade.setSelected(false);
+      highGrade.setEnabled(!fullThicknessOnly);
+      boolean enabled =
+          highGrade.isSelected() || types.values().stream().anyMatch(JToggleButton::isSelected);
       atFootprint.setEnabled(enabled);
       backgroundTendinosis.setEnabled(enabled);
       details.setEnabled(enabled);

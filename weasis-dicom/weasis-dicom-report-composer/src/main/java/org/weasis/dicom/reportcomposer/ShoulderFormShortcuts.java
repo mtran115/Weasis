@@ -317,7 +317,7 @@ final class ShoulderFormShortcuts implements KeyEventDispatcher {
       publish(
           hovered.name()
               + (letter == 'H'
-                  ? " — select a partial/interstitial tear for high-grade."
+                  ? " — high-grade does not apply to a full-thickness tear alone."
                   : " — select a tear before adding modifiers."));
     return true;
   }

@@ -134,7 +134,8 @@ final class ShoulderHudModel implements FormHud.Model {
                         .map(ShoulderHudModel::abbreviation)
                         .collect(Collectors.joining("+"))
                     + " tear");
-        if (tear.highGrade()) text.append(" HG");
+        if (tear.types().isEmpty()) text.setLength(0);
+        if (tear.highGrade()) text.append(tear.types().isEmpty() ? "HG tear" : " HG");
         if (tear.atFootprint()) text.append(" footprint");
         if (tear.backgroundTendinosis()) text.append(" bkgd tend");
         parts.add(text.toString());

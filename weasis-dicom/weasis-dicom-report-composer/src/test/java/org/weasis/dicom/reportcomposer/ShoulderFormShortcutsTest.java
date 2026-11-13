@@ -59,7 +59,12 @@ class ShoulderFormShortcutsTest {
                   + tendon.phrase()
                   + " tendon at the footprint with moderate background tendinosis. 8 mm AP.",
               ShoulderFindingBuilder.generate(selection).getFirst().findingText());
+          // Without its type, the high-grade tear stands by itself.
           f.press('A');
+          var remaining = f.form.selection().rotatorCuffTears().get(tendon);
+          assertTrue(remaining.types().isEmpty());
+          assertTrue(remaining.highGrade());
+          f.press('H');
           assertTrue(f.form.selection().rotatorCuffTears().isEmpty());
         });
   }
@@ -210,13 +215,19 @@ class ShoulderFormShortcutsTest {
   }
 
   @Test
-  void modifiersRequireTearAndHighGradeRequiresPartialOrInterstitialTear() throws Exception {
+  void modifiersRequireTearAndHighGradeStandsAloneOrWithPartialTear() throws Exception {
     edt(
         () -> {
           Fixture f = new Fixture("Infraspinatus");
-          for (int key : new int[] {'H', 'P', 'G', 'T'}) f.press(key);
+          for (int key : new int[] {'P', 'G', 'T'}) f.press(key);
           assertFalse(f.form.selection().hasFinding());
           assertFalse(f.target().textField().isEnabled());
+          f.press('H');
+          assertEquals(
+              "High-grade tear of the infraspinatus tendon.",
+              ShoulderFindingBuilder.generate(f.form.selection()).getFirst().findingText());
+          assertTrue(f.target().textField().isEnabled());
+          // A full-thickness tear alone has no grade.
           f.press('F');
           f.press('H');
           assertFalse(

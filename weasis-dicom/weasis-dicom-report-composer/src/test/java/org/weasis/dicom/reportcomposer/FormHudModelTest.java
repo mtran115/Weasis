@@ -102,7 +102,8 @@ class FormHudModelTest {
           assertEquals(
               List.of(".", "1", "2", "3", "|", "A", "B", "I", "F", "H", "P", "G", "T"),
               chips.texts);
-          assertFalse(chips.enabled.get("H"));
+          assertTrue(chips.enabled.get("H"));
+          assertFalse(chips.enabled.get("P"));
         });
   }
 

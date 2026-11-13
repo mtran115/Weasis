@@ -44,9 +44,12 @@ final class ShoulderChordEngine implements ChordGrammar {
       On a tendon (4 to 7)
       a b i f     articular, bursal, interstitial,
                     full-thickness tear
-      h           high-grade (partial tears)
+      h           high-grade, alone or with a
+                    partial tear
       p           at footprint
       g           background tendinosis
+      c           cystic changes at the insertion,
+                    related to traction
       t           tear details text
 
       On the labrum (8)
@@ -211,7 +214,7 @@ final class ShoulderChordEngine implements ChordGrammar {
     Degree degree = target.currentDegree();
     if (degree != Degree.NONE) tokens.add("d" + DEGREES.indexOf(degree));
     for (char key :
-        (target.hasTear() ? "abifhpg" : target.isLabrum() ? "aspic" : "").toCharArray()) {
+        (target.hasTear() ? "abifhpgc" : target.isLabrum() ? "aspic" : "").toCharArray()) {
       if (button(String.valueOf(key)).isSelected()) tokens.add(String.valueOf(key));
     }
     return tokens;

@@ -52,6 +52,14 @@ final class ShoulderFindingBuilder {
         addFinding(
             findings, "cuff-tear:" + tendon.name(), cuffTearDescription(tendon, tear, degree));
       }
+      if (selection.insertionalCysts().contains(tendon)) {
+        addFinding(
+            findings,
+            "insertional-cysts:" + tendon.name(),
+            "Cystic changes at the insertion of the "
+                + tendon.phrase()
+                + " tendon, related to traction");
+      }
     }
     if (!selection.labralTearLocations().isEmpty()) {
       String locations =
@@ -76,11 +84,13 @@ final class ShoulderFindingBuilder {
 
   private static String cuffTearDescription(
       RotatorCuffTendon tendon, CuffTearSelection tear, Degree tendinosisDegree) {
+    // High-grade with no type ticked stands by itself.
+    String tears =
+        tear.types().isEmpty()
+            ? "high-grade tear"
+            : joinList(tear.types().stream().map(type -> type.phrase(tear.highGrade())).toList());
     StringBuilder description =
-        new StringBuilder(
-                capitalize(
-                    joinList(
-                        tear.types().stream().map(type -> type.phrase(tear.highGrade())).toList())))
+        new StringBuilder(capitalize(tears))
             .append(" of the ")
             .append(tendon.phrase())
             .append(" tendon");
@@ -241,7 +251,7 @@ final class ShoulderFindingBuilder {
     }
 
     boolean hasFinding() {
-      return !types.isEmpty();
+      return !types.isEmpty() || highGrade;
     }
   }
 
@@ -254,7 +264,31 @@ final class ShoulderFindingBuilder {
       List<LabralLocation> labralTearLocations,
       boolean paralabralCyst,
       Degree longHeadBicepsTenosynovitis,
-      String freeText) {
+      String freeText,
+      List<RotatorCuffTendon> insertionalCysts) {
+
+    Selection(
+        Degree subcoracoidBursitis,
+        Degree subacromialSubdeltoidBursitis,
+        Degree acJointOsteoarthrosis,
+        Map<RotatorCuffTendon, Degree> rotatorCuffTendinosis,
+        Map<RotatorCuffTendon, CuffTearSelection> rotatorCuffTears,
+        List<LabralLocation> labralTearLocations,
+        boolean paralabralCyst,
+        Degree longHeadBicepsTenosynovitis,
+        String freeText) {
+      this(
+          subcoracoidBursitis,
+          subacromialSubdeltoidBursitis,
+          acJointOsteoarthrosis,
+          rotatorCuffTendinosis,
+          rotatorCuffTears,
+          labralTearLocations,
+          paralabralCyst,
+          longHeadBicepsTenosynovitis,
+          freeText,
+          List.of());
+    }
 
     Selection(
         Degree subcoracoidBursitis,
@@ -308,10 +342,14 @@ final class ShoulderFindingBuilder {
       longHeadBicepsTenosynovitis =
           Objects.requireNonNullElse(longHeadBicepsTenosynovitis, Degree.NONE);
       freeText = ComposerText.clean(freeText);
+      List<RotatorCuffTendon> cysts = insertionalCysts == null ? List.of() : insertionalCysts;
+      insertionalCysts =
+          List.of(RotatorCuffTendon.values()).stream().filter(cysts::contains).toList();
     }
 
     boolean hasFinding() {
       return subcoracoidBursitis != Degree.NONE
+          || !insertionalCysts.isEmpty()
           || subacromialSubdeltoidBursitis != Degree.NONE
           || acJointOsteoarthrosis != Degree.NONE
           || !rotatorCuffTendinosis.isEmpty()

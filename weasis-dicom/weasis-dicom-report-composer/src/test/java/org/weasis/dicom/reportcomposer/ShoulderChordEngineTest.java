@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.weasis.dicom.reportcomposer.ChordGrammar.Outcome;
 import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.CuffTearType;
 import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.Degree;
+import org.weasis.dicom.reportcomposer.ShoulderFindingBuilder.RotatorCuffTendon;
 
 class ShoulderChordEngineTest {
   private final ShoulderFormPanel form = new ShoulderFormPanel();
@@ -66,14 +67,17 @@ class ShoulderChordEngineTest {
   @Test
   void rejectedKeysChangeNothing() {
     type("4");
-    // Modifiers need a tear, and high-grade a partial one.
-    assertEquals(Outcome.REJECTED, type("h"));
+    // Footprint and details need a tear; high-grade counts as one by itself.
     assertEquals(Outcome.REJECTED, type("p"));
     assertEquals(Outcome.REJECTED, type("t"));
     assertEquals(Outcome.REJECTED, type("x"));
-    type("f");
-    assertEquals(Outcome.REJECTED, type("h"));
+    assertEquals(Outcome.APPLIED, type("h"));
     assertEquals(Outcome.APPLIED, type("p"));
+    assertEquals(List.of("h", "p"), engine.tokens());
+    // A full-thickness tear alone has no grade.
+    type("f");
+    assertEquals(List.of("p", "f"), engine.tokens());
+    assertEquals(Outcome.REJECTED, type("h"));
 
     assertEquals(Outcome.PENDING, type("d"));
     assertEquals(Outcome.REJECTED, type("7"));
@@ -113,5 +117,24 @@ class ShoulderChordEngineTest {
 
     engine.reset();
     assertEquals("", engine.structureName());
+  }
+
+  @Test
+  void insertionalCystsAreATendonToken() {
+    type("5d4c");
+    assertEquals(List.of(RotatorCuffTendon.INFRASPINATUS), form.selection().insertionalCysts());
+    assertEquals(
+        List.of(
+            "Minimal infraspinatus tendinosis.",
+            "Cystic changes at the insertion of the infraspinatus tendon, related to traction."),
+        ShoulderFindingBuilder.generate(form.selection()).stream()
+            .map(finding -> finding.findingText())
+            .toList());
+    assertEquals("minimal tendinosis, insertional cystic changes", engine.reading());
+
+    engine.backspace();
+    assertTrue(form.selection().insertionalCysts().isEmpty());
+    type("2");
+    assertEquals(Outcome.REJECTED, type("c"));
   }
 }
